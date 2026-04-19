@@ -1,0 +1,30 @@
+# Dependencies
+backend/node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+
+# Environment variables (API keys)
+backend/.env
+
+# Logs
+backend/trade_log.json
+backend/pending_orders.json
+backend/indicator_params.json
+
+# Screenshots (자동 캡처된 진입/청산 PNG)
+ScreenShot/
+
+# Git backup folder (히스토리 리셋 시 안전용)
+.git.bak/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+.claude/
+backend/sr_changes.log
