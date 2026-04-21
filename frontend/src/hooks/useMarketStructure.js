@@ -15,6 +15,7 @@ export function useMarketStructure(candles, params = {}) {
   const scan_from   = params.scan_from   ?? 500;
   const max_display = params.max_display ?? 15;
   const close_only  = params.close_only  ?? true;  // true=봉마감 기준(보수적) / false=꼬리 기준(적극적)
+  const show_bos    = params.show_bos    ?? true;  // false면 CHoCH만 표시
 
   return useMemo(() => {
     if (candles.length < swing_lb * 2 + 1) return [];
@@ -79,6 +80,7 @@ export function useMarketStructure(candles, params = {}) {
       }
     }
 
-    return events.slice(-max_display);
-  }, [candles, swing_lb, scan_from, max_display]);
+    const filtered = show_bos ? events : events.filter(e => e.kind === "CHoCH");
+    return filtered.slice(-max_display);
+  }, [candles, swing_lb, scan_from, max_display, close_only, show_bos]);
 }

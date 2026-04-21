@@ -40,6 +40,7 @@ const PARAMS_META = {
     { key: "disp_threshold", label: "Displacement(×ATR)", min: 0.5, max: 3.0, step: 0.1, fmt: v => v.toFixed(1) + "×" },
     { key: "disp_atr_period", label: "ATR 기간",     min: 5,   max: 50,   step: 1  },
     { key: "displacement_only", label: "Displacement만",  type: "toggle" },
+    { key: "use_wick",          label: "Wick 포함",         type: "toggle" },
   ],
   liq: [
     { key: "swing_lb",      label: "스윙 감지(봉)", min: 2,   max: 15,  step: 1 },
@@ -51,8 +52,9 @@ const PARAMS_META = {
   ms: [
     { key: "swing_lb",    label: "스윙 감지(봉)", min: 1,   max: 10,   step: 1  },
     { key: "scan_from",   label: "스캔 범위(봉)", min: 100, max: 1000, step: 50 },
-    { key: "max_display", label: "최대 표시",     min: 3,   max: 30,   step: 1  },
+    { key: "max_display", label: "최대 표시",     min: 2,   max: 30,   step: 1  },
     { key: "close_only",  label: "봉마감 기준",   type: "toggle" },
+    { key: "show_bos",    label: "BOS 표시",      type: "toggle" },
   ],
   pd: [
     { key: "swing_lb", label: "스윙 감지(봉)", min: 2,  max: 15,  step: 1  },

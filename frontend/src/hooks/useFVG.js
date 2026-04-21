@@ -15,7 +15,7 @@ export function useFVG(candles, params = {}) {
   const lookback          = params.lookback          ?? 400;
   const max_display       = params.max_display       ?? 20;
   const mitigation_pct    = params.mitigation_pct    ?? 50;
-  const disp_threshold    = params.disp_threshold    ?? 1.5;   // 중간 캔들 body가 ATR의 N배 이상이면 displacement
+  const disp_threshold    = params.disp_threshold    ?? 1.8;   // 중간 캔들 body가 ATR의 N배 이상이면 displacement
   const disp_atr_period   = params.disp_atr_period   ?? 14;
   const displacement_only = params.displacement_only ?? false;
 

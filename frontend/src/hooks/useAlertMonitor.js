@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BN_PUBLIC } from "../constants";
 
-const RSI_PERIOD  = 14;
 const ALL_TF      = ["5m", "15m", "1h", "4h", "1d", "1w"];
 const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시간", "1d": "1일", "1w": "1주" };
 // 타임프레임별 봉 길이(초) — 알람 쿨다운 기준
@@ -9,45 +8,45 @@ const TF_SECS     = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 8640
 
 // ── RSI 유틸 ──────────────────────────────────────────────────────────────────
 
-function buildRSIState(candles) {
-  if (candles.length < RSI_PERIOD + 1) return null;
+function buildRSIState(candles, period) {
+  if (candles.length < period + 1) return null;
   const cl = candles.map(c => c.c);
   let ag = 0, al = 0;
-  for (let i = 1; i <= RSI_PERIOD; i++) {
+  for (let i = 1; i <= period; i++) {
     const d = cl[i] - cl[i - 1];
     if (d > 0) ag += d; else al -= d;
   }
-  ag /= RSI_PERIOD; al /= RSI_PERIOD;
-  for (let i = RSI_PERIOD + 1; i < cl.length; i++) {
+  ag /= period; al /= period;
+  for (let i = period + 1; i < cl.length; i++) {
     const d = cl[i] - cl[i - 1];
-    ag = (ag * (RSI_PERIOD - 1) + Math.max(d, 0)) / RSI_PERIOD;
-    al = (al * (RSI_PERIOD - 1) + Math.max(-d, 0)) / RSI_PERIOD;
+    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
+    al = (al * (period - 1) + Math.max(-d, 0)) / period;
   }
   return { ag, al, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) };
 }
 
-function tickRSI(state, prevClose, currClose) {
+function tickRSI(state, prevClose, currClose, period) {
   if (!state) return null;
   const d  = currClose - prevClose;
-  const ag = (state.ag * (RSI_PERIOD - 1) + Math.max(d, 0)) / RSI_PERIOD;
-  const al = (state.al * (RSI_PERIOD - 1) + Math.max(-d, 0)) / RSI_PERIOD;
+  const ag = (state.ag * (period - 1) + Math.max(d, 0)) / period;
+  const al = (state.al * (period - 1) + Math.max(-d, 0)) / period;
   return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
 }
 
-function buildRSIArray(candles) {
-  if (candles.length < RSI_PERIOD + 1) return [];
+function buildRSIArray(candles, period) {
+  if (candles.length < period + 1) return [];
   const cl = candles.map(c => c.c);
   let ag = 0, al = 0;
-  for (let i = 1; i <= RSI_PERIOD; i++) {
+  for (let i = 1; i <= period; i++) {
     const d = cl[i] - cl[i - 1];
     if (d > 0) ag += d; else al -= d;
   }
-  ag /= RSI_PERIOD; al /= RSI_PERIOD;
-  const data = [{ t: candles[RSI_PERIOD].t, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) }];
-  for (let i = RSI_PERIOD + 1; i < cl.length; i++) {
+  ag /= period; al /= period;
+  const data = [{ t: candles[period].t, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) }];
+  for (let i = period + 1; i < cl.length; i++) {
     const d = cl[i] - cl[i - 1];
-    ag = (ag * (RSI_PERIOD - 1) + Math.max(d, 0)) / RSI_PERIOD;
-    al = (al * (RSI_PERIOD - 1) + Math.max(-d, 0)) / RSI_PERIOD;
+    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
+    al = (al * (period - 1) + Math.max(-d, 0)) / period;
     data.push({ t: candles[i].t, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) });
   }
   return data;
@@ -80,9 +79,9 @@ function findTroughs(data, lb) {
 }
 
 // t1/r1/t2/r2 포함 — 차트 렌더링에 사용
-function detectDivs(candles, peakLb, scan) {
+function detectDivs(candles, peakLb, scan, period) {
   const slice  = candles.slice(-scan);
-  const rsiArr = buildRSIArray(slice);
+  const rsiArr = buildRSIArray(slice, period);
   if (rsiArr.length < 20) return [];
 
   const cMap = new Map();
@@ -135,10 +134,11 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
       if (!st) return;
       st.candles = d.map(k => ({ t: new Date(k[0]), o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
       const closed_ = st.candles.slice(0, -1);
-      st.rsiState = buildRSIState(closed_);
+      const period0 = rsiParamsRef.current.period ?? 14;
+      st.rsiState = buildRSIState(closed_, period0);
       st.prevRSI  = st.rsiState?.rsi ?? null;
       const dp = divParamsRef.current;
-      const divs = detectDivs(closed_, dp.peak_lb ?? 5, dp.scan_candles ?? 300);
+      const divs = detectDivs(closed_, dp.peak_lb ?? 5, dp.scan_candles ?? 300, period0);
       st.lastDivKeys = new Set(divs.map(d => d.key));
       onDivUpdate(tf, divs.slice(0, dp.max_show ?? 10));
     })
@@ -166,14 +166,15 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
         if (arr.length > 350) arr.shift();
 
         const closed_ = arr.slice(0, -1);
-        st.rsiState = buildRSIState(closed_);
+        const rp        = rsiParamsRef.current;
+        const period    = rp.period     ?? 14;
+        const obThr     = rp.overbought ?? 70;
+        const osThr     = rp.oversold   ?? 30;
+        st.rsiState = buildRSIState(closed_, period);
         st.prevRSI  = st.rsiState?.rsi ?? null;
 
         // 봉 마감 RSI 기준으로 inOB/inOS 재평가
         // → 마감 RSI가 이미 과매수 이상이면 새 봉에서 재알람 방지
-        const rp        = rsiParamsRef.current;
-        const obThr     = rp.overbought ?? 70;
-        const osThr     = rp.oversold   ?? 30;
         const closedRSI = st.rsiState?.rsi ?? null;
         if (closedRSI !== null) {
           if      (closedRSI >= obThr)      st.inOB = true;
@@ -190,7 +191,7 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
         // 다이버전스 (봉 마감 시에만 체크) — detectDivs 1회만 호출
         {
           const dp      = divParamsRef.current;
-          const divs    = detectDivs(closed_, dp.peak_lb ?? 5, dp.scan_candles ?? 300);
+          const divs    = detectDivs(closed_, dp.peak_lb ?? 5, dp.scan_candles ?? 300, period);
           const newKeys = new Set(divs.map(d => d.key));
           if (s.div || s.hiddenDiv) {
             for (const div of divs) {
@@ -217,10 +218,11 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
       // RSI 과매수/과매도 (매 틱, 히스테리시스: 진입 obThr/osThr, 복귀 (obThr-5)/(osThr+5) + 쿨다운)
       if ((s.rsiOB || s.rsiOS) && st.rsiState && arr.length >= 2) {
         const rp_        = rsiParamsRef.current;
+        const period_    = rp_.period     ?? 14;
         const obThr_     = rp_.overbought ?? 70;
         const osThr_     = rp_.oversold   ?? 30;
         const prevClose  = arr[arr.length - 2].c;
-        const currRSI    = tickRSI(st.rsiState, prevClose, candle.c);
+        const currRSI    = tickRSI(st.rsiState, prevClose, candle.c, period_);
         const cooldownMs = (TF_SECS[tf] ?? 300) * 1000;
         const now        = Date.now();
         if (currRSI !== null) {
@@ -287,18 +289,22 @@ export function useAlertMonitor(settings, onAlert, divParams = {}, rsiParams = {
     };
   }, []); // 마운트/언마운트 시에만 — settings는 ref로 항상 최신값 참조
 
-  // divParams 변경 시 즉시 재계산
+  // divParams 또는 rsiParams.period 변경 시 즉시 재계산
+  // period가 바뀌면 rsiState도 새 기간으로 재빌드 (틱 RSI 연속성 유지)
   useEffect(() => {
     const { peak_lb = 5, scan_candles = 300, max_show = 10 } = divParams;
+    const period = rsiParams.period ?? 14;
     ALL_TF.forEach(tf => {
       const st = stateRef.current[tf];
       if (!st?.candles.length) return;
       const closed_ = st.candles.slice(0, -1);
-      const divs = detectDivs(closed_, peak_lb, scan_candles);
+      st.rsiState = buildRSIState(closed_, period);
+      st.prevRSI  = st.rsiState?.rsi ?? null;
+      const divs = detectDivs(closed_, peak_lb, scan_candles, period);
       st.lastDivKeys = new Set(divs.map(d => d.key));
       setDivsByTF(prev => ({ ...prev, [tf]: divs.slice(0, max_show) }));
     });
-  }, [divParams.peak_lb, divParams.scan_candles, divParams.max_show]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [divParams.peak_lb, divParams.scan_candles, divParams.max_show, rsiParams.period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { divsByTF };
 }

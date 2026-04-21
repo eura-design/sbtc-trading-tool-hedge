@@ -25,15 +25,16 @@ function avgRange(candles, endIdx, period) {
 }
 
 export function useOrderBlock(candles, params = {}) {
-  const swing_lb          = params.swing_lb          ?? 3;
+  const swing_lb          = params.swing_lb          ?? 5;
   const bos_window        = params.bos_window        ?? 30;
   const ob_lookback       = params.ob_lookback       ?? 20;
   const max_display       = params.max_display       ?? 15;
   const scan_from         = params.scan_from         ?? 500;
   const mitigation_pct    = params.mitigation_pct    ?? 50;
-  const disp_threshold    = params.disp_threshold    ?? 1.5;
+  const disp_threshold    = params.disp_threshold    ?? 1.8;
   const disp_atr_period   = params.disp_atr_period   ?? 14;
   const displacement_only = params.displacement_only ?? false;
+  const use_wick          = params.use_wick          ?? false;   // true=고저(wick) 포함 / false=body만
 
   return useMemo(() => {
     if (candles.length < 20) return [];
@@ -74,9 +75,10 @@ export function useOrderBlock(candles, params = {}) {
           const rng  = c.h - c.l;
           const dispRatio = atr > 0 ? body / atr : 0;
           const dirClose  = rng > 0 && (c.h - c.c) / rng <= 0.25; // 상위 25% 마감
+          const top    = use_wick ? ob.h : Math.max(ob.o, ob.c);
+          const bottom = use_wick ? ob.l : Math.min(ob.o, ob.c);
           obs.push({
-            type: "bull",
-            top: Math.max(ob.o, ob.c), bottom: Math.min(ob.o, ob.c),
+            type: "bull", top, bottom,
             idx: scanStart + obIdx, startIdx: absI,
             displacement: dispRatio >= disp_threshold && dirClose, dispRatio,
           });
@@ -103,9 +105,10 @@ export function useOrderBlock(candles, params = {}) {
           const rng  = c.h - c.l;
           const dispRatio = atr > 0 ? body / atr : 0;
           const dirClose  = rng > 0 && (c.c - c.l) / rng <= 0.25; // 하위 25% 마감
+          const top    = use_wick ? ob.h : Math.max(ob.o, ob.c);
+          const bottom = use_wick ? ob.l : Math.min(ob.o, ob.c);
           obs.push({
-            type: "bear",
-            top: Math.max(ob.o, ob.c), bottom: Math.min(ob.o, ob.c),
+            type: "bear", top, bottom,
             idx: scanStart + obIdx, startIdx: absI,
             displacement: dispRatio >= disp_threshold && dirClose, dispRatio,
           });
@@ -130,5 +133,5 @@ export function useOrderBlock(candles, params = {}) {
 
     const filtered = displacement_only ? alive.filter(o => o.displacement) : alive;
     return filtered.slice(-max_display);
-  }, [candles, swing_lb, bos_window, ob_lookback, max_display, scan_from, mitigation_pct, disp_threshold, disp_atr_period, displacement_only]);
+  }, [candles, swing_lb, bos_window, ob_lookback, max_display, scan_from, mitigation_pct, disp_threshold, disp_atr_period, displacement_only, use_wick]);
 }
