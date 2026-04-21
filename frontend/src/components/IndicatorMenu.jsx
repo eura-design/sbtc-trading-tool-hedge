@@ -9,6 +9,9 @@ export const INDICATORS = [
   { key: "sr",  label: "S/R Levels" },
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
+  { key: "liq", label: "Liquidity (EQH/EQL)" },
+  { key: "ms",  label: "Market Structure" },
+  { key: "pd",  label: "Premium / Discount" },
   { key: "ema", label: "EMA" },
 ];
 
@@ -23,6 +26,9 @@ const PARAMS_META = {
     { key: "lookback",       label: "탐색 범위(봉)", min: 50,  max: 1000, step: 10 },
     { key: "max_display",    label: "최대 표시",     min: 5,   max: 50,   step: 1  },
     { key: "mitigation_pct", label: "미티게이션(%)", min: 0,   max: 100,  step: 5  },
+    { key: "disp_threshold", label: "Displacement(×ATR)", min: 0.5, max: 3.0, step: 0.1, fmt: v => v.toFixed(1) + "×" },
+    { key: "disp_atr_period", label: "ATR 기간",     min: 5,   max: 50,   step: 1  },
+    { key: "displacement_only", label: "Displacement만",  type: "toggle" },
   ],
   ob: [
     { key: "swing_lb",       label: "스윙 감지(봉)",  min: 1,   max: 10,   step: 1  },
@@ -31,6 +37,26 @@ const PARAMS_META = {
     { key: "scan_from",      label: "스캔 범위(봉)",  min: 100, max: 1000, step: 50 },
     { key: "mitigation_pct", label: "미티게이션(%)", min: 0,   max: 100,  step: 5  },
     { key: "max_display",    label: "최대 표시",      min: 5,   max: 30,   step: 1  },
+    { key: "disp_threshold", label: "Displacement(×ATR)", min: 0.5, max: 3.0, step: 0.1, fmt: v => v.toFixed(1) + "×" },
+    { key: "disp_atr_period", label: "ATR 기간",     min: 5,   max: 50,   step: 1  },
+    { key: "displacement_only", label: "Displacement만",  type: "toggle" },
+  ],
+  liq: [
+    { key: "swing_lb",      label: "스윙 감지(봉)", min: 2,   max: 15,  step: 1 },
+    { key: "tolerance_pct", label: "동일성 허용(%)", min: 0.02, max: 1.0, step: 0.02, fmt: v => v.toFixed(2) + "%" },
+    { key: "min_touches",   label: "최소 터치수",    min: 2,    max: 5,    step: 1 },
+    { key: "scan_from",     label: "스캔 범위(봉)",  min: 100,  max: 1000, step: 50 },
+    { key: "max_display",   label: "최대 표시",      min: 3,    max: 30,   step: 1 },
+  ],
+  ms: [
+    { key: "swing_lb",    label: "스윙 감지(봉)", min: 1,   max: 10,   step: 1  },
+    { key: "scan_from",   label: "스캔 범위(봉)", min: 100, max: 1000, step: 50 },
+    { key: "max_display", label: "최대 표시",     min: 3,   max: 30,   step: 1  },
+    { key: "close_only",  label: "봉마감 기준",   type: "toggle" },
+  ],
+  pd: [
+    { key: "swing_lb", label: "스윙 감지(봉)", min: 2,  max: 15,  step: 1  },
+    { key: "lookback", label: "range 탐색(봉)", min: 50, max: 500, step: 10 },
   ],
   div: [
     { key: "peak_lb",      label: "피크 감지(봉)", min: 2,  max: 15,  step: 1  },
@@ -48,6 +74,29 @@ const PARAMS_META = {
 };
 
 function ParamSlider({ meta, value, onChange, theme }) {
+  if (meta.type === "toggle") {
+    const on = !!value;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+        <span style={{ fontSize: 11, color: theme.textSec, width: 100, flexShrink: 0 }}>
+          {meta.label}
+        </span>
+        <button
+          onClick={() => onChange(!on)}
+          style={{
+            flex: 1, padding: "3px 0", borderRadius: 3, cursor: "pointer",
+            fontSize: 11, fontFamily: "inherit", fontWeight: on ? 700 : 400,
+            background: on ? "#c084fc" : "transparent",
+            border: `1px solid ${on ? "#c084fc" : theme.borderSec}`,
+            color: on ? "#000" : theme.textMuted,
+            transition: "all 0.15s",
+          }}
+        >
+          {on ? "ON" : "OFF"}
+        </button>
+      </div>
+    );
+  }
   const fmt = meta.fmt ?? (v => String(v));
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>

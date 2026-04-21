@@ -14,13 +14,26 @@ function detectSwings(candles, swingLb) {
   return { highs, lows };
 }
 
+function avgRange(candles, endIdx, period) {
+  const start = Math.max(0, endIdx - period);
+  let sum = 0, cnt = 0;
+  for (let i = start; i < endIdx; i++) {
+    sum += candles[i].h - candles[i].l;
+    cnt++;
+  }
+  return cnt > 0 ? sum / cnt : 0;
+}
+
 export function useOrderBlock(candles, params = {}) {
-  const swing_lb       = params.swing_lb       ?? 3;
-  const bos_window     = params.bos_window     ?? 30;
-  const ob_lookback    = params.ob_lookback    ?? 20;
-  const max_display    = params.max_display    ?? 15;
-  const scan_from      = params.scan_from      ?? 500;
-  const mitigation_pct = params.mitigation_pct ?? 50;
+  const swing_lb          = params.swing_lb          ?? 3;
+  const bos_window        = params.bos_window        ?? 30;
+  const ob_lookback       = params.ob_lookback       ?? 20;
+  const max_display       = params.max_display       ?? 15;
+  const scan_from         = params.scan_from         ?? 500;
+  const mitigation_pct    = params.mitigation_pct    ?? 50;
+  const disp_threshold    = params.disp_threshold    ?? 1.5;
+  const disp_atr_period   = params.disp_atr_period   ?? 14;
+  const displacement_only = params.displacement_only ?? false;
 
   return useMemo(() => {
     if (candles.length < 20) return [];
@@ -54,7 +67,19 @@ export function useOrderBlock(candles, params = {}) {
           }
           if (obIdx < 0) break;
           const ob = scanSlice[obIdx];
-          obs.push({ type: "bull", top: Math.max(ob.o, ob.c), bottom: Math.min(ob.o, ob.c), idx: scanStart + obIdx, startIdx: scanStart + i });
+          // Displacement: BOS 캔들 body/ATR + 방향성 마감
+          const absI = scanStart + i;
+          const atr  = avgRange(candles, absI, disp_atr_period);
+          const body = Math.abs(c.c - c.o);
+          const rng  = c.h - c.l;
+          const dispRatio = atr > 0 ? body / atr : 0;
+          const dirClose  = rng > 0 && (c.h - c.c) / rng <= 0.25; // 상위 25% 마감
+          obs.push({
+            type: "bull",
+            top: Math.max(ob.o, ob.c), bottom: Math.min(ob.o, ob.c),
+            idx: scanStart + obIdx, startIdx: absI,
+            displacement: dispRatio >= disp_threshold && dirClose, dispRatio,
+          });
           break;
         }
       }
@@ -72,7 +97,18 @@ export function useOrderBlock(candles, params = {}) {
           }
           if (obIdx < 0) break;
           const ob = scanSlice[obIdx];
-          obs.push({ type: "bear", top: Math.max(ob.o, ob.c), bottom: Math.min(ob.o, ob.c), idx: scanStart + obIdx, startIdx: scanStart + i });
+          const absI = scanStart + i;
+          const atr  = avgRange(candles, absI, disp_atr_period);
+          const body = Math.abs(c.c - c.o);
+          const rng  = c.h - c.l;
+          const dispRatio = atr > 0 ? body / atr : 0;
+          const dirClose  = rng > 0 && (c.c - c.l) / rng <= 0.25; // 하위 25% 마감
+          obs.push({
+            type: "bear",
+            top: Math.max(ob.o, ob.c), bottom: Math.min(ob.o, ob.c),
+            idx: scanStart + obIdx, startIdx: absI,
+            displacement: dispRatio >= disp_threshold && dirClose, dispRatio,
+          });
           break;
         }
       }
@@ -80,7 +116,7 @@ export function useOrderBlock(candles, params = {}) {
 
     // 미티게이션: bull은 위에서 아래로, bear는 아래에서 위로 소비
     const mitFrac = mitigation_pct / 100;
-    return obs.filter(ob => {
+    const alive = obs.filter(ob => {
       const threshold = ob.type === "bull"
         ? ob.top    - (ob.top - ob.bottom) * mitFrac
         : ob.bottom + (ob.top - ob.bottom) * mitFrac;
@@ -90,6 +126,9 @@ export function useOrderBlock(candles, params = {}) {
         if (ob.type === "bear" && c.h >= threshold) return false;
       }
       return true;
-    }).slice(-max_display);
-  }, [candles, swing_lb, bos_window, ob_lookback, max_display, scan_from, mitigation_pct]);
+    });
+
+    const filtered = displacement_only ? alive.filter(o => o.displacement) : alive;
+    return filtered.slice(-max_display);
+  }, [candles, swing_lb, bos_window, ob_lookback, max_display, scan_from, mitigation_pct, disp_threshold, disp_atr_period, displacement_only]);
 }

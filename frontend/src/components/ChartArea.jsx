@@ -18,8 +18,10 @@ export function ChartArea({
   candles, candlesRef, candleLoading, onTickRef, interval_, isDark, isLog,
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, srData: srLevels,
+  liqData, msData, pdData,
   // 지표 표시 여부
   showRsi, showSR, showOB, showFVG, showVol, showEMA, showDiv,
+  showLiq, showMS, showPD,
   // 지표 파라미터
   indicatorParams,
   // 다이버전스
@@ -117,6 +119,7 @@ export function ChartArea({
   const overlaysRef = useRef({});
   overlaysRef.current = {
     fvgData, showFVG, obData, showOB, srLevels, showSR, emaData, showEMA,
+    liqData, showLiq, msData, showMS, pdData, showPD,
     showVol, volH: effectiveVolH, volColorMode: indicatorParams.vol?.colorMode ?? "neutral",
     rsiData, showRsi, rsiH: effectiveRsiH, rsiParams: indicatorParams.rsi,
   };
@@ -137,7 +140,7 @@ export function ChartArea({
   // ── 오버레이 변경 시 캔버스 재렌더 ────────────────────────────────────────
   // candles.length 가드: 타임프레임 전환 중 candles=[] 상태에서 forceUpdate가 불려
   // scales=null이 되면 SVG 오버레이가 순간 사라지는 들썩임이 발생하므로 방지
-  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, liqData, showLiq, msData, showMS, pdData, showPD]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { redrawVolume(); }, [showVol, effectiveVolH, indicatorParams.vol?.colorMode]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (candles.length) redrawRSI(); }, [rsiData, showRsi, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
 

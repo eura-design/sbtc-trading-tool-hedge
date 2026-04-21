@@ -17,13 +17,15 @@ export function renderFVG(ctx, fvgData, xScale, yScale, IW, IH) {
       const yBot = yScale(gap.bottom);
       const h    = Math.max(yBot - yTop, 2);
 
-      ctx.globalAlpha = 0.15;
+      // displacement: 진하게, 일반 FVG: 옅게
+      const isDisp = gap.displacement;
+      ctx.globalAlpha = isDisp ? 0.22 : 0.10;
       ctx.fillStyle   = CANVAS_C.NEUTRAL;
       ctx.fillRect(x1, yTop, IW - x1, h);
 
-      ctx.globalAlpha = 0.55;
+      ctx.globalAlpha = isDisp ? 0.8 : 0.4;
       ctx.fillStyle   = CANVAS_C.NEUTRAL;
-      ctx.fillText("FVG", x1 + 3, yTop + 9);
+      ctx.fillText(isDisp ? "FVG★" : "FVG", x1 + 3, yTop + 9);
     }
   });
 }
@@ -43,13 +45,14 @@ export function renderOrderBlock(ctx, obData, xScale, yScale, IW, IH) {
       const yBot  = yScale(ob.bottom);
       const h     = Math.max(yBot - yTop, 2);
 
-      ctx.globalAlpha = 0.15;
+      const isDisp = ob.displacement;
+      ctx.globalAlpha = isDisp ? 0.22 : 0.10;
       ctx.fillStyle   = color;
       ctx.fillRect(x1, yTop, IW - x1, h);
 
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = isDisp ? 0.85 : 0.45;
       ctx.fillStyle   = color;
-      ctx.fillText("OB", x1 + 3, yTop + 9);
+      ctx.fillText(isDisp ? "OB★" : "OB", x1 + 3, yTop + 9);
     }
   });
 }
@@ -139,5 +142,171 @@ export function renderEMA(ctx, emaDataList, xScale, yScale, IW, IH) {
         ctx.fillText(`EMA${ema.period}`, IW - 2, y - 7);
       }
     }
+  });
+}
+
+// ── Liquidity (Equal H/L + 스윕) ─────────────────────────────────────────────
+// status:
+//   'live'   — 살아있는 유동성 (bright, dashed)
+//   'swept'  — ICT 스톱헌트 완료 (중요 신호: X 마커 + label에 ✕)
+//   'broken' — 단순 추세 돌파 (매우 흐리게, 참고용)
+export function renderLiquidity(ctx, liqData, xScale, yScale, IW, IH) {
+  if (!liqData?.length) return;
+  withClip(ctx, M.left, M.top, IW, IH, () => {
+    ctx.font = "600 9px 'JetBrains Mono','Fira Code','Courier New',monospace";
+    ctx.textBaseline = "middle";
+    const [iMin, iMax] = xScale.domain();
+
+    for (const lq of liqData) {
+      const y = yScale(lq.price);
+      if (y < -5 || y > IH + 5) continue;
+      const x0 = Math.max(0, xScale(Math.max(iMin, lq.startIdx)));
+      const endI = lq.status !== "live" && lq.sweptIdx >= 0 ? lq.sweptIdx : Math.min(iMax, Math.ceil(iMax));
+      const x1 = Math.min(IW, xScale(endI));
+      if (x1 <= x0) continue;
+
+      const color = lq.type === "EQH" ? CANVAS_C.BEAR_DARK : CANVAS_C.BULL_DARK;
+
+      // 스타일 분기
+      let lineW, alpha, dash, labelAlpha;
+      if (lq.status === "live") {
+        lineW = 1.5;  alpha = 0.85; dash = [6, 3]; labelAlpha = 1;
+      } else if (lq.status === "swept") {
+        lineW = 1.2;  alpha = 0.7;  dash = [2, 3]; labelAlpha = 0.9;
+      } else { // broken
+        lineW = 0.8;  alpha = 0.2;  dash = [1, 6]; labelAlpha = 0.35;
+      }
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = lineW;
+      ctx.globalAlpha = alpha;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 라벨
+      ctx.globalAlpha = labelAlpha;
+      ctx.fillStyle   = color;
+      ctx.textAlign   = "left";
+      const label = lq.status === "live"   ? `${lq.type}(${lq.touches})`
+                  : lq.status === "swept"  ? `✕${lq.type}`
+                  :                          `—${lq.type}`;
+      ctx.fillText(label, x0 + 4, y - 7);
+
+      // 스윕 마커 (swept 전용, broken은 생략 — 매매 의미 없음)
+      if (lq.status === "swept" && lq.sweptIdx >= iMin - 1 && lq.sweptIdx <= iMax + 1) {
+        const sx = xScale(lq.sweptIdx);
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(sx, y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        // 내부에 흰 점 (강조)
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(sx, y, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  });
+}
+
+// ── Market Structure (BOS/CHoCH) ────────────────────────────────────────────
+export function renderMarketStructure(ctx, msData, xScale, yScale, IW, IH) {
+  if (!msData?.length) return;
+  withClip(ctx, M.left, M.top, IW, IH, () => {
+    ctx.font = "700 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
+    ctx.textBaseline = "alphabetic";
+    const [iMin, iMax] = xScale.domain();
+
+    for (const ev of msData) {
+      if (ev.atIdx < iMin - 1 || ev.brokenIdx > iMax + 1) continue;
+      const x0 = Math.max(0, xScale(ev.brokenIdx));
+      const x1 = Math.min(IW, xScale(ev.atIdx));
+      const y  = yScale(ev.brokenPrice);
+      if (x1 <= x0) continue;
+
+      const isBull  = ev.dir === "bull";
+      const isChoch = ev.kind === "CHoCH";
+      // BOS: 방향색 / CHoCH: 방향색 동일하되 실선+굵기로 BOS와 구분
+      const color = isBull ? CANVAS_C.BULL_DARK : CANVAS_C.BEAR_DARK;
+
+      // 돌파된 스윙 레벨선
+      ctx.strokeStyle = color;
+      ctx.lineWidth = isChoch ? 1.5 : 1;
+      ctx.globalAlpha = 0.8;
+      ctx.setLineDash(isChoch ? [] : [4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 라벨
+      ctx.globalAlpha = 1;
+      ctx.fillStyle   = color;
+      ctx.textAlign   = "center";
+      const tx = (x0 + x1) / 2;
+      const ty = isBull ? y - 4 : y + 12;
+      ctx.fillText(ev.kind, tx, ty);
+    }
+  });
+}
+
+// ── Premium / Discount Zone ──────────────────────────────────────────────────
+export function renderPremiumDiscount(ctx, pdData, xScale, yScale, IW, IH) {
+  if (!pdData) return;
+  withClip(ctx, M.left, M.top, IW, IH, () => {
+    ctx.font = "700 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
+    ctx.textBaseline = "middle";
+    const [iMin, iMax] = xScale.domain();
+
+    const x0 = Math.max(0, xScale(Math.max(iMin, pdData.startIdx)));
+    const x1 = Math.min(IW, xScale(iMax));
+    if (x1 <= x0) return;
+
+    const yHi  = yScale(pdData.high);
+    const yMid = yScale(pdData.mid);
+    const yLo  = yScale(pdData.low);
+
+    // Premium 영역 (상단 = 빨강 틴트)
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle   = CANVAS_C.BEAR_DARK;
+    ctx.fillRect(x0, yHi, x1 - x0, yMid - yHi);
+
+    // Discount 영역 (하단 = 초록 틴트)
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle   = CANVAS_C.BULL_DARK;
+    ctx.fillRect(x0, yMid, x1 - x0, yLo - yMid);
+
+    // 경계선 3개
+    const drawLine = (y, color, dash) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.6;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    drawLine(yHi,  CANVAS_C.BEAR_DARK, [4, 3]);
+    drawLine(yMid, "#c084fc",           []);         // Equilibrium 실선
+    drawLine(yLo,  CANVAS_C.BULL_DARK, [4, 3]);
+
+    // 라벨 (우측)
+    ctx.textAlign = "right";
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = CANVAS_C.BEAR_DARK;
+    ctx.fillText("Premium",  x1 - 4, yHi + 10);
+    ctx.fillStyle = "#c084fc";
+    ctx.fillText("EQ 50%",   x1 - 4, yMid - 7);
+    ctx.fillStyle = CANVAS_C.BULL_DARK;
+    ctx.fillText("Discount", x1 - 4, yLo - 6);
   });
 }
