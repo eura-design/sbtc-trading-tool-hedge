@@ -22,12 +22,19 @@ router.get("/", async (req, res) => {
     };
 
     // SPLIT_TP: store에 있는데 바이낸스에 없으면 이미 체결/취소됨 → store 정리
-    const openIds = new Set(regular.map(o => String(o.orderId)));
-    for (const [orderId, info] of store.entries()) {
-      if (info.status === "SPLIT_TP" && !openIds.has(String(orderId))) {
-        console.log(`[TPSL] SPLIT_TP ${orderId}이 바이낸스에 없음 → 제거`);
-        store.delete(orderId);
+    // 단, openOrders 조회 실패 시엔 정리 스킵 — 빈 배열을 "없음"으로 오판하면
+    // 살아있는 SPLIT_TP가 지워져 position.js에서 external 주문으로 오인됨
+    if (regularRes.status === "fulfilled") {
+      const openIds = new Set(regular.map(o => String(o.orderId)));
+      for (const [orderId, info] of store.entries()) {
+        if (info.status === "SPLIT_TP" && !openIds.has(String(orderId))) {
+          console.log(`[TPSL] SPLIT_TP ${orderId}이 바이낸스에 없음 → 제거`);
+          store.delete(orderId);
+        }
       }
+    } else {
+      console.warn("[TPSL] openOrders 조회 실패 → SPLIT_TP 정리 스킵:",
+        regularRes.reason?.response?.data?.msg || regularRes.reason?.message);
     }
 
     const splitTps = regular

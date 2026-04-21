@@ -217,10 +217,14 @@ async function reconcileWithBinance() {
             store.delete(orderId);
             push.pushUpdate(["position", "balance", "tpsl"]);
           }
-        } else {
+        } else if (data.status === "CANCELED" || data.status === "EXPIRED" || data.status === "REJECTED") {
           console.log(`[RECONCILE] 주문 ${orderId} 상태: ${data.status} → store 제거`);
           store.delete(orderId);
           push.pushUpdate(["position"]);
+        } else {
+          // NEW / PARTIALLY_FILLED 등 아직 살아있는 상태 — openOrders 응답 지연일 뿐
+          // (실수로 지우면 position.js에서 external 주문으로 오인됨)
+          console.log(`[RECONCILE] 주문 ${orderId} 상태: ${data.status} → 유지 (openOrders 응답 지연)`);
         }
       } catch (e) {
         console.warn(`[RECONCILE] orderId=${orderId} 조회 실패:`, e.response?.data?.msg || e.message);
