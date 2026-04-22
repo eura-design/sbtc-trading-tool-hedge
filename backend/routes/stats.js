@@ -17,6 +17,10 @@ router.get("/", async (req, res) => {
       return res.json(cache);
     }
 
+    if (startTime && startTime > now) {
+      return res.json({ totalComm: 0, totalFunding: 0, netPnl: 0 });
+    }
+
     const params = { symbol: "BTCUSDT", limit: 1000 };
     if (startTime) { params.startTime = startTime; params.endTime = now; }
 
