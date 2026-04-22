@@ -146,7 +146,7 @@ export function SidebarPanel({ lastPrice, openConfirm, onCancelOrder, onClosePos
         {/* 주문 설정 */}
         <SectionTitle>설정</SectionTitle>
         <div style={{ marginBottom:"6px" }}>
-          <Slider label="리스크 %" value={riskPct} min={0.1} max={3} step={0.1}
+          <Slider label="리스크 %" value={riskPct} min={0.5} max={3} step={0.1}
             onChange={setRiskPct} format={v => `${v}%`}
             color={riskPct<=1?"#0ecb81":riskPct<=2?"#f0b90b":"#f6465d"} />
           <div style={{ height:"8px" }} />

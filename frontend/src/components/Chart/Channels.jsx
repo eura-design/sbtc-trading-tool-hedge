@@ -44,20 +44,6 @@ export const Channels = memo(function Channels({
 
         return (
           <g key={ch.id}>
-            {/* 알림 글로우 */}
-            {(alert || selected) && (
-              <polygon
-                points={`${a1.x},${a1.y} ${b1.x},${b1.y} ${b2.x},${b2.y} ${a2.x},${a2.y}`}
-                fill={color} opacity={0.08}
-              />
-            )}
-            {/* 채우기 영역 */}
-            {!alert && !selected && (
-              <polygon
-                points={`${a1.x},${a1.y} ${b1.x},${b1.y} ${b2.x},${b2.y} ${a2.x},${a2.y}`}
-                fill={color} opacity={0.03}
-              />
-            )}
             {/* 메인 라인 */}
             <line x1={a1.x} y1={a1.y} x2={b1.x} y2={b1.y}
               stroke={color} strokeWidth={sw} opacity={opacity}
@@ -104,8 +90,6 @@ export const Channels = memo(function Channels({
         const b2 = toXY(t2, applyOffset(p2, offset));
         return (
           <g>
-            <polygon points={`${a1.x},${a1.y} ${b1.x},${b1.y} ${b2.x},${b2.y} ${a2.x},${a2.y}`}
-              fill={CHANNEL_COLOR} opacity={0.03} />
             <line x1={a1.x} y1={a1.y} x2={b1.x} y2={b1.y}
               stroke={CHANNEL_COLOR} strokeWidth={1} opacity={0.7} />
             <line x1={a2.x} y1={a2.y} x2={b2.x} y2={b2.y}

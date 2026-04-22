@@ -10,7 +10,7 @@ export function MarketInfoCard() {
       padding:"4px 0", borderBottom:`1px solid ${theme.border}` }}>
       <span style={{ fontSize:"12px", color:theme.textMuted }}>
         {label}
-        {sub && <span style={{ color:theme.textFaint, fontSize:"11px", marginLeft:"4px" }}>{sub}</span>}
+        {sub && <span style={{ color:"#94a3b8", fontSize:"15px", marginLeft:"4px" }}>{sub}</span>}
       </span>
       <span style={{ fontSize:"13px", color:"#94a3b8", fontWeight:"600" }}>{value}</span>
     </div>

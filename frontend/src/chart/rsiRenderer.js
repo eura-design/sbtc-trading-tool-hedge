@@ -1,8 +1,8 @@
 import * as d3 from "d3";
 import { M } from "../constants";
 
-const RSI_OB_C  = "#f6465d";
-const RSI_OS_C  = "#0ecb81";
+const RSI_OB_C  = "#60a5fa";
+const RSI_OS_C  = "#60a5fa";
 const RSI_MID_C = "#888888";
 
 function getRsiColor(v, ob, os) {

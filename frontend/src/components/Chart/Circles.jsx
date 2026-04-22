@@ -37,9 +37,6 @@ export const Circles = memo(function Circles({
 
         return (
           <g key={ci.id}>
-            {/* 채우기 */}
-            <circle cx={c.x} cy={c.y} r={r}
-              fill={color} opacity={selected ? 0.06 : alert ? 0.05 : 0.03} />
             {/* 테두리 */}
             <circle cx={c.x} cy={c.y} r={r}
               fill="none" stroke={color}
@@ -68,7 +65,7 @@ export const Circles = memo(function Circles({
         return (
           <g>
             <circle cx={c.x} cy={c.y} r={Math.max(r, 2)}
-              fill={CIRCLE_COLOR} fillOpacity={0.03}
+              fill="none"
               stroke={CIRCLE_COLOR} strokeWidth={1} opacity={0.5} strokeDasharray="4,3" />
             <circle cx={c.x} cy={c.y} r={3} fill={CIRCLE_COLOR} opacity={0.7} />
           </g>
