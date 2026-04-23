@@ -1,7 +1,7 @@
 import * as d3 from "d3";
 import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
-import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderLiquidity, renderMarketStructure, renderPremiumDiscount } from "./overlayRenderers";
+import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderMarketStructure } from "./overlayRenderers";
 
 export { renderVolumeCanvas } from "./volumeRenderer";
 export { renderRSICanvas }    from "./rsiRenderer";
@@ -111,12 +111,10 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   ctx.globalAlpha = 1;
   const ov = overlaysRef?.current ?? {};
   if (!ov._panning) {
-    if (ov.showPD  && ov.pdData)            renderPremiumDiscount(ctx, ov.pdData, xScale, yScale, IW, IH);
     if (ov.showFVG && ov.fvgData?.length)   renderFVG(ctx, ov.fvgData, xScale, yScale, IW, IH);
     if (ov.showOB  && ov.obData?.length)    renderOrderBlock(ctx, ov.obData, xScale, yScale, IW, IH);
     if (ov.showSR  && ov.srLevels?.length)  renderSRLines(ctx, ov.srLevels, yScale, IW, IH, isDark);
     if (ov.showEMA && ov.emaData?.length)   renderEMA(ctx, ov.emaData, xScale, yScale, IW, IH);
-    if (ov.showLiq && ov.liqData?.length)   renderLiquidity(ctx, ov.liqData, xScale, yScale, IW, IH);
     if (ov.showMS  && ov.msData?.length)    renderMarketStructure(ctx, ov.msData, xScale, yScale, IW, IH);
   }
 

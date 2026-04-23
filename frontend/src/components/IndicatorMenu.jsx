@@ -9,9 +9,7 @@ export const INDICATORS = [
   { key: "sr",  label: "S/R Levels" },
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
-  { key: "liq", label: "Liquidity (EQH/EQL)" },
   { key: "ms",  label: "Market Structure" },
-  { key: "pd",  label: "Premium / Discount" },
   { key: "ema", label: "EMA" },
 ];
 
@@ -33,21 +31,14 @@ const PARAMS_META = {
   ob: [
     { key: "swing_lb",       label: "스윙 감지(봉)",  min: 1,   max: 10,   step: 1  },
     { key: "bos_window",     label: "BOS 윈도우",     min: 5,   max: 100,  step: 1  },
-    { key: "ob_lookback",    label: "OB 탐색 범위",   min: 5,   max: 50,   step: 1  },
+    { key: "ob_lookback",    label: "탐색 범위(봉)",   min: 5,   max: 50,   step: 1  },
     { key: "scan_from",      label: "스캔 범위(봉)",  min: 100, max: 1000, step: 50 },
     { key: "mitigation_pct", label: "미티게이션(%)", min: 0,   max: 100,  step: 5  },
     { key: "max_display",    label: "최대 표시",      min: 5,   max: 30,   step: 1  },
     { key: "disp_threshold", label: "Displacement(×ATR)", min: 0.5, max: 3.0, step: 0.1, fmt: v => v.toFixed(1) + "×" },
     { key: "disp_atr_period", label: "ATR 기간",     min: 5,   max: 50,   step: 1  },
     { key: "displacement_only", label: "Displacement만",  type: "toggle" },
-    { key: "use_wick",          label: "Wick 포함",         type: "toggle" },
-  ],
-  liq: [
-    { key: "swing_lb",      label: "스윙 감지(봉)", min: 2,   max: 15,  step: 1 },
-    { key: "tolerance_pct", label: "동일성 허용(%)", min: 0.02, max: 1.0, step: 0.02, fmt: v => v.toFixed(2) + "%" },
-    { key: "min_touches",   label: "최소 터치수",    min: 2,    max: 5,    step: 1 },
-    { key: "scan_from",     label: "스캔 범위(봉)",  min: 100,  max: 1000, step: 50 },
-    { key: "max_display",   label: "최대 표시",      min: 3,    max: 30,   step: 1 },
+    { key: "use_wick",          label: "윅 포함",           type: "toggle" },
   ],
   ms: [
     { key: "swing_lb",    label: "스윙 감지(봉)", min: 1,   max: 10,   step: 1  },
@@ -55,10 +46,6 @@ const PARAMS_META = {
     { key: "max_display", label: "최대 표시",     min: 2,   max: 30,   step: 1  },
     { key: "close_only",  label: "봉마감 기준",   type: "toggle" },
     { key: "show_bos",    label: "BOS 표시",      type: "toggle" },
-  ],
-  pd: [
-    { key: "swing_lb", label: "스윙 감지(봉)", min: 2,  max: 15,  step: 1  },
-    { key: "lookback", label: "range 탐색(봉)", min: 50, max: 500, step: 10 },
   ],
   div: [
     { key: "peak_lb",      label: "피크 감지(봉)", min: 2,  max: 15,  step: 1  },

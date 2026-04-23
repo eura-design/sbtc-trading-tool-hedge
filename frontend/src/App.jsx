@@ -13,9 +13,7 @@ import { useTrendLines }             from "./hooks/useTrendLines";
 import { useOrderFlow }              from "./hooks/useOrderFlow";
 import { useFVG }                    from "./hooks/useFVG";
 import { useOrderBlock }             from "./hooks/useOrderBlock";
-import { useLiquidity }              from "./hooks/useLiquidity";
 import { useMarketStructure }        from "./hooks/useMarketStructure";
-import { usePremiumDiscount }        from "./hooks/usePremiumDiscount";
 import { useRealtimeData }           from "./hooks/useRealtimeData";
 import { useToast }                  from "./hooks/useToast";
 import { useTrendLineAlert }         from "./hooks/useTrendLineAlert";
@@ -62,9 +60,7 @@ export default function App() {
   const showDiv = indicators.div !== false;
   const showVol = indicators.vol !== false;
   const showEMA = indicators.ema !== false;
-  const showLiq = indicators.liq !== false;
   const showMS  = indicators.ms  !== false;
-  const showPD  = indicators.pd  !== false;
 
   // ── drawing ↔ pending order 동기화 ────────────────────────────────────────
   useEffect(() => {
@@ -117,9 +113,7 @@ export default function App() {
   const emaData = useEMA(candles, indicatorParams.ema);
   const fvgData = useFVG(candles, indicatorParams.fvg);
   const obData  = useOrderBlock(candles, indicatorParams.ob);
-  const liqData = useLiquidity(candles, indicatorParams.liq);
   const msData  = useMarketStructure(candles, indicatorParams.ms);
-  const pdData  = usePremiumDiscount(candles, indicatorParams.pd);
   const { srLevels, srLoading, refreshSR } = useSRLevels();
 
   // divsByTF → 메인 차트 캔들 인덱스로 변환
@@ -233,10 +227,10 @@ export default function App() {
           candles={candles} candlesRef={candlesRef} candleLoading={candleLoading}
           onTickRef={onTickRef} interval_={interval_} isDark={isDark} isLog={isLog}
           rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData} srData={srLevels}
-          liqData={liqData} msData={msData} pdData={pdData}
+          msData={msData}
           showRsi={showRsi} showSR={showSR} showOB={showOB} showFVG={showFVG}
           showVol={showVol} showEMA={showEMA} showDiv={showDiv}
-          showLiq={showLiq} showMS={showMS} showPD={showPD}
+          showMS={showMS}
           indicatorParams={indicatorParams}
           divData={divData}
           current={current} setCurrent={setCurrent}
