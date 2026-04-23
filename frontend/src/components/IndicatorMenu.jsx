@@ -21,7 +21,7 @@ const PARAMS_META = {
     { key: "oversold",   label: "과매도",   min: 5,    max: 49,  step: 1 },
   ],
   fvg: [
-    { key: "lookback",       label: "탐색 범위(봉)", min: 50,  max: 1000, step: 10 },
+    { key: "lookback",       label: "표시 범위",      min: 50,  max: 1000, step: 10 },
     { key: "max_display",    label: "최대 표시",     min: 5,   max: 50,   step: 1  },
     { key: "mitigation_pct", label: "미티게이션(%)", min: 0,   max: 100,  step: 5  },
     { key: "disp_threshold", label: "Displacement(×ATR)", min: 0.5, max: 3.0, step: 0.1, fmt: v => v.toFixed(1) + "×" },
@@ -32,7 +32,7 @@ const PARAMS_META = {
     { key: "swing_lb",       label: "스윙 감지(봉)",  min: 1,   max: 10,   step: 1  },
     { key: "bos_window",     label: "BOS 윈도우",     min: 5,   max: 100,  step: 1  },
     { key: "ob_lookback",    label: "탐색 범위(봉)",   min: 5,   max: 50,   step: 1  },
-    { key: "scan_from",      label: "스캔 범위(봉)",  min: 100, max: 1000, step: 50 },
+    { key: "scan_from",      label: "표시 범위",      min: 100, max: 1000, step: 50 },
     { key: "mitigation_pct", label: "미티게이션(%)", min: 0,   max: 100,  step: 5  },
     { key: "max_display",    label: "최대 표시",      min: 5,   max: 30,   step: 1  },
     { key: "disp_threshold", label: "Displacement(×ATR)", min: 0.5, max: 3.0, step: 0.1, fmt: v => v.toFixed(1) + "×" },
@@ -42,7 +42,7 @@ const PARAMS_META = {
   ],
   ms: [
     { key: "swing_lb",    label: "스윙 감지(봉)", min: 1,   max: 10,   step: 1  },
-    { key: "scan_from",   label: "스캔 범위(봉)", min: 100, max: 1000, step: 50 },
+    { key: "scan_from",   label: "표시 범위",     min: 100, max: 1000, step: 50 },
     { key: "max_display", label: "최대 표시",     min: 2,   max: 30,   step: 1  },
     { key: "close_only",  label: "봉마감 기준",   type: "toggle" },
     { key: "show_bos",    label: "BOS 표시",      type: "toggle" },
