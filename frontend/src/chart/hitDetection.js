@@ -4,10 +4,11 @@ import { tsToIdx } from "./scales";
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
 
 // 채널 두 선의 픽셀 좌표 계산
-export function channelXYs(ch, candles, xScale, yScale, isLog = false) {
+export function channelXYs(ch, candles, xScale, yScale, _isLog = false) {
   const i1 = tsToIdx(ch.t1, candles), i2 = tsToIdx(ch.t2, candles);
-  const p1off = isLog ? ch.p1 * ch.offset : ch.p1 + ch.offset;
-  const p2off = isLog ? ch.p2 * ch.offset : ch.p2 + ch.offset;
+  const chIsLog = ch.isLog ?? false;
+  const p1off = chIsLog ? ch.p1 * ch.offset : ch.p1 + ch.offset;
+  const p2off = chIsLog ? ch.p2 * ch.offset : ch.p2 + ch.offset;
   return {
     ax: xScale(i1), ay: yScale(ch.p1),
     bx: xScale(i2), by: yScale(ch.p2),
@@ -80,7 +81,7 @@ export function buildHitChain(ctx) {
         } else if (channelStep === 2 && channelPoints) {
           const defaultOffset = isLog ? 1 : 0;
           const offset = channelPreview?.offset ?? defaultOffset;
-          addChannel(channelPoints.t1, channelPoints.p1, channelPoints.t2, channelPoints.p2, offset);
+          addChannel(channelPoints.t1, channelPoints.p1, channelPoints.t2, channelPoints.p2, offset, isLog);
         }
       },
     },

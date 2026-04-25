@@ -78,8 +78,8 @@ export function useTrendLines() {
     setChannelMode(false); setChannelStep(0); setChannelPoints(null); setChannelPreview(null);
   }, []);
 
-  const addChannel = useCallback((t1, p1, t2, p2, offset) => {
-    channelStore.add({ t1, p1, t2, p2, offset });
+  const addChannel = useCallback((t1, p1, t2, p2, offset, isLog = false) => {
+    channelStore.add({ t1, p1, t2, p2, offset, isLog });
     setChannelMode(false); setChannelStep(0); setChannelPoints(null); setChannelPreview(null);
   }, [channelStore]);
 

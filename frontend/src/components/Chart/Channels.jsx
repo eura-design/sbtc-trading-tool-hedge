@@ -21,9 +21,9 @@ export const Channels = memo(function Channels({
     return { x: xScale(idx), y: yScale(p) };
   }
 
-  // offset 적용: linear는 덧셈, log는 곱셈(ratio)
-  function applyOffset(price, offset) {
-    return isLog ? price * offset : price + offset;
+  // offset 적용: 채널 생성 시점의 isLog 기준 (현재 스케일 무관)
+  function applyOffset(ch, price) {
+    return ch.isLog ? price * ch.offset : price + ch.offset;
   }
 
   return (
@@ -32,8 +32,8 @@ export const Channels = memo(function Channels({
       {channels.map(ch => {
         const a1 = toXY(ch.t1, ch.p1);
         const b1 = toXY(ch.t2, ch.p2);
-        const a2 = toXY(ch.t1, applyOffset(ch.p1, ch.offset));
-        const b2 = toXY(ch.t2, applyOffset(ch.p2, ch.offset));
+        const a2 = toXY(ch.t1, applyOffset(ch, ch.p1));
+        const b2 = toXY(ch.t2, applyOffset(ch, ch.p2));
         const selected = ch.id === selectedChannelId;
         const alert    = !!ch.alert;
         const color    = selected ? "#f0b90b" : alert ? "#fbbf24" : CHANNEL_COLOR;
@@ -86,8 +86,8 @@ export const Channels = memo(function Channels({
         const offset = channelPreview.offset;
         const a1 = toXY(t1, p1);
         const b1 = toXY(t2, p2);
-        const a2 = toXY(t1, applyOffset(p1, offset));
-        const b2 = toXY(t2, applyOffset(p2, offset));
+        const a2 = toXY(t1, applyOffset({ isLog, offset }, p1));
+        const b2 = toXY(t2, applyOffset({ isLog, offset }, p2));
         return (
           <g>
             <line x1={a1.x} y1={a1.y} x2={b1.x} y2={b1.y}
