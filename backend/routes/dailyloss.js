@@ -24,7 +24,7 @@ router.get("/", async (req, res) => {
     const walletBalance = usdt ? parseFloat(usdt.balance) : 0;
     const todayPnl = pnlRes.data.reduce((s, r) => s + parseFloat(r.income), 0);
     const startOfDayBalance = walletBalance - todayPnl;
-    const limit = startOfDayBalance * 0.05;
+    const limit = startOfDayBalance * 0.04;
     const remaining = limit + todayPnl; // todayPnl이 음수이므로 한도에서 깎임
 
     res.json({
@@ -54,7 +54,7 @@ module.exports.checkDailyLoss = async function checkDailyLoss() {
   const walletBalance = usdt ? parseFloat(usdt.balance) : 0;
   const todayPnl = pnlRes.data.reduce((s, r) => s + parseFloat(r.income), 0);
   const startOfDayBalance = walletBalance - todayPnl;
-  const limit = startOfDayBalance * 0.05;
+  const limit = startOfDayBalance * 0.04;
 
   if (todayPnl <= -limit) {
     const err = new Error(`일일 손실 한도 초과 (오늘 ${todayPnl.toFixed(2)} USDT / 한도 -${limit.toFixed(2)} USDT)`);

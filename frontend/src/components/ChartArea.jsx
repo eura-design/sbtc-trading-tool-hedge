@@ -82,17 +82,17 @@ export function ChartArea({
   const [countdown, setCountdown] = useState({ text: "", ratio: 1 });
   const last = candles.length > 0 ? candles[candles.length - 1] : null;
   useEffect(() => {
-    if (!last) return;
     const intervalMs = INTERVAL_MS[interval_] ?? 60*60*1000;
-    const closeTime  = last.t.getTime() + intervalMs;
     const tick = () => {
-      const remaining = closeTime - Date.now();
+      const now = Date.now();
+      const closeTime = (Math.floor(now / intervalMs) + 1) * intervalMs;
+      const remaining = closeTime - now;
       setCountdown({ text: fmtCountdown(remaining), ratio: Math.max(0, remaining / intervalMs) });
     };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [last?.t?.getTime(), interval_]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [interval_]); // eslint-disable-line react-hooks/exhaustive-deps
   const cdColor = countdown.ratio > 0.3 ? "#e2e8f0" : countdown.ratio > 0.1 ? "#f59e0b" : "#f6465d";
 
   // ── 패널 크기 ─────────────────────────────────────────────────────────────
