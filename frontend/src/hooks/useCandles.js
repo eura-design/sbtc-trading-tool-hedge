@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { BN_PUBLIC } from "../constants";
 import { useStore } from "../store";
 
+// WS가 이 시간(ms) 이상 무응답이면 REST 폴링으로 전환
+const WS_TIMEOUT_MS = 5000;
+// REST 폴링 주기 (ms) — WS 폴백 시 사용
+const POLL_MS = 1000;
+
 export function useCandles(interval, onTickRef) {
   const [candles, setCandles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -11,6 +16,35 @@ export function useCandles(interval, onTickRef) {
   useEffect(() => {
     candlesRef.current = []; setCandles([]); setLoading(true);
     let ws = null, closed = false, retryTimer = null;
+    let lastWsMsgAt = 0;   // 마지막 WS 메시지 수신 시각 (ms)
+    let pollTimer   = null; // REST 폴백 인터벌
+
+    // ── REST 폴백: WS가 무응답일 때 최신 캔들 직접 조회 ─────────────────────
+    const pollLatest = async () => {
+      if (closed) return;
+      // WS가 최근에 메시지를 보냈으면 폴링 스킵
+      if (Date.now() - lastWsMsgAt < WS_TIMEOUT_MS) return;
+      try {
+        const r = await fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=BTCUSDT&interval=${interval}&limit=1`);
+        const data = await r.json();
+        if (!Array.isArray(data) || !data.length || closed) return;
+        const [k] = data;
+        const candle = { t: new Date(k[0]), o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] };
+        const arr  = candlesRef.current;
+        if (!arr.length) return;
+        const last = arr[arr.length - 1];
+        if (candle.t.getTime() === last.t.getTime()) {
+          arr[arr.length - 1] = candle;
+          onTickRef?.current?.();
+          useStore.getState().setLiveClose(candle.c);
+        } else if (candle.t > last.t) {
+          arr.push(candle);
+          if (arr.length > 3100) arr.shift();
+          setCandles([...arr]);
+          useStore.getState().setLiveClose(candle.c);
+        }
+      } catch (_) {}
+    };
 
     const connectWS = () => {
       if (closed) return;
@@ -20,6 +54,7 @@ export function useCandles(interval, onTickRef) {
       }
       ws = new WebSocket(`wss://fstream.binance.com/ws/btcusdt@kline_${interval}`);
       ws.onmessage = (evt) => {
+        lastWsMsgAt = Date.now(); // WS 메시지 수신 시각 갱신
         const k = JSON.parse(evt.data).k;
         const candle = { t: new Date(k.t), o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v };
         const arr = candlesRef.current;
@@ -72,6 +107,8 @@ export function useCandles(interval, onTickRef) {
       } catch(e) { console.error(e); } finally { if (!closed) setLoading(false); }
 
       connectWS();
+      // WS 폴백 폴링 시작 — WS가 무응답일 때만 실제로 요청 발생
+      pollTimer = setInterval(pollLatest, POLL_MS);
     };
 
     const onVisibilityChange = () => {
@@ -87,6 +124,7 @@ export function useCandles(interval, onTickRef) {
     return () => {
       closed = true;
       clearTimeout(retryTimer);
+      clearInterval(pollTimer);
       if (wsRafRef.current !== null) { cancelAnimationFrame(wsRafRef.current); wsRafRef.current = null; }
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (ws) ws.close();
