@@ -81,11 +81,14 @@ export function ChartArea({
   };
   const [countdown, setCountdown] = useState({ text: "", ratio: 1 });
   const last = candles.length > 0 ? candles[candles.length - 1] : null;
+  const lastRef = useRef(last);
+  lastRef.current = last;
   useEffect(() => {
     const intervalMs = INTERVAL_MS[interval_] ?? 60*60*1000;
     const tick = () => {
       const now = Date.now();
-      const closeTime = last ? last.t.getTime() + intervalMs : (Math.floor(now / intervalMs) + 1) * intervalMs;
+      const l = lastRef.current;
+      const closeTime = l ? l.t.getTime() + intervalMs : (Math.floor(now / intervalMs) + 1) * intervalMs;
       const remaining = closeTime - now;
       setCountdown({ text: fmtCountdown(remaining), ratio: Math.max(0, remaining / intervalMs) });
     };
