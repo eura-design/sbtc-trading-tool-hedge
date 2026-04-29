@@ -88,7 +88,8 @@ export function ChartArea({
     const tick = () => {
       const now = Date.now();
       const l = lastRef.current;
-      const closeTime = l ? l.t.getTime() + intervalMs : (Math.floor(now / intervalMs) + 1) * intervalMs;
+      const candleClose = l ? l.t.getTime() + intervalMs : 0;
+      const closeTime = candleClose > now ? candleClose : (Math.floor(now / intervalMs) + 1) * intervalMs;
       const remaining = closeTime - now;
       setCountdown({ text: fmtCountdown(remaining), ratio: Math.max(0, remaining / intervalMs) });
     };
