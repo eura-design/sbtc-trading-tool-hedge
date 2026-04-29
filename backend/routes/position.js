@@ -61,7 +61,8 @@ router.get("/", async (req, res) => {
         price:   parseFloat(o.price),
         qty:     parseFloat(o.origQty),
         side:    o.side,
-      }));
+      }))
+      .sort((a, b) => a.side === "BUY" ? a.price - b.price : b.price - a.price);
 
     const funding = {
       rate:         parseFloat(fundingData.lastFundingRate) * 100, // %

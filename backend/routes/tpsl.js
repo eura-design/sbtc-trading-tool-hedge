@@ -45,7 +45,8 @@ router.get("/", async (req, res) => {
         qty:     parseFloat(o.origQty),
         side:    o.side,
         pct:     store.get(String(o.orderId))?.pct ?? null,
-      }));
+      }))
+      .sort((a, b) => a.side === "SELL" ? a.price - b.price : b.price - a.price);
 
     res.json({ tp: findOrder("TAKE_PROFIT_MARKET"), sl: findOrder("STOP_MARKET"), splitTps });
   } catch (err) {

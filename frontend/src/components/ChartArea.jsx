@@ -85,7 +85,7 @@ export function ChartArea({
     const intervalMs = INTERVAL_MS[interval_] ?? 60*60*1000;
     const tick = () => {
       const now = Date.now();
-      const closeTime = (Math.floor(now / intervalMs) + 1) * intervalMs;
+      const closeTime = last ? last.t.getTime() + intervalMs : (Math.floor(now / intervalMs) + 1) * intervalMs;
       const remaining = closeTime - now;
       setCountdown({ text: fmtCountdown(remaining), ratio: Math.max(0, remaining / intervalMs) });
     };
