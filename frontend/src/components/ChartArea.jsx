@@ -87,10 +87,11 @@ export function ChartArea({
     const intervalMs = INTERVAL_MS[interval_] ?? 60*60*1000;
     const tick = () => {
       const now = Date.now();
-      const l = lastRef.current;
-      const candleClose = l ? l.t.getTime() + intervalMs : 0;
-      const closeTime = candleClose > now ? candleClose : (Math.floor(now / intervalMs) + 1) * intervalMs;
-      const remaining = closeTime - now;
+      const arr = candlesRef.current;
+      const matchInterval = arr.length >= 2 &&
+        arr[arr.length - 1].t.getTime() - arr[arr.length - 2].t.getTime() === intervalMs;
+      if (!matchInterval) { setCountdown({ text: "", ratio: 1 }); return; }
+      const remaining = arr[arr.length - 1].t.getTime() + intervalMs - now;
       setCountdown({ text: fmtCountdown(remaining), ratio: Math.max(0, remaining / intervalMs) });
     };
     tick();

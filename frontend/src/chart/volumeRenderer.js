@@ -29,28 +29,37 @@ function renderVolumePanel(ctx, candles, xScale, IW, volH, isDark, volColorMode)
 
     const useCandle = volColorMode === "candle";
     ctx.globalAlpha = useCandle ? 0.7 : 0.5;
+    const bullColor = isDark ? CANVAS_C.BULL_DARK : CANVAS_C.BULL_LIGHT;
+    const bearColor = isDark ? CANVAS_C.BEAR_DARK : CANVAS_C.BEAR_LIGHT;
 
     if (pxPerBar < 2) {
-      // 압축 모드 — 캔들 색상 미지원 (픽셀당 여러 봉 병합)
-      ctx.fillStyle = CANVAS_C.NEUTRAL;
+      // 압축 모드 — 픽셀당 최대 거래량 봉의 방향으로 색상 결정
       _volMap.clear();
       for (let i = i0; i <= i1; i++) {
         const px = Math.round(xScale(i));
+        const isUp = candles[i].c >= candles[i].o;
         const ex = _volMap.get(px);
-        if (ex === undefined || candles[i].v > ex) _volMap.set(px, candles[i].v);
+        if (ex === undefined || candles[i].v > ex.v) _volMap.set(px, { v: candles[i].v, isUp });
       }
-      ctx.beginPath();
-      for (const [px, v] of _volMap) {
-        const h = Math.max(1, (v / maxVol) * volH);
-        ctx.rect(px - 0.5, Math.round(volH - h), 1, Math.round(h));
+      if (!useCandle) {
+        ctx.fillStyle = CANVAS_C.NEUTRAL;
+        ctx.beginPath();
+        for (const [px, { v }] of _volMap) {
+          const h = Math.max(1, (v / maxVol) * volH);
+          ctx.rect(px - 0.5, Math.round(volH - h), 1, Math.round(h));
+        }
+        ctx.fill();
+      } else {
+        for (const [px, { v, isUp }] of _volMap) {
+          ctx.fillStyle = isUp ? bullColor : bearColor;
+          const h = Math.max(1, (v / maxVol) * volH);
+          ctx.fillRect(px - 0.5, Math.round(volH - h), 1, Math.round(h));
+        }
       }
-      ctx.fill();
     } else {
       const hw = barW / 2;
       const w = Math.max(1, Math.round(barW));
       if (!useCandle) ctx.fillStyle = CANVAS_C.NEUTRAL;
-      const bullColor = isDark ? CANVAS_C.BULL_DARK : CANVAS_C.BULL_LIGHT;
-      const bearColor = isDark ? CANVAS_C.BEAR_DARK : CANVAS_C.BEAR_LIGHT;
       for (let i = i0; i <= i1; i++) {
         const h = Math.max(1, (candles[i].v / maxVol) * volH);
         if (useCandle) ctx.fillStyle = candles[i].c >= candles[i].o ? bullColor : bearColor;

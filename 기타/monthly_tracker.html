@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>월별 수익 결산</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f3; min-height: 100vh; display: flex; justify-content: center; padding: calc(48px + 2rem) 1rem 2rem; }
+  .container { width: 100%; max-width: 680px; }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 1.5rem; color: #222; }
+  nav { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: #fff; border-bottom: 0.5px solid #e0e0e0; z-index: 100; display: flex; justify-content: center; }
+  .nav-inner { width: 100%; max-width: 680px; padding: 0 1rem; display: flex; align-items: center; }
+  .nav-logo { font-size: 14px; font-weight: 600; color: #222; margin-right: auto; letter-spacing: -0.2px; }
+  .nav-tab { font-size: 13px; color: #999; padding: 0 14px; height: 48px; display: flex; align-items: center; text-decoration: none; border-bottom: 2px solid transparent; transition: color 0.15s; white-space: nowrap; }
+  .nav-tab:hover { color: #333; }
+  .nav-tab.active { color: #1D9E75; border-bottom-color: #1D9E75; font-weight: 500; }
+
+  .card { background: #fff; border-radius: 12px; border: 0.5px solid #e0e0e0; padding: 1.25rem; margin-bottom: 1rem; }
+
+  /* 시드머니 */
+  .seed-row { display: flex; align-items: center; gap: 14px; }
+  .seed-row label { font-size: 14px; color: #666; white-space: nowrap; }
+  .seed-prefix { font-size: 18px; color: #888; font-weight: 500; }
+  .seed-row input[type=number] { flex: 1; font-size: 20px; font-weight: 500; color: #222; border: none; border-bottom: 1.5px solid #e0e0e0; outline: none; background: transparent; text-align: right; padding: 2px 4px; min-width: 0; }
+  .seed-row input[type=number]:focus { border-bottom-color: #1D9E75; }
+  .seed-row input[type=number]::-webkit-inner-spin-button,
+  .seed-row input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+  /* 요약 */
+  .summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 1rem; }
+  .metric { background: #f5f5f3; border-radius: 8px; padding: 0.9rem; text-align: center; }
+  .metric .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .metric .value { font-size: 20px; font-weight: 500; color: #222; }
+  .metric .value.green { color: #1D9E75; }
+  .metric .value.red { color: #E05252; }
+
+  /* 결산 입력 */
+  .entry-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #888; }
+  .field input { font-size: 15px; color: #222; border: 1px solid #e0e0e0; border-radius: 6px; padding: 6px 10px; outline: none; width: 100%; }
+  .field input:focus { border-color: #1D9E75; }
+  .field input::-webkit-inner-spin-button,
+  .field input::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .field-month { flex: 2; min-width: 100px; }
+  .field-asset { flex: 3; min-width: 120px; }
+  .field-withdraw { flex: 2; min-width: 100px; }
+  .field-withdraw input { border-color: #f0e0e0; }
+  .field-withdraw input:focus { border-color: #E05252; }
+  .btn-add { background: #1D9E75; color: #fff; border: none; border-radius: 6px; padding: 8px 18px; font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; align-self: flex-end; height: 36px; }
+  .btn-add:hover { background: #178c65; }
+
+  /* 차트 */
+  .chart-wrap { display: flex; align-items: flex-end; gap: 4px; height: 160px; margin-bottom: 1.5rem; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; justify-content: flex-end; min-width: 0; }
+  .bar-col .bar-val { font-size: 9px; color: #1D9E75; font-weight: 500; text-align: center; word-break: break-all; }
+  .bar-col .bar { width: 100%; border-radius: 3px 3px 0 0; transition: height 0.2s; }
+  .bar-col .bar.pos { background: #5DCAA5; }
+  .bar-col .bar.neg { background: #E05252; border-radius: 0 0 3px 3px; }
+  .bar-col .bar-label { font-size: 10px; color: #888; text-align: center; word-break: break-all; }
+
+  /* 테이블 */
+  table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  thead tr { border-bottom: 1px solid #e0e0e0; }
+  th { padding: 8px; font-weight: 500; color: #888; text-align: right; }
+  th:first-child { text-align: center; }
+  th:last-child { text-align: center; width: 40px; }
+  td { padding: 7px 8px; border-bottom: 0.5px solid #f0f0f0; text-align: right; }
+  td:first-child { text-align: center; color: #666; }
+  td:last-child { text-align: center; }
+  tr:nth-child(even) { background: #fafaf8; }
+  .profit { color: #1D9E75; font-weight: 500; }
+  .loss { color: #E05252; font-weight: 500; }
+  .cumrate.pos { color: #1D9E75; }
+  .cumrate.neg { color: #E05252; }
+  .btn-del { background: none; border: none; color: #ccc; cursor: pointer; font-size: 16px; line-height: 1; }
+  .btn-del:hover { color: #E05252; }
+
+  .empty { text-align: center; color: #bbb; padding: 2rem 0; font-size: 14px; }
+  .note { font-size: 12px; color: #999; margin-top: 1rem; line-height: 1.6; }
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <span class="nav-logo">수익률 트래커</span>
+    <a class="nav-tab" href="compound_calculator.html">복리 계산기</a>
+    <a class="nav-tab active" href="monthly_tracker.html">월별 결산</a>
+  </div>
+</nav>
+<div class="container">
+  <h1>월별 수익 결산</h1>
+
+  <!-- 시드머니 -->
+  <div class="card">
+    <div class="seed-row">
+      <label>시드머니</label>
+      <span class="seed-prefix">$</span>
+      <input type="number" id="seedInput" value="3000" min="1" placeholder="3000">
+    </div>
+  </div>
+
+  <!-- 요약 -->
+  <div class="summary">
+    <div class="metric">
+      <div class="label">시드머니</div>
+      <div class="value" id="sumSeed">$3,000</div>
+    </div>
+    <div class="metric">
+      <div class="label">현재 잔고</div>
+      <div class="value" id="sumAsset">$3,000</div>
+    </div>
+    <div class="metric">
+      <div class="label">총 출금</div>
+      <div class="value" id="sumWithdraw">$0</div>
+    </div>
+    <div class="metric">
+      <div class="label">누적 수익률</div>
+      <div class="value" id="sumRate">0.0%</div>
+    </div>
+  </div>
+
+  <!-- 결산 입력 -->
+  <div class="card">
+    <div class="entry-form">
+      <div class="field field-month">
+        <label>월 (예: 2025-01)</label>
+        <input type="text" id="inMonth" placeholder="2025-01" maxlength="10">
+      </div>
+      <div class="field field-asset">
+        <label>월말 잔고 ($)</label>
+        <input type="number" id="inAsset" placeholder="3000" step="any" min="0">
+      </div>
+      <div class="field field-withdraw">
+        <label>이번달 출금 ($)</label>
+        <input type="number" id="inWithdraw" placeholder="0 (선택)" step="any" min="0">
+      </div>
+      <button class="btn-add" onclick="addEntry()">+ 추가</button>
+    </div>
+  </div>
+
+  <!-- 차트 + 테이블 -->
+  <div class="card" id="resultsCard" style="display:none">
+    <div class="chart-wrap" id="chart"></div>
+    <table>
+      <thead>
+        <tr id="tableHead">
+          <th>월</th>
+          <th>이번달 수익</th>
+          <th>잔고</th>
+          <th>출금</th>
+          <th>이번달 수익률</th>
+          <th>누적 수익률</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <p class="note">* 세금, 수수료, 펀딩비 미반영. 실제 수익은 다를 수 있습니다.</p>
+  </div>
+  <div class="card" id="emptyCard">
+    <div class="empty">아직 결산 내역이 없습니다.<br>위에서 월말 잔고를 입력해 주세요.</div>
+  </div>
+</div>
+
+<script>
+  // entries: [{ month: "2025-01", asset: 3200 }, ...]  — 월말 잔고 저장
+  let entries = JSON.parse(localStorage.getItem('monthly_entries_v2') || '[]');
+  let seed = parseFloat(localStorage.getItem('monthly_seed_v2') || '3000');
+
+  document.getElementById('seedInput').value = seed;
+
+  function getSeed() {
+    const v = parseFloat(document.getElementById('seedInput').value);
+    return (isFinite(v) && v > 0) ? v : 1;
+  }
+
+  function fmt(n) { return Math.round(n).toLocaleString('ko-KR'); }
+  function fmtDec(n) { return n.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+
+  function nextMonth() {
+    if (entries.length === 0) {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
+    const last = entries[entries.length - 1].month;
+    const [y, m] = last.split('-').map(Number);
+    const next = new Date(y, m);
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  function refreshMonthInput() {
+    document.getElementById('inMonth').value = nextMonth();
+  }
+
+  function addEntry() {
+    const month = document.getElementById('inMonth').value.trim();
+    const assetRaw = parseFloat(document.getElementById('inAsset').value);
+    const withdrawRaw = parseFloat(document.getElementById('inWithdraw').value) || 0;
+    const s = getSeed();
+
+    if (!month) { alert('월을 입력해 주세요.'); return; }
+    if (!isFinite(assetRaw) || assetRaw < 0) { alert('월말 잔고를 입력해 주세요.'); return; }
+    if (entries.some(e => e.month === month)) { alert('이미 해당 월의 결산이 있습니다.'); return; }
+
+    entries.push({ month, asset: assetRaw, withdrawal: withdrawRaw });
+    save();
+    render();
+    document.getElementById('inAsset').value = '';
+    document.getElementById('inWithdraw').value = '';
+    refreshMonthInput();
+  }
+
+  function deleteEntry(idx) {
+    entries.splice(idx, 1);
+    save();
+    render();
+    refreshMonthInput();
+  }
+
+  function save() {
+    seed = getSeed();
+    localStorage.setItem('monthly_entries_v2', JSON.stringify(entries));
+    localStorage.setItem('monthly_seed_v2', String(seed));
+  }
+
+  function computeRows(s) {
+    let cumWithdrawal = 0;
+    return entries.map((e, i) => {
+      const withdrawal = e.withdrawal || 0;
+      const prevAsset = i === 0 ? s : entries[i - 1].asset;
+      // 수익 = 잔고 + 이번달 출금 - 전달 잔고 (출금도 번 돈으로 카운트)
+      const profit = e.asset + withdrawal - prevAsset;
+      const monthRate = prevAsset > 0 ? (profit / prevAsset) * 100 : 0;
+      cumWithdrawal += withdrawal;
+      const effectiveAsset = e.asset + cumWithdrawal;
+      const cumRate = (effectiveAsset - s) / s * 100;
+      return { month: e.month, profit, asset: e.asset, withdrawal, cumWithdrawal, effectiveAsset, monthRate, cumRate };
+    });
+  }
+
+  function render() {
+    const s = getSeed();
+    const rows = computeRows(s);
+
+    // 요약
+    const last = rows.length > 0 ? rows[rows.length - 1] : null;
+    const curAsset = last ? last.asset : s;
+    const cumWithdrawal = last ? last.cumWithdrawal : 0;
+    const cumRate = last ? last.cumRate : 0;
+
+    document.getElementById('sumSeed').textContent = '$' + fmt(s);
+    document.getElementById('sumAsset').textContent = '$' + fmt(curAsset);
+    document.getElementById('sumWithdraw').textContent = cumWithdrawal > 0 ? '$' + fmt(cumWithdrawal) : '$0';
+
+    const rateEl = document.getElementById('sumRate');
+    rateEl.textContent = (cumRate >= 0 ? '+' : '') + cumRate.toFixed(2) + '%';
+    rateEl.className = 'value ' + (cumRate >= 0 ? 'green' : 'red');
+
+    const hasRows = rows.length > 0;
+    document.getElementById('resultsCard').style.display = hasRows ? '' : 'none';
+    document.getElementById('emptyCard').style.display = hasRows ? 'none' : '';
+
+    if (!hasRows) return;
+
+    // 차트 — 실현 자산(잔고+누적출금) 기준으로 표시
+    const chart = document.getElementById('chart');
+    chart.innerHTML = '';
+    const effectiveVals = rows.map(r => r.effectiveAsset);
+    const maxVal = Math.max(...effectiveVals);
+    const minVal = Math.min(...effectiveVals);
+    const range = maxVal - minVal || 1;
+
+    rows.forEach(r => {
+      const pct = ((r.effectiveAsset - minVal) / range) * 80 + 10;
+      const col = document.createElement('div');
+      col.className = 'bar-col';
+      col.innerHTML = `
+        <div class="bar-val">$${fmt(r.effectiveAsset)}</div>
+        <div class="bar pos" style="height:${pct}%"></div>
+        <div class="bar-label">${r.month.slice(5)}월</div>
+      `;
+      chart.appendChild(col);
+    });
+
+    // 출금 열: 한 건이라도 있으면 표시
+    const hasWithdrawal = rows.some(r => r.withdrawal > 0);
+
+    // 테이블
+    document.getElementById('tableBody').innerHTML = rows.map((r, i) => `
+      <tr>
+        <td>${r.month}</td>
+        <td class="${r.profit >= 0 ? 'profit' : 'loss'}">${r.profit >= 0 ? '+' : ''}$${fmtDec(r.profit)}</td>
+        <td>$${fmt(r.asset)}</td>
+        ${hasWithdrawal ? `<td class="${r.withdrawal > 0 ? 'loss' : ''}">${r.withdrawal > 0 ? '-$' + fmt(r.withdrawal) : '-'}</td>` : ''}
+        <td class="${r.monthRate >= 0 ? 'profit' : 'loss'}">${r.monthRate >= 0 ? '+' : ''}${r.monthRate.toFixed(2)}%</td>
+        <td class="cumrate ${r.cumRate >= 0 ? 'pos' : 'neg'}">${r.cumRate >= 0 ? '+' : ''}${r.cumRate.toFixed(2)}%</td>
+        <td><button class="btn-del" onclick="deleteEntry(${i})" title="삭제">×</button></td>
+      </tr>
+    `).join('');
+
+    // 출금 열에 맞춰 헤더도 토글
+    const thWithdraw = document.querySelector('#tableHead th:nth-child(4)');
+    if (thWithdraw) thWithdraw.style.display = hasWithdrawal ? '' : 'none';
+  }
+
+  document.getElementById('seedInput').addEventListener('input', () => { save(); render(); });
+
+  refreshMonthInput();
+  render();
+</script>
+</body>
+</html>
