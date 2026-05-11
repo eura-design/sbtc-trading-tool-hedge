@@ -9,7 +9,6 @@ import { api }       from "../../api/client";
 import { useDailyLoss } from "../../hooks/useDailyLoss";
 import { Slider }    from "../Slider";
 import { StatusAlert }                from "../StatusAlert";
-import { ConfirmModal }               from "../ConfirmModal";
 import { BalanceCard }                from "./BalanceCard";
 import { MarketInfoCard }            from "./MarketInfoCard";
 import { PositionCard, PendingCard }  from "./PositionCard";
@@ -17,7 +16,7 @@ import { PlanCard, OrphanPendingCard } from "./PlanCard";
 import { StatsCard }    from "./StatsCard";
 
 
-export function SidebarPanel({ lastPrice, openConfirm, onCancelOrder, onClosePosition,
+export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   onScaleIn, onCancelScaleIn, onAddSplitTp, onCancelSplitTp, onDrawModeToggle }) {
   const { theme } = useTheme();
   const online = useHealth();
@@ -28,16 +27,14 @@ export function SidebarPanel({ lastPrice, openConfirm, onCancelOrder, onClosePos
     position, tpsl, tpslSaving,
     riskPct, setRiskPct, leverage, setLeverage,
     drawMode, drawing, orderStatus, setOrderStatus,
-    liveClose,
-    confirmInfo, setConfirmInfo, executeOrder,
+    liveClose, executeOrder,
   } = useStore(useShallow(s => ({
     balance: s.balance, balError: s.balError, _refetchBal: s._refetchBal,
     position: s.position, tpsl: s.tpsl, tpslSaving: s.tpslSaving,
     riskPct: s.riskPct, setRiskPct: s.setRiskPct,
     leverage: s.leverage, setLeverage: s.setLeverage,
     drawMode: s.drawMode, drawing: s.drawing, orderStatus: s.orderStatus, setOrderStatus: s.setOrderStatus,
-    liveClose: s.liveClose, confirmInfo: s.confirmInfo,
-    setConfirmInfo: s.setConfirmInfo, executeOrder: s.executeOrder,
+    liveClose: s.liveClose, executeOrder: s.executeOrder,
   })));
 
   const hasLong    = !!position?.long;
@@ -276,19 +273,12 @@ export function SidebarPanel({ lastPrice, openConfirm, onCancelOrder, onClosePos
           onAddSplitTp={onAddSplitTp} onCancelSplitTp={onCancelSplitTp}
         />
 
-        {!hasPos && <PendingCard pending={position?.pending} />}
 
-        {confirmInfo ? (
-          <ConfirmModal
-            info={confirmInfo}
-            onConfirm={executeOrder}
-            onCancel={() => setConfirmInfo(null)}
-          />
-        ) : drawing ? (
+        {drawing ? (
           <PlanCard
             drawing={drawing} posCalc={posCalc} leverage={leverage} riskPct={riskPct}
             position={position} hasPending={hasPending}
-            onConfirm={openConfirm} onCancel={onCancelOrder}
+            onConfirm={executeOrder} onCancel={onCancelOrder}
           />
         ) : hasPending ? (
           <OrphanPendingCard pending={position?.pending} onCancel={onCancelOrder} />
