@@ -45,7 +45,7 @@ export const VOL_GAP   = 1;
 export const MIN_QTY   = 0.001;
 export const QTY_STEP  = 0.001;
 export const HIT       = 8;
-export const API_BASE  = "http://localhost:3001";
+export const API_BASE  = "http://localhost:3002";
 export const BN_PUBLIC = "https://fapi.binance.com";
 
 // 폴링 주기 (ms) — 한 곳에서 관리

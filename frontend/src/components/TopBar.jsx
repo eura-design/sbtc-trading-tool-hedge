@@ -15,12 +15,6 @@ export function TopBar({ interval_, onIntervalChange, drawMode, onDrawModeToggle
   const isGreen = last ? price >= last.o : true;
   const pct     = last ? (((price - last.o) / last.o) * 100).toFixed(2) : "0.00";
 
-  const statusText = lineMode ? "╱ 선 모드 — 클릭으로 시작점, 다시 클릭으로 완성 · ESC 취소"
-    : channelMode ? "⫠ 채널 모드 — 1클릭:시작 · 2클릭:끝 · 3클릭:폭 확정 · ESC 취소"
-    : circleMode ? "○ 원 모드 — 1클릭:중심 · 2클릭:반지름 확정 · ESC 취소"
-    : drawMode ? "✎ 박스 모드 — 드래그해서 포지션 박스 생성 · ESC 취소"
-    : "";
-
   const sep = <div style={{ width:"1px", height:"14px", background:theme.borderSec, flexShrink:0, margin:"0 2px" }} />;
 
   return (
@@ -86,17 +80,6 @@ export function TopBar({ interval_, onIntervalChange, drawMode, onDrawModeToggle
         transition:"all 0.15s",
       }}>채널</button>
 
-      <button onClick={() => !locked && onDrawModeToggle()} style={{
-        height:"22px", padding:"0 7px", borderRadius:"3px",
-        cursor: locked ? "not-allowed" : "pointer", flexShrink:0,
-        fontSize:"12px", fontFamily:"inherit", fontWeight:"400",
-        background: drawMode ? "#a78bfa" : "transparent",
-        border:`1px solid ${drawMode ? "#a78bfa" : theme.textFaint}`,
-        color: locked ? theme.textDisabled : drawMode ? "#000" : theme.textMuted,
-        opacity: locked ? 0.4 : 1,
-        transition:"all 0.15s",
-      }}>박스</button>
-
       <button onClick={onLogToggle} style={{
         height:"22px", padding:"0 7px", borderRadius:"3px",
         cursor:"pointer", flexShrink:0,
@@ -124,16 +107,7 @@ export function TopBar({ interval_, onIntervalChange, drawMode, onDrawModeToggle
         color:theme.textMuted, transition:"all 0.15s",
       }}>{isDark ? "💡" : "🌙"}</button>
 
-      {/* Spacer — status hint centered */}
-      <div style={{ flex:1, minWidth:0, textAlign:"center" }}>
-        {statusText && (
-          <span style={{ fontSize:"11px", color:theme.textMuted,
-            whiteSpace:"nowrap", overflow:"hidden", display:"inline-block",
-            maxWidth:"100%", textOverflow:"ellipsis" }}>
-            {statusText}
-          </span>
-        )}
-      </div>
+      <div style={{ flex:1 }} />
 
       {/* 현재가 (오른쪽 고정) — price>0 조건: 타임프레임 전환 중 last=undefined가 되어도 레이아웃 유지 */}
       {price > 0 && (

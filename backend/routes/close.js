@@ -76,11 +76,11 @@ router.post("/", async (req, res) => {
   // 2) 시장가 청산
   try {
     const { data } = await binance("POST", "/fapi/v1/order", {
-      symbol:     "BTCUSDT",
-      side:       closeSide,
-      type:       "MARKET",
-      quantity:   closeQty.toFixed(3),
-      reduceOnly: "true",
+      symbol:       "BTCUSDT",
+      side:         closeSide,
+      positionSide: side,
+      type:         "MARKET",
+      quantity:     closeQty.toFixed(3),
     });
 
     // 3) 부분 청산 성공 → 분할 TP를 잔여 포지션 비율로 재등록
@@ -104,9 +104,9 @@ router.post("/", async (req, res) => {
           sumQty += newQty;
           try {
             const { data: newOrder } = await binance("POST", "/fapi/v1/order", {
-              symbol: "BTCUSDT", side: o.side, type: "LIMIT",
+              symbol: "BTCUSDT", side: o.side, positionSide: side, type: "LIMIT",
               price: o.price, quantity: newQty.toFixed(3),
-              timeInForce: "GTC", reduceOnly: "true",
+              timeInForce: "GTC",
             });
             store.set(String(newOrder.orderId), {
               status: "SPLIT_TP",
@@ -138,9 +138,9 @@ router.post("/", async (req, res) => {
       for (const o of splitTpOrders) {
         try {
           const { data: restored } = await binance("POST", "/fapi/v1/order", {
-            symbol: "BTCUSDT", side: o.side, type: "LIMIT",
+            symbol: "BTCUSDT", side: o.side, positionSide: side, type: "LIMIT",
             price: o.price, quantity: o.origQty,
-            timeInForce: "GTC", reduceOnly: "true",
+            timeInForce: "GTC",
           });
           store.set(String(restored.orderId), {
             status: "SPLIT_TP",

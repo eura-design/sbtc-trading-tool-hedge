@@ -169,18 +169,18 @@ export function buildHitChain(ctx) {
         setCurrent({ x1:pos.x, y1:pos.y, x2:pos.x, y2:pos.y });
       },
     },
-    // 4. TP/SL 드래그 (선 선택보다 우선)
+    // 4. TP/SL 드래그 (선 선택보다 우선) — 롱/숏 각각 처리
     {
-      when: hasPos && !!tpsl,
+      when: hasPos && !!tpsl && pos.x >= 0 && pos.x <= 60,
       handle() {
-        const tpPx = tpsl.tp ? yScale(tpsl.tp.price) : null;
-        const slPx = tpsl.sl ? yScale(tpsl.sl.price) : null;
-        if (tpPx !== null && Math.abs(pos.y-tpPx) < HIT && pos.x >= 0 && pos.x <= 60) {
-          dragRef.current = { type:"pos_tp", startY:pos.y, startPrice:tpsl.tp.price }; return true;
-        }
-        if (slPx !== null && Math.abs(pos.y-slPx) < HIT && pos.x >= 0 && pos.x <= 60) {
-          dragRef.current = { type:"pos_sl", startY:pos.y, startPrice:tpsl.sl.price }; return true;
-        }
+        const longTpPx  = tpsl.long?.tp  ? yScale(tpsl.long.tp.price)  : null;
+        const longSlPx  = tpsl.long?.sl  ? yScale(tpsl.long.sl.price)  : null;
+        const shortTpPx = tpsl.short?.tp ? yScale(tpsl.short.tp.price) : null;
+        const shortSlPx = tpsl.short?.sl ? yScale(tpsl.short.sl.price) : null;
+        if (longTpPx  !== null && Math.abs(pos.y-longTpPx)  < HIT) { dragRef.current = { type:"pos_tp", side:"LONG",  startY:pos.y, startPrice:tpsl.long.tp.price  }; return true; }
+        if (longSlPx  !== null && Math.abs(pos.y-longSlPx)  < HIT) { dragRef.current = { type:"pos_sl", side:"LONG",  startY:pos.y, startPrice:tpsl.long.sl.price  }; return true; }
+        if (shortTpPx !== null && Math.abs(pos.y-shortTpPx) < HIT) { dragRef.current = { type:"pos_tp", side:"SHORT", startY:pos.y, startPrice:tpsl.short.tp.price }; return true; }
+        if (shortSlPx !== null && Math.abs(pos.y-shortSlPx) < HIT) { dragRef.current = { type:"pos_sl", side:"SHORT", startY:pos.y, startPrice:tpsl.short.sl.price }; return true; }
         return false;
       },
     },

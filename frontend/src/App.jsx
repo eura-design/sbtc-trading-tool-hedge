@@ -24,8 +24,6 @@ import { useIndicatorParams }        from "./hooks/useIndicatorParams";
 import { useEMA }                    from "./hooks/useEMA";
 import { useKeyboardShortcuts }      from "./hooks/useKeyboardShortcuts";
 import { useShortcutSettings }      from "./hooks/useShortcutSettings";
-import { useScreenshot }            from "./hooks/useScreenshot";
-
 import { TopBar }       from "./components/TopBar";
 import { SidebarPanel } from "./components/Sidebar/SidebarPanel";
 import { ChartArea }    from "./components/ChartArea";
@@ -43,7 +41,10 @@ export default function App() {
     position,
   } = useStore();
 
-  const hasPos     = position?.open === true;
+  const hasLong    = !!position?.long;
+  const hasShort   = !!position?.short;
+  const hasPos     = hasLong || hasShort;
+  const hasBoth    = hasLong && hasShort;
   const hasPending = !!position?.pending;
 
   // ── 폴링 / 실시간 ────────────────────────────────────────────────────────
@@ -65,7 +66,11 @@ export default function App() {
   // ── drawing ↔ pending order 동기화 ────────────────────────────────────────
   useEffect(() => {
     if (!position) return;
-    if (hasPos && drawing)                               { setDrawing(null); return; }
+    // 헷지모드: 같은 사이드 포지션이 열렸을 때만 drawing 제거 (MARKET 진입)
+    if (drawing && !drawing.orderId) {
+      if (drawing.isLong  && position.long)  { setDrawing(null); return; }
+      if (!drawing.isLong && position.short) { setDrawing(null); return; }
+    }
     if (drawing?.orderId && !hasPending)                 { setDrawing(null); return; }
     if (hasPending && !drawing && position.pending?.drawing) {
       const d = { ...position.pending.drawing };
@@ -98,7 +103,6 @@ export default function App() {
   const { candles, candlesRef, loading: candleLoading } = useCandles(interval_, onTickRef);
 
   // ── 포지션 진입 스크린샷 ─────────────────────────────────────────────────
-  useScreenshot(position, chartActionsRef, candles);
 
   useTrendLineAlert(
     trendLines.lines,    candles, addLineAlert, trendLines.setLineAlertOff,
@@ -129,7 +133,7 @@ export default function App() {
   }, [divsByTF, interval_, candles]);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
-  const { deleteBox, closePosition, swapPosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp, openConfirm } = useOrderFlow();
+  const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp, openConfirm } = useOrderFlow();
 
   // ── 단축키 설정 ─────────────────────────────────────────────────────────
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcutSettings();
@@ -199,7 +203,7 @@ export default function App() {
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
           }}
           isDark={isDark} onThemeToggle={toggleTheme}
-          locked={hasPos || hasPending} hasPos={hasPos} hasPending={hasPending}
+          locked={hasBoth || hasPending} hasPos={hasPos} hasPending={hasPending}
           last={last} candleLoading={candleLoading}
           indicators={indicators} onIndicatorToggle={toggleIndicator}
           indicatorParams={indicatorParams} setIndicatorParam={setIndicatorParam}
@@ -263,11 +267,14 @@ export default function App() {
           openConfirm={openConfirm}
           onCancelOrder={deleteBox}
           onClosePosition={closePosition}
-          onSwapPosition={swapPosition}
           onScaleIn={scaleIn}
           onCancelScaleIn={cancelScaleIn}
           onAddSplitTp={addSplitTp}
           onCancelSplitTp={cancelSplitTp}
+          onDrawModeToggle={() => {
+            trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
+            setDrawMode(m => !m);
+          }}
         />
       </div>
 

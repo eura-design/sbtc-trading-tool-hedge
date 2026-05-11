@@ -10,12 +10,12 @@ const store                      = require("./store/pendingOrders");
 const push                       = require("./services/pushService");
 
 const app  = express();
-const PORT = 3001;
+const PORT = 3002;
 
 // CORS: 허용 origin 제한 (.env의 ALLOWED_ORIGINS 또는 개발 기본값)
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
-  : ["http://localhost:5173"];
+  : ["http://localhost:5174"];
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "10mb" }));
 
@@ -30,11 +30,9 @@ app.use("/api/tpsl",      require("./routes/tpsl"));
 app.use("/api/sr-levels", require("./routes/sr"));
 app.use("/api/stats",     require("./routes/stats"));
 app.use("/api/scale-in",   require("./routes/scalein"));
-app.use("/api/swap",       require("./routes/swap"));
 app.use("/api/indicator-params", require("./routes/indicatorparams"));
 app.use("/api/leverage",         require("./routes/leverage"));
 app.use("/api/daily-loss",       require("./routes/dailyloss"));
-app.use("/api/screenshot",       require("./routes/screenshot"));
 
 // ── 서버 시작 ─────────────────────────────────────────────────────────────────
 const server = app.listen(PORT, async () => {

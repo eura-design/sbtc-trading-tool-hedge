@@ -12,7 +12,6 @@ export function useOrderFlow() {
     saveTpsl:      s.saveTpsl,
     deleteBox:     s.deleteBox,
     closePosition: s.closePosition,
-    swapPosition:  s.swapPosition,
     scaleIn:       s.scaleIn,
     cancelScaleIn: s.cancelScaleIn,
     moveScaleIn:   s.moveScaleIn,

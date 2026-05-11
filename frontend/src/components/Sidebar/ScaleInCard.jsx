@@ -1,20 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../../ThemeContext";
 
-export function ScaleInCard({ position, lastPrice, onScaleIn, scaleInOrders, onCancelScaleIn }) {
+export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders, onCancelScaleIn, embedded }) {
   const { theme } = useTheme();
   const [orderType, setOrderType] = useState("LIMIT");
-  const [price, setPrice] = useState(() => String(Math.round(lastPrice || position?.entryPrice || 0)));
+  const [price, setPrice] = useState(() => String(Math.round(lastPrice || posData?.entryPrice || 0)));
   const [pct,   setPct]   = useState(() => Number(localStorage.getItem("scaleInPct")) || 50);
 
-  const isLong         = position?.side === "LONG";
+  const isLong         = side === "LONG";
   const userEditedRef  = useRef(false);
   const lastPriceRef   = useRef(lastPrice);
   const resumeTimerRef = useRef(null);
   lastPriceRef.current = lastPrice;
 
-  // LIMIT 모드일 때 5초마다 현재가 ±2% 자동 계산
-  // 사용자가 직접 입력하면 1분 후 자동 계산 재개, LIMIT 재진입 시 즉시 초기화
   useEffect(() => {
     if (orderType !== "LIMIT") return;
     userEditedRef.current = false;
@@ -29,12 +27,13 @@ export function ScaleInCard({ position, lastPrice, onScaleIn, scaleInOrders, onC
     return () => { clearInterval(id); clearTimeout(resumeTimerRef.current); };
   }, [orderType, isLong]);
 
-  if (!position?.open) return null;
+  if (!posData) return null;
+
   const color    = isLong ? "#0ecb81" : "#f6465d";
-  const addQty   = parseFloat((position.size * pct / 100).toFixed(3));
+  const addQty   = parseFloat((posData.size * pct / 100).toFixed(3));
   const refPrice = orderType === "MARKET" ? (lastPrice || 0) : (parseFloat(price) || 0);
   const avgPrice = refPrice > 0
-    ? (position.size * position.entryPrice + addQty * refPrice) / (position.size + addQty)
+    ? (posData.size * posData.entryPrice + addQty * refPrice) / (posData.size + addQty)
     : null;
   const priceNum    = parseFloat(price);
   const directionOk = orderType === "MARKET" || (
@@ -53,16 +52,8 @@ export function ScaleInCard({ position, lastPrice, onScaleIn, scaleInOrders, onC
     transition:"background 0.15s",
   });
 
-  return (
-    <div style={{ padding:"10px", border:`1px solid ${theme.borderSec}`,
-      borderRadius:"5px", marginBottom:"10px" }}>
-
-      <div style={{ fontSize:"12px", color:theme.textMuted, fontWeight:"600",
-        letterSpacing:"0.05em", marginBottom:"8px" }}>
-        추가 진입
-      </div>
-
-      {/* 대기 중인 추가 진입 주문 목록 */}
+  const content = (
+    <>
       {scaleInOrders?.map(o => (
         <div key={o.orderId} style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
           padding:"5px 8px", marginBottom:"4px", borderRadius:"4px",
@@ -77,14 +68,12 @@ export function ScaleInCard({ position, lastPrice, onScaleIn, scaleInOrders, onC
         </div>
       ))}
 
-      {/* LIMIT / MARKET 토글 */}
       <div style={{ display:"flex", gap:"4px", marginBottom:"8px",
         background:theme.bgCard, borderRadius:"4px", padding:"2px" }}>
         <button style={btnStyle(orderType === "LIMIT")}  onClick={() => setOrderType("LIMIT")}>LIMIT</button>
         <button style={btnStyle(orderType === "MARKET")} onClick={() => setOrderType("MARKET")}>MARKET</button>
       </div>
 
-      {/* 가격 입력 (LIMIT만) */}
       {orderType === "LIMIT" && (
         <>
           <div style={{ display:"flex", alignItems:"center", gap:"6px", marginBottom: priceNum > 0 && !directionOk ? "4px" : "8px" }}>
@@ -94,18 +83,14 @@ export function ScaleInCard({ position, lastPrice, onScaleIn, scaleInOrders, onC
               onChange={e => {
                 userEditedRef.current = true;
                 setPrice(e.target.value);
-                // 기존 재개 타이머 초기화 후 1분 뒤 자동 계산 재개
                 clearTimeout(resumeTimerRef.current);
-                resumeTimerRef.current = setTimeout(() => {
-                  userEditedRef.current = false;
-                }, 60000);
+                resumeTimerRef.current = setTimeout(() => { userEditedRef.current = false; }, 60000);
               }}
               style={{
                 flex:1, padding:"4px 6px", borderRadius:"4px",
                 background:theme.bgCard,
                 border:`1px solid ${priceNum > 0 && !directionOk ? "#f6465d" : theme.borderSec}`,
-                color:theme.textPrimary, fontSize:"12px", fontFamily:"inherit",
-                outline:"none",
+                color:theme.textPrimary, fontSize:"12px", fontFamily:"inherit", outline:"none",
               }}
             />
           </div>
@@ -117,7 +102,6 @@ export function ScaleInCard({ position, lastPrice, onScaleIn, scaleInOrders, onC
         </>
       )}
 
-      {/* 수량 슬라이더 */}
       <div style={{ marginBottom:"6px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"4px" }}>
           <span style={{ fontSize:"11px", color:theme.textMuted }}>추가 수량</span>
@@ -140,7 +124,6 @@ export function ScaleInCard({ position, lastPrice, onScaleIn, scaleInOrders, onC
         </div>
       </div>
 
-      {/* 예상 평균가 */}
       {avgPrice && (
         <div style={{ display:"flex", justifyContent:"space-between",
           padding:"3px 0", marginBottom:"6px", borderBottom:`1px solid ${theme.border}` }}>
@@ -170,6 +153,19 @@ export function ScaleInCard({ position, lastPrice, onScaleIn, scaleInOrders, onC
           ? (isLong ? "▲ 시장가 추가 매수" : "▼ 시장가 추가 매도")
           : (isLong ? "▲ 지정가 추가 매수" : "▼ 지정가 추가 매도")}
       </button>
+    </>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <div style={{ padding:"10px", border:`1px solid ${theme.borderSec}`,
+      borderRadius:"5px", marginBottom:"10px" }}>
+      <div style={{ fontSize:"12px", color:theme.textMuted, fontWeight:"600",
+        letterSpacing:"0.05em", marginBottom:"8px" }}>
+        추가 진입
+      </div>
+      {content}
     </div>
   );
 }

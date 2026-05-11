@@ -68,22 +68,28 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
-  saveTpsl: async (newTp, newSl) => {
+  saveTpsl: async (newTp, newSl, dragSide) => {
     const { position, tpsl, tpslSaving, setTpslSaving, setTpsl, setOrderStatus, setDragTpsl } = get();
     if (!position || tpslSaving) return;
     if (!newTp && !newSl) return;
-    const side = position.side === "LONG" ? "BUY" : "SELL";
-    const body = { side };
-    if (newTp) { body.tp = newTp; body.tpOrderId = tpsl.tp?.orderId; body.tpIsAlgo = tpsl.tp?.isAlgo; }
-    if (newSl) { body.sl = newSl; body.slOrderId = tpsl.sl?.orderId; body.slIsAlgo = tpsl.sl?.isAlgo; }
+    const positionSide = dragSide ?? (position.long ? "LONG" : "SHORT");
+    const sideKey  = positionSide === "LONG" ? "long" : "short";
+    const entrySide = positionSide === "LONG" ? "BUY" : "SELL";
+    const activeTpsl = tpsl[sideKey] ?? { tp: null, sl: null };
+    const body = { side: entrySide };
+    if (newTp) { body.tp = newTp; body.tpOrderId = activeTpsl.tp?.orderId; body.tpIsAlgo = activeTpsl.tp?.isAlgo; }
+    if (newSl) { body.sl = newSl; body.slOrderId = activeTpsl.sl?.orderId; body.slIsAlgo = activeTpsl.sl?.isAlgo; }
     setTpslSaving(true); setOrderStatus(null);
     try {
       const data = await api("PUT", "/api/tpsl", body);
-      setTpsl({
-        tp:       newTp ? data.tp : tpsl.tp,
-        sl:       newSl ? data.sl : tpsl.sl,
-        splitTps: tpsl.splitTps ?? [],
-      });
+      setTpsl(prev => ({
+        ...prev,
+        [sideKey]: {
+          ...prev[sideKey],
+          tp: newTp ? data.tp : prev[sideKey]?.tp,
+          sl: newSl ? data.sl : prev[sideKey]?.sl,
+        },
+      }));
       if (data.noSl) {
         setOrderStatus({ type: "error", msg: "⚠ SL 등록 실패 — 포지션에 SL이 없습니다! 즉시 수동 설정 필요" });
       } else {
@@ -180,15 +186,15 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
-  addSplitTp: async (price, qty, pct) => {
-    const { position, tpsl, setTpsl, setOrderStatus, _refetchTpsl } = get();
+  addSplitTp: async (side, price, qty, pct) => {
+    const { tpsl, setTpsl, setOrderStatus, _refetchTpsl } = get();
     setOrderStatus(null);
     try {
-      const side = position.side;
-      const tpOrderId = tpsl.tp?.orderId ?? null;
-      const tpIsAlgo  = tpsl.tp?.isAlgo  ?? false;
+      const sideKey   = side === "LONG" ? "long" : "short";
+      const tpOrderId = tpsl[sideKey]?.tp?.orderId ?? null;
+      const tpIsAlgo  = tpsl[sideKey]?.tp?.isAlgo  ?? false;
       await api("POST", "/api/tpsl/split", { side, price, qty, pct, tpOrderId, tpIsAlgo });
-      if (tpOrderId) setTpsl(prev => ({ ...prev, tp: null }));
+      if (tpOrderId) setTpsl(prev => ({ ...prev, [sideKey]: { ...prev[sideKey], tp: null } }));
       setOrderStatus({ type: "success", msg: `분할 TP 등록 완료 ($${price?.toLocaleString()})` });
       setTimeout(() => { _refetchTpsl(); }, 500);
     } catch (e) {
@@ -209,41 +215,21 @@ export const createOrderSlice = (set, get) => ({
   },
 
   moveSplitTp: async (orderId, newPrice) => {
-    const { tpsl, position, setOrderStatus, _refetchTpsl } = get();
-    const target = (tpsl.splitTps ?? []).find(o => o.orderId === orderId);
+    const { tpsl, setOrderStatus, _refetchTpsl } = get();
+    const allSplitTps = [...(tpsl.long?.splitTps ?? []), ...(tpsl.short?.splitTps ?? [])];
+    const target = allSplitTps.find(o => o.orderId === orderId);
     if (!target) return;
+    // target.side is close side: "SELL" = closing LONG, "BUY" = closing SHORT
+    const side = target.side === "SELL" ? "LONG" : "SHORT";
     try {
       await api("DELETE", "/api/tpsl/split", { orderId });
       await api("POST", "/api/tpsl/split", {
-        side: position.side, price: newPrice, qty: target.qty, pct: target.pct,
+        side, price: newPrice, qty: target.qty, pct: target.pct,
       });
       setOrderStatus({ type: "success", msg: `분할 TP 가격 이동 완료 ($${newPrice?.toLocaleString()})` });
       setTimeout(() => { _refetchTpsl(); }, 500);
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 TP 이동 실패: ${e.message}` });
-    }
-  },
-
-  swapPosition: async (lastPrice) => {
-    const { leverage, setOrderStatus, setCriticalAlert, setDrawing, _refetchBal, _refetchPos, _refetchTpsl } = get();
-    setOrderStatus(null);
-    try {
-      const data = await api("POST", "/api/swap", { lastPrice, leverage });
-      setDrawing(null);
-      const dir = data.newSide === "LONG" ? "SHORT → LONG" : "LONG → SHORT";
-      const msg = data.warning
-        ? `스왑 완료 (${dir}) — ⚠ ${data.warning}`
-        : `스왑 완료 (${dir}) — TP $${data.tp.toLocaleString()} / SL $${data.sl.toLocaleString()}`;
-      setOrderStatus({ type: data.warning ? "error" : "success", msg });
-      setTimeout(() => { _refetchBal(); _refetchPos(); _refetchTpsl(); }, 1000);
-    } catch (e) {
-      if (e.message?.includes("청산 완료, 반대 진입 실패")) {
-        setCriticalAlert("청산은 완료됐지만 반대 진입 실패 — 수동 진입 필요");
-        setDrawing(null);
-        setTimeout(() => { _refetchBal(); _refetchPos(); _refetchTpsl(); }, 1000);
-      } else {
-        setOrderStatus({ type: "error", msg: `스왑 실패: ${e.message}` });
-      }
     }
   },
 
@@ -270,6 +256,6 @@ export const createOrderSlice = (set, get) => ({
       }
     }
     setDrawing(null);
-    setPosition(prev => prev?.open ? { ...prev, pending: null } : { open: false, pending: null });
+    setPosition(prev => prev ? { ...prev, pending: null } : null);
   },
 });

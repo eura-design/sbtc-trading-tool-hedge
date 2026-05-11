@@ -1,7 +1,8 @@
 const axios  = require("axios");
 const crypto = require("crypto");
 
-const BASE = "https://fapi.binance.com";
+// const BASE = "https://fapi.binance.com";
+const BASE = "https://demo-fapi.binance.com";
 
 let _timeOffset  = 0;   // 로컬 시간 - 바이낸스 서버 시간 (ms)
 let _bannedUntil = 0;   // IP 밴 해제 시각 (ms, 0 = 밴 없음)
@@ -90,8 +91,10 @@ async function placeTPSL({ closeSide, tp, sl }) {
     }
   }
 
+  const positionSide = closeSide === "SELL" ? "LONG" : "SHORT";
+
   const tpResult = await tryPlace("TP", {
-    algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide,
+    algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
     type: "TAKE_PROFIT_MARKET", triggerPrice: roundPrice(tp),
     closePosition: "true", workingType: "MARK_PRICE",
   });
@@ -99,7 +102,7 @@ async function placeTPSL({ closeSide, tp, sl }) {
   else results.failed.push({ type: "TP", error: tpResult?.error || "실패" });
 
   const slResult = await tryPlace("SL", {
-    algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide,
+    algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
     type: "STOP_MARKET", triggerPrice: roundPrice(sl),
     closePosition: "true", workingType: "MARK_PRICE",
   });
@@ -109,7 +112,7 @@ async function placeTPSL({ closeSide, tp, sl }) {
   return results;
 }
 
-async function checkExistingTPSL() {
+async function checkExistingTPSL(positionSide) {
   try {
     const [regularRes, algoRes] = await Promise.allSettled([
       binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
@@ -118,8 +121,18 @@ async function checkExistingTPSL() {
     const regular = regularRes.status === "fulfilled" ? regularRes.value.data : [];
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
     const algo    = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
-    const hasTP   = regular.some(o => o.type === "TAKE_PROFIT_MARKET") || algo.some(o => o.orderType === "TAKE_PROFIT_MARKET");
-    const hasSL   = regular.some(o => o.type === "STOP_MARKET")        || algo.some(o => o.orderType === "STOP_MARKET");
+
+    // 헤지 모드: positionSide 지정 시 해당 방향 주문만 확인
+    const closeSide = positionSide === "LONG" ? "SELL" : positionSide === "SHORT" ? "BUY" : null;
+    const matchReg  = o => !positionSide || o.positionSide === positionSide;
+    const matchAlgo = o => !positionSide ||
+      o.positionSide === positionSide ||
+      (!o.positionSide && closeSide && o.side === closeSide);
+
+    const hasTP = regular.filter(matchReg).some(o => o.type === "TAKE_PROFIT_MARKET") ||
+                  algo.filter(matchAlgo).some(o => o.orderType === "TAKE_PROFIT_MARKET");
+    const hasSL = regular.filter(matchReg).some(o => o.type === "STOP_MARKET") ||
+                  algo.filter(matchAlgo).some(o => o.orderType === "STOP_MARKET");
     return hasTP || hasSL;
   } catch { return false; }
 }

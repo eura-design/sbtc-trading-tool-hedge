@@ -13,9 +13,11 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "LIMIT 주문에는 price 필요" });
   }
   try {
+    const positionSide = side === "BUY" ? "LONG" : "SHORT";
     const params = {
       symbol:   "BTCUSDT",
       side,
+      positionSide,
       type:     orderType,
       quantity: parseFloat(quantity).toFixed(3),
       ...(orderType === "LIMIT" && { price: roundPrice(price), timeInForce: "GTC" }),

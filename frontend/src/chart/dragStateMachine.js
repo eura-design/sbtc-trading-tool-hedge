@@ -133,24 +133,24 @@ export const DRAG_HANDLERS = {
   },
 
   pos_tp: {
-    onMove({ pos, scales, IH, setters }) {
+    onMove({ pos, scales, IH, setters, drag }) {
       const newPrice = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
-      setters.setDragTpsl({ type: "tp", price: newPrice });
+      setters.setDragTpsl({ type: "tp", price: newPrice, side: drag.side });
       setters.setCursor("ns-resize");
     },
     onUp({ setters, state }) {
-      if (state.dragTpsl) setters.saveTpsl(state.dragTpsl.price, null);
+      if (state.dragTpsl) setters.saveTpsl(state.dragTpsl.price, null, state.dragTpsl.side);
     },
   },
 
   pos_sl: {
-    onMove({ pos, scales, IH, setters }) {
+    onMove({ pos, scales, IH, setters, drag }) {
       const newPrice = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
-      setters.setDragTpsl({ type: "sl", price: newPrice });
+      setters.setDragTpsl({ type: "sl", price: newPrice, side: drag.side });
       setters.setCursor("ns-resize");
     },
     onUp({ setters, state }) {
-      if (state.dragTpsl) setters.saveTpsl(null, state.dragTpsl.price);
+      if (state.dragTpsl) setters.saveTpsl(null, state.dragTpsl.price, state.dragTpsl.side);
     },
   },
 

@@ -23,8 +23,9 @@ router.post("/", validateOrder, async (req, res) => {
     }
 
     // 2) 진입 주문
+    const positionSide = side === "BUY" ? "LONG" : "SHORT";
     const entryParams = {
-      symbol: "BTCUSDT", side, type: orderType,
+      symbol: "BTCUSDT", side, positionSide, type: orderType,
       quantity: parseFloat(quantity).toFixed(3),
       ...(orderType === "LIMIT" && { price: roundPrice(entry), timeInForce: "GTC" }),
     };

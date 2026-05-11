@@ -157,8 +157,10 @@ async function reconcileWithBinance() {
         // 포지션이 없으면 해당 항목은 더 이상 유효하지 않음 → 제거
         for (const [orderId] of retryable) store.delete(orderId);
       } else {
-        const hasTpsl = await checkExistingTPSL();
         for (const [orderId, info] of retryable) {
+          // 헤지 모드: 해당 포지션 방향의 TP/SL만 확인
+          const orderPosSide = info.closeSide === "SELL" ? "LONG" : "SHORT";
+          const hasTpsl = await checkExistingTPSL(orderPosSide);
           if (hasTpsl) {
             // TP/SL이 이미 등록돼 있으면 PLACED로 전환
             store.set(orderId, { ...info, status: "TPSL_PLACED" });
@@ -250,7 +252,8 @@ function connectUserDataStream(listenKey) {
     try { userDataWS.terminate(); } catch {}
   }
 
-  userDataWS = new WebSocket(`wss://fstream.binance.com/ws/${listenKey}`);
+  // userDataWS = new WebSocket(`wss://fstream.binance.com/ws/${listenKey}`);
+  userDataWS = new WebSocket(`wss://demo-fstream.binance.com/ws/${listenKey}`);
 
   userDataWS.on("open", () => {
     stopPolling();

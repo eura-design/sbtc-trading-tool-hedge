@@ -21,8 +21,10 @@ async function recoverPendingOrders() {
         continue;
       }
 
-      // reduceOnly LIMIT = SPLIT_TP (이전 재시작으로 상태 손상된 경우 포함)
-      if (o.reduceOnly === true) {
+      // 헤지 모드: closing LIMIT = SPLIT_TP (이전 재시작으로 상태 손상된 경우 포함)
+      const isClosingLimit = (o.side === "SELL" && o.positionSide === "LONG") ||
+                             (o.side === "BUY"  && o.positionSide === "SHORT");
+      if (isClosingLimit) {
         store.set(String(o.orderId), {
           status: "SPLIT_TP",
           price:  parseFloat(o.price),
@@ -72,7 +74,8 @@ async function recoverPendingOrders() {
           const pos = posData.find(p => parseFloat(p.positionAmt) !== 0);
 
           if (pos) {
-            const hasTpsl = await checkExistingTPSL();
+            const orderPosSide = info.closeSide === "SELL" ? "LONG" : "SHORT";
+            const hasTpsl = await checkExistingTPSL(orderPosSide);
             if (!hasTpsl) {
               const tpsl = await placeTPSL(info);
               if (tpsl.failed.length > 0) {
@@ -100,7 +103,11 @@ async function recoverPendingOrders() {
     const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
     const openPos = posCheck.find(p => parseFloat(p.positionAmt) !== 0);
     if (openPos) {
-      const hasTpsl = await checkExistingTPSL();
+      // positionSide 필드 없으면 positionAmt 부호로 판단
+      const openPosSide = openPos.positionSide === "LONG" || openPos.positionSide === "SHORT"
+        ? openPos.positionSide
+        : parseFloat(openPos.positionAmt) > 0 ? "LONG" : "SHORT";
+      const hasTpsl = await checkExistingTPSL(openPosSide);
       if (!hasTpsl) {
         console.error("==================================================");
         console.error("[안전망] 포지션이 열려 있지만 TP/SL이 없습니다!");

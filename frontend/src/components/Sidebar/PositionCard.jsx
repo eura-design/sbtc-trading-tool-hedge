@@ -1,63 +1,116 @@
-﻿import * as d3 from "d3";
+import * as d3 from "d3";
 import { useState } from "react";
 import { useTheme } from "../../ThemeContext";
+import { ScaleInCard } from "./ScaleInCard";
+import { SplitTPCard } from "./SplitTPCard";
 
+function AccordionSection({ label, badge, isOpen, onToggle, theme, posColor, children }) {
+  return (
+    <>
+      <button
+        onClick={onToggle}
+        style={{
+          width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
+          padding:"8px 0 6px", background:"transparent", border:"none", cursor:"pointer",
+          borderTop:`1px solid ${theme.border}`,
+        }}
+      >
+        <span style={{ fontSize:"12px", color:theme.textMuted, fontWeight:"600", letterSpacing:"0.05em" }}>
+          {label}
+          {badge != null && badge > 0 && (
+            <span style={{
+              marginLeft:"6px", fontSize:"10px", fontWeight:"700",
+              color:"#60a5fa", background:"#60a5fa22",
+              padding:"1px 5px", borderRadius:"8px",
+            }}>{badge}</span>
+          )}
+        </span>
+        <span style={{ fontSize:"10px", color:theme.textFaint }}>{isOpen ? "▲" : "▼"}</span>
+      </button>
+      {isOpen && (
+        <div style={{ paddingTop:"8px" }}>
+          {children}
+        </div>
+      )}
+    </>
+  );
+}
 
-export function PositionCard({ position, tpsl, tpslSaving, onClose, onSwap, lastPrice }) {
+export function PositionCard({
+  posData, side, tpsl, tpslSaving, onClose, lastPrice,
+  scaleInOrders, onScaleIn, onCancelScaleIn,
+  onAddSplitTp, onCancelSplitTp,
+}) {
   const { theme } = useTheme();
   const [closePct, setClosePct] = useState(() => Number(localStorage.getItem("closePct")) || 100);
   const handleClosePct = v => { setClosePct(v); localStorage.setItem("closePct", v); };
-  const [confirming, setConfirming]         = useState(false);
-  const [swapConfirming, setSwapConfirming] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [scaleInOpen, setScaleInOpen] = useState(false);
+  const [splitTPOpen, setSplitTPOpen] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
-  if (!position?.open) return null;
+  if (!posData) return null;
 
   const fmtI = p => `$${d3.format(",.0f")(p)}`;
   const fmt  = p => `$${d3.format(",.2f")(p)}`;
 
-  const isLong     = position.side === "LONG";
+  const isLong     = side === "LONG";
   const posColor   = isLong ? "#0ecb81" : "#f6465d";
   const tpPrice    = tpsl.tp?.price ?? null;
   const slPrice    = tpsl.sl?.price ?? null;
-  const slInProfit = slPrice !== null && (isLong ? slPrice >= position.entryPrice : slPrice <= position.entryPrice);
+  const slInProfit = slPrice !== null && (isLong ? slPrice >= posData.entryPrice : slPrice <= posData.entryPrice);
   const rrVal      = (tpPrice && slPrice)
     ? slInProfit ? "∞"
-    : (Math.abs(tpPrice - position.entryPrice) / Math.abs(slPrice - position.entryPrice)).toFixed(2)
+    : (Math.abs(tpPrice - posData.entryPrice) / Math.abs(slPrice - posData.entryPrice)).toFixed(2)
     : null;
   const slPnl = slPrice
-    ? position.size * (isLong ? slPrice - position.entryPrice : position.entryPrice - slPrice)
+    ? posData.size * (isLong ? slPrice - posData.entryPrice : posData.entryPrice - slPrice)
     : null;
 
-  const closeQty = parseFloat((position.size * closePct / 100).toFixed(3));
+  const closeQty = parseFloat((posData.size * closePct / 100).toFixed(3));
+  const splitTpCount = tpsl?.splitTps?.length ?? 0;
 
   return (
-    <div style={{ marginBottom:"12px" }}>
-      <div style={{ padding:"10px",
-        border:`1px solid ${posColor}33`, borderLeft:`2px solid ${posColor}`,
-        borderRadius:"5px", marginBottom:"10px" }}>
-        <div style={{ fontSize:"13px", color:posColor, fontWeight:"700", marginBottom:"8px" }}>
+    <div style={{
+      marginBottom:"12px", padding:"10px",
+      border:`1px solid ${posColor}33`, borderLeft:`2px solid ${posColor}`,
+      borderRadius:"5px",
+    }}>
+      {/* 포지션 헤더 — 클릭으로 접기/펼치기 */}
+      <button
+        onClick={() => setExpanded(v => !v)}
+        style={{
+          width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
+          background:"transparent", border:"none", cursor:"pointer", padding:0,
+          marginBottom: expanded ? "8px" : 0,
+        }}
+      >
+        <span style={{ fontSize:"13px", color:posColor, fontWeight:"700" }}>
           {isLong ? "▲ LONG" : "▼ SHORT"} 포지션
+        </span>
+        <span style={{ fontSize:"10px", color:theme.textFaint }}>{expanded ? "▲" : "▼"}</span>
+      </button>
+
+      {expanded && <>
+      {/* 포지션 정보 rows */}
+      {[
+        ["청산가",     posData.liquidationPrice ? fmtI(posData.liquidationPrice) : "—",                     "#ff4444"],
+        ["손익비 R:R", rrVal ? `1 : ${rrVal}` : "—",                                                        "#a78bfa"],
+        ["수량",       `${posData.size} BTC`,                                                                "#94a3b8"],
+        ["포지션 USD", fmtI(posData.size * posData.entryPrice),                                              "#94a3b8"],
+        ["예상 손실",  slPnl !== null ? `${slPnl >= 0 ? "+" : ""}${fmt(slPnl)}` : "—",                      slPnl !== null && slPnl >= 0 ? "#0ecb81" : "#f6465d"],
+        ["예상 수익",  tpPrice ? `+${fmt(posData.size * Math.abs(tpPrice - posData.entryPrice))}` : "—",    "#0ecb81"],
+        ["미실현",     `${posData.unrealizedPnl>=0?"+":""}${fmt(posData.unrealizedPnl)}`,                   posData.unrealizedPnl >= 0 ? "#0ecb81" : "#f6465d"],
+      ].map(([l, v, c]) => (
+        <div key={l} style={{ display:"flex", justifyContent:"space-between",
+          padding:"3px 0", borderBottom:`1px solid ${theme.border}` }}>
+          <span style={{ fontSize:"12px", color:theme.textMuted }}>{l}</span>
+          <span style={{ fontSize:"13px", color:c, fontWeight:"600" }}>{v}</span>
         </div>
-        {[
-          ["청산가",     position.liquidationPrice ? fmtI(position.liquidationPrice) : "—",                      "#ff4444"],
-          ["손익비 R:R", rrVal ? `1 : ${rrVal}` : "—",                                                           "#a78bfa"],
-          ["수량",       `${position.size} BTC`,                                                                   "#94a3b8"],
-          ["포지션 USD", fmtI(position.size * position.entryPrice),                                               "#94a3b8"],
-          ["예상 손실",  slPnl !== null ? `${slPnl >= 0 ? "+" : ""}${fmt(slPnl)}` : "—",                         slPnl !== null && slPnl >= 0 ? "#0ecb81" : "#f6465d"],
-          ["예상 수익",  tpPrice ? `+${fmt(position.size * Math.abs(tpPrice - position.entryPrice))}` : "—",     "#0ecb81"],
-          ["미실현",     `${position.unrealizedPnl>=0?"+":""}${fmt(position.unrealizedPnl)}`,                    position.unrealizedPnl >= 0 ? "#0ecb81" : "#f6465d"],
-        ].map(([l, v, c]) => (
-          <div key={l} style={{ display:"flex", justifyContent:"space-between",
-            padding:"3px 0", borderBottom:`1px solid ${theme.border}` }}>
-            <span style={{ fontSize:"12px", color:theme.textMuted }}>{l}</span>
-            <span style={{ fontSize:"13px", color:c, fontWeight:"600" }}>{v}</span>
-          </div>
-        ))}
+      ))}
 
-      </div>
-
-      {/* 청산 슬라이더 */}
-      <div style={{ marginBottom:"8px", display:"flex", flexDirection:"column", gap:"6px" }}>
+      {/* 청산 */}
+      <div style={{ marginTop:"10px", display:"flex", flexDirection:"column", gap:"6px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <span style={{ fontSize:"12px", color:theme.textMuted, letterSpacing:"0.06em" }}>시장가 청산</span>
           <span style={{ fontSize:"15px", color:posColor, fontWeight:"700" }}>
@@ -78,7 +131,7 @@ export function PositionCard({ position, tpsl, tpslSaving, onClose, onSwap, last
         {confirming ? (
           <div style={{ display:"flex", gap:"6px" }}>
             <button
-              onClick={() => { setConfirming(false); onClose(position.side, closeQty, closePct < 100); }}
+              onClick={() => { setConfirming(false); onClose(side, closeQty, closePct < 100); }}
               style={{
                 flex:1, padding:"9px 0", borderRadius:"5px",
                 cursor:"pointer", fontFamily:"inherit",
@@ -114,62 +167,59 @@ export function PositionCard({ position, tpsl, tpslSaving, onClose, onSwap, last
         )}
       </div>
 
-      {/* 스왑 */}
-      {swapConfirming ? (
-        <div style={{ marginBottom:"8px", padding:"10px", borderRadius:"5px",
-          background: theme.bgCardAlt, border:`1px solid #a78bfa44` }}>
-          <div style={{ fontSize:"12px", color:"#a78bfa", fontWeight:"700", marginBottom:"6px" }}>
-            ⇄ {isLong ? "LONG → SHORT" : "SHORT → LONG"} 스왑
-          </div>
-          <div style={{ fontSize:"11px", color:theme.textMuted, marginBottom:"8px", lineHeight:"1.8" }}>
-            수량 {position.size} BTC<br />
-            TP {lastPrice ? `$${Math.round(lastPrice * (isLong ? 0.98 : 1.02)).toLocaleString()}` : "—"}<br />
-            SL {lastPrice ? `$${Math.round(lastPrice * (isLong ? 1.02 : 0.98)).toLocaleString()}` : "—"}
-          </div>
-          <div style={{ display:"flex", gap:"6px" }}>
-            <button
-              onClick={() => { setSwapConfirming(false); onSwap(lastPrice); }}
-              style={{
-                flex:1, padding:"8px 0", borderRadius:"5px",
-                cursor:"pointer", fontFamily:"inherit",
-                fontSize:"12px", fontWeight:"700",
-                background:"#a78bfa", border:"none", color:"#000",
-              }}
-            >✓ 확인</button>
-            <button
-              onClick={() => setSwapConfirming(false)}
-              style={{
-                flex:1, padding:"8px 0", borderRadius:"5px",
-                cursor:"pointer", fontFamily:"inherit",
-                fontSize:"12px", fontWeight:"700",
-                background:"transparent", border:`1px solid ${theme.borderSec}`, color:theme.textMuted,
-              }}
-            >✕ 취소</button>
-          </div>
-        </div>
-      ) : (
-        <button
-          onClick={() => { setConfirming(false); setSwapConfirming(true); }}
-          style={{
-            width:"100%", padding:"8px 0", borderRadius:"5px", marginBottom:"8px",
-            cursor:"pointer", fontFamily:"inherit",
-            fontSize:"12px", fontWeight:"700",
-            background:"transparent", border:`1px solid #a78bfa66`, color:"#a78bfa",
-            transition:"background 0.15s",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background="#a78bfa22"; }}
-          onMouseLeave={e => { e.currentTarget.style.background="transparent"; }}
-        >
-          ⇄ {isLong ? "LONG → SHORT" : "SHORT → LONG"} 스왑
-        </button>
-      )}
-
       {tpslSaving && (
-        <div style={{ padding:"8px 10px", background:theme.bgWarning, border:"1px solid #f0b90b33",
-          borderRadius:"5px", fontSize:"12px", color:"#f0b90b", textAlign:"center" }}>
+        <div style={{ marginTop:"8px", padding:"8px 10px", background:theme.bgWarning,
+          border:"1px solid #f0b90b33", borderRadius:"5px",
+          fontSize:"12px", color:"#f0b90b", textAlign:"center" }}>
           ⏳ TP/SL 수정 중...
         </div>
       )}
+
+      {/* 아코디언: 추가 진입 */}
+      <AccordionSection
+        label="추가 진입"
+        badge={scaleInOrders?.length}
+        isOpen={scaleInOpen}
+        onToggle={() => setScaleInOpen(v => !v)}
+        theme={theme}
+        posColor={posColor}
+      >
+        <ScaleInCard
+          embedded
+          posData={posData}
+          side={side}
+          lastPrice={lastPrice}
+          onScaleIn={onScaleIn}
+          scaleInOrders={scaleInOrders}
+          onCancelScaleIn={onCancelScaleIn}
+        />
+      </AccordionSection>
+
+      {/* 아코디언: 분할 TP */}
+      <AccordionSection
+        label="분할 TP"
+        badge={splitTpCount}
+        isOpen={splitTPOpen}
+        onToggle={() => setSplitTPOpen(v => !v)}
+        theme={theme}
+        posColor={posColor}
+      >
+        {tpsl?.tp && (
+          <div style={{ fontSize:"10px", color:"#f0b90b", marginBottom:"6px" }}>
+            등록 시 단일 TP 취소됨
+          </div>
+        )}
+        <SplitTPCard
+          embedded
+          posData={posData}
+          side={side}
+          tpsl={tpsl}
+          lastPrice={lastPrice}
+          onAddSplitTp={onAddSplitTp}
+          onCancelSplitTp={onCancelSplitTp}
+        />
+      </AccordionSection>
+      </>}
     </div>
   );
 }
@@ -177,23 +227,36 @@ export function PositionCard({ position, tpsl, tpslSaving, onClose, onSwap, last
 export function PendingCard({ pending }) {
   const { theme } = useTheme();
   if (!pending) return null;
+
+  const isLong   = pending.side === "BUY";
+  const posColor = isLong ? "#0ecb81" : "#f6465d";
+  const fmtI     = p => `$${d3.format(",.0f")(p)}`;
+
   return (
-    <div style={{ padding:"10px", background:theme.bgCardAlt, border:"1px solid #f0b90b33",
-      borderLeft:"2px solid #f0b90b", borderRadius:"5px", marginBottom:"12px" }}>
-      <div style={{ fontSize:"13px", color:"#f0b90b", fontWeight:"700", marginBottom:"6px" }}>
-        ⏳ 체결 대기중
+    <div style={{
+      marginBottom:"12px", padding:"10px",
+      border:`1px solid ${posColor}33`, borderLeft:`2px solid ${posColor}`,
+      borderRadius:"5px",
+    }}>
+      <div style={{ fontSize:"13px", color:posColor, fontWeight:"700", marginBottom:"8px" }}>
+        {isLong ? "▲ LONG" : "▼ SHORT"} 체결 대기중
       </div>
-      <div style={{ fontSize:"12px", color:"#4b5563" }}>
-        방향 <span style={{ color: pending.side==="BUY" ? "#0ecb81" : "#f6465d", fontWeight:"600" }}>
-          {pending.side==="BUY" ? "LONG" : "SHORT"}
-        </span> / {pending.qty} BTC
-      </div>
-      {pending.price && (
-        <div style={{ fontSize:"11px", color:"#6b7280", marginTop:"4px" }}>
-          진입가 ${pending.price.toLocaleString()}
+      {[
+        ["청산가",     "—",                                                                          "#ff4444"],
+        ["손익비 R:R", "—",                                                                          "#a78bfa"],
+        ["수량",       `${pending.qty} BTC`,                                                        "#94a3b8"],
+        ["포지션 USD", pending.price ? fmtI(pending.qty * pending.price) : "—",                    "#94a3b8"],
+        ["예상 손실",  "—",                                                                          "#f6465d"],
+        ["예상 수익",  "—",                                                                          "#0ecb81"],
+        ["미실현",     "—",                                                                          theme.textFaint],
+      ].map(([l, v, c]) => (
+        <div key={l} style={{ display:"flex", justifyContent:"space-between",
+          padding:"3px 0", borderBottom:`1px solid ${theme.border}` }}>
+          <span style={{ fontSize:"12px", color:theme.textMuted }}>{l}</span>
+          <span style={{ fontSize:"13px", color:c, fontWeight:"600" }}>{v}</span>
         </div>
-      )}
-      <div style={{ marginTop:"6px", fontSize:"11px", color:theme.textFaint }}>
+      ))}
+      <div style={{ marginTop:"8px", fontSize:"11px", color:theme.textFaint, textAlign:"right" }}>
         체결 시 TP/SL 자동 등록
       </div>
     </div>

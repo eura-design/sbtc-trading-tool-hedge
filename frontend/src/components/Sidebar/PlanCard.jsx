@@ -1,13 +1,14 @@
-﻿import * as d3 from "d3";
+import * as d3 from "d3";
 import { useTheme } from "../../ThemeContext";
 import { calcRR } from "../../utils/format";
 
-export function PlanCard({ drawing, posCalc, leverage, riskPct, locked, hasPos, hasPending, onConfirm, onCancel }) {
+export function PlanCard({ drawing, posCalc, leverage, riskPct, position, hasPending, onConfirm, onCancel }) {
   const { theme } = useTheme();
   if (!drawing) return null;
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
   const fmt   = p => `$${d3.format(",.2f")(p)}`;
   const color = drawing.isLong ? "#0ecb81" : "#f6465d";
+  const sameSidePos = drawing.isLong ? position?.long : position?.short;
 
   return (
     <div style={{ marginBottom:"12px" }}>
@@ -18,11 +19,13 @@ export function PlanCard({ drawing, posCalc, leverage, riskPct, locked, hasPos, 
           {drawing.isLong ? "▲ LONG" : "▼ SHORT"} 플랜
         </div>
         {[
-          ["손익비 R:R",  `1 : ${calcRR(drawing.entry, drawing.tp, drawing.sl, drawing.isLong)}`,                "#a78bfa"],
-          ["수량",        posCalc ? `${posCalc.actualQty.toFixed(3)} BTC` : "—",                                "#94a3b8"],
-          ["포지션 USD",  posCalc ? fmtI(posCalc.actualQty * drawing.entry) : "—",                              "#94a3b8"],
-          ["예상 손실",   posCalc ? `-${fmt(posCalc.actualQty * Math.abs(drawing.entry - drawing.sl))}` : "—",  "#f6465d"],
-          ["예상 수익",   posCalc ? `+${fmt(posCalc.actualQty * Math.abs(drawing.tp - drawing.entry))}` : "—",   "#0ecb81"],
+          ["청산가",     "—",                                                                                          "#ff4444"],
+          ["손익비 R:R", `1 : ${calcRR(drawing.entry, drawing.tp, drawing.sl, drawing.isLong)}`,                     "#a78bfa"],
+          ["수량",       posCalc ? `${posCalc.actualQty.toFixed(3)} BTC` : "—",                                      "#94a3b8"],
+          ["포지션 USD", posCalc ? fmtI(posCalc.actualQty * drawing.entry) : "—",                                    "#94a3b8"],
+          ["예상 손실",  posCalc ? `-${fmt(posCalc.actualQty * Math.abs(drawing.entry - drawing.sl))}` : "—",        "#f6465d"],
+          ["예상 수익",  posCalc ? `+${fmt(posCalc.actualQty * Math.abs(drawing.tp - drawing.entry))}` : "—",        "#0ecb81"],
+          ["미실현",     "—",                                                                                          theme.textFaint],
         ].map(([l, v, c]) => (
           <div key={l} style={{ display:"flex", justifyContent:"space-between",
             padding:"3px 0", borderBottom:`1px solid ${theme.border}` }}>
@@ -41,10 +44,12 @@ export function PlanCard({ drawing, posCalc, leverage, riskPct, locked, hasPos, 
         </div>
       )}
 
-      {hasPos ? (
-        <div style={{ padding:"10px", background:theme.bgCard, border:`1px solid ${theme.borderSec}`,
+      {sameSidePos ? (
+        <div style={{ padding:"10px", background:theme.bgCard, border:`1px solid #f6465d44`,
+          borderLeft:`2px solid #f6465d`,
           borderRadius:"5px", fontSize:"12px", color:theme.textMuted, textAlign:"center" }}>
-          포지션 진행중<br/><span style={{ color:"#0ecb81" }}>청산 후 주문 가능</span>
+          {drawing.isLong ? "▲ LONG" : "▼ SHORT"} 포지션이 이미 있습니다
+          <br/><span style={{ color:"#f6465d" }}>청산 후 주문 가능</span>
         </div>
       ) : hasPending ? (
         <button onClick={onCancel} style={{

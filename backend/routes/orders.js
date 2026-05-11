@@ -14,7 +14,9 @@ router.delete("/", async (req, res) => {
       // SCALE_IN, SPLIT_TP는 진입 주문이 아님 → 취소 대상에서 제외
       const stored = store.get(String(o.orderId));
       if (stored?.status === "SCALE_IN" || stored?.status === "SPLIT_TP") return false;
-      if (o.reduceOnly) return false; // store 유실된 SPLIT_TP 보호
+      // 헤지 모드: closing LIMIT(store 유실된 SPLIT_TP) 보호
+      if ((o.side === "SELL" && o.positionSide === "LONG") ||
+          (o.side === "BUY"  && o.positionSide === "SHORT")) return false;
       return true;
     });
 

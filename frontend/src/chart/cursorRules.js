@@ -30,10 +30,11 @@ export const CURSOR_RULES = [
   {
     test: ({ hasPos, tpsl, pos, yScale }) => {
       if (!hasPos || !tpsl || pos.x < 0 || pos.x > 60) return false;
-      const tpPx = tpsl.tp ? yScale(tpsl.tp.price) : null;
-      const slPx = tpsl.sl ? yScale(tpsl.sl.price) : null;
-      return (tpPx !== null && Math.abs(pos.y-tpPx) < HIT) ||
-             (slPx !== null && Math.abs(pos.y-slPx) < HIT);
+      const prices = [
+        tpsl.long?.tp?.price, tpsl.long?.sl?.price,
+        tpsl.short?.tp?.price, tpsl.short?.sl?.price,
+      ].filter(p => p != null);
+      return prices.some(p => Math.abs(pos.y - yScale(p)) < HIT);
     },
     cursor: "ns-resize",
   },

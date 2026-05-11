@@ -20,16 +20,13 @@ export function ConfirmModal({ info, onConfirm, onCancel }) {
         </div>
 
         {[
-          ["진입가",    orderType === "LIMIT" ? fmtI(info.entry) : "시장가", "#f0b90b"],
-          ["익절 TP",   fmtI(info.tp),                                        "#0ecb81"],
-          ["손절 SL",   fmtI(info.sl),                                        "#f6465d"],
-          ["손익비 R:R",`1 : ${info.rrRatio}`,                                "#a78bfa"],
-          ["레버리지",  `${info.leverage}x`,                                  info.leverage<=10?"#0ecb81":info.leverage<=20?"#f0b90b":"#f6465d"],
-          ["리스크",    `${(info.idealRiskPct ?? 0).toFixed(1)}%`,            "#94a3b8"],
-          ["수량",      `${info.qty} BTC`,                                    "#94a3b8"],
-          ["포지션 USD",fmtI(info.usd),                                       "#94a3b8"],
-          ["예상 손실", `-${fmt(info.actualLoss)}`,                           "#f6465d"],
-          ["예상 수익", `+${fmt(info.actualProfit)}`,                          "#0ecb81"],
+          ["청산가",     "—",                                                                          "#ff4444"],
+          ["손익비 R:R", `1 : ${info.rrRatio}`,                                                      "#a78bfa"],
+          ["수량",       `${info.qty} BTC`,                                                           "#94a3b8"],
+          ["포지션 USD", fmtI(info.usd),                                                              "#94a3b8"],
+          ["예상 손실",  `-${fmt(info.actualLoss)}`,                                                  "#f6465d"],
+          ["예상 수익",  `+${fmt(info.actualProfit)}`,                                                "#0ecb81"],
+          ["미실현",     "—",                                                                          "#64748b"],
         ].map(([l, v, c]) => (
           <div key={l} style={{ display:"flex", justifyContent:"space-between",
             padding:"3px 0", borderBottom:`1px solid ${theme.border}` }}>

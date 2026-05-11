@@ -33,7 +33,7 @@ export const Circles = memo(function Circles({
         const alert    = !!ci.alert;
         const color    = selected ? "#f0b90b" : alert ? "#fbbf24" : CIRCLE_COLOR;
         const opacity  = ci.opacity ?? 1.0;
-        const sw       = selected || alert ? 1.5 : 1;
+        const sw       = selected || alert ? 4.5 : 3;
 
         return (
           <g key={ci.id}>
@@ -66,7 +66,7 @@ export const Circles = memo(function Circles({
           <g>
             <circle cx={c.x} cy={c.y} r={Math.max(r, 2)}
               fill="none"
-              stroke={CIRCLE_COLOR} strokeWidth={1} opacity={0.5} strokeDasharray="4,3" />
+              stroke={CIRCLE_COLOR} strokeWidth={3} opacity={0.5} strokeDasharray="4,3" />
             <circle cx={c.x} cy={c.y} r={3} fill={CIRCLE_COLOR} opacity={0.7} />
           </g>
         );

@@ -13,10 +13,13 @@ router.get("/", async (req, res) => {
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
     const algo    = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
 
-    const findOrder = (type) => {
-      const r = regular.find(o => o.type === type);
+    const findOrder = (type, positionSide) => {
+      const r = regular.find(o => o.type === type && o.positionSide === positionSide);
       if (r) return { orderId: r.orderId, price: parseFloat(r.stopPrice), isAlgo: false };
-      const a = algo.find(o => o.orderType === type);
+      const closeSide = positionSide === "LONG" ? "SELL" : "BUY";
+      // positionSide 필드 없는 algo 주문은 side(closeSide)로 폴백
+      const a = algo.find(o => o.orderType === type &&
+        (o.positionSide === positionSide || (!o.positionSide && o.side === closeSide)));
       if (a) return { orderId: a.algoId, price: parseFloat(a.triggerPrice), isAlgo: true };
       return null;
     };
@@ -46,9 +49,16 @@ router.get("/", async (req, res) => {
         side:    o.side,
         pct:     store.get(String(o.orderId))?.pct ?? null,
       }))
-      .sort((a, b) => a.side === "SELL" ? a.price - b.price : b.price - a.price);
+      .sort((a, b) => b.price - a.price);
 
-    res.json({ tp: findOrder("TAKE_PROFIT_MARKET"), sl: findOrder("STOP_MARKET"), splitTps });
+    // SELL side = closing LONG, BUY side = closing SHORT
+    const longSplitTps  = splitTps.filter(o => o.side === "SELL");
+    const shortSplitTps = splitTps.filter(o => o.side === "BUY");
+
+    res.json({
+      long:  { tp: findOrder("TAKE_PROFIT_MARKET", "LONG"),  sl: findOrder("STOP_MARKET", "LONG"),  splitTps: longSplitTps  },
+      short: { tp: findOrder("TAKE_PROFIT_MARKET", "SHORT"), sl: findOrder("STOP_MARKET", "SHORT"), splitTps: shortSplitTps },
+    });
   } catch (err) {
     res.status(500).json({ error: err.response?.data?.msg || err.message });
   }
@@ -60,7 +70,8 @@ router.put("/", async (req, res) => {
   if (!side) return res.status(400).json({ error: "side 필요" });
   if (!tp && !sl) return res.status(400).json({ error: "tp 또는 sl 중 하나는 필요" });
 
-  const closeSide = side === "BUY" ? "SELL" : "BUY";
+  const closeSide    = side === "BUY" ? "SELL" : "BUY";
+  const positionSide = side === "BUY" ? "LONG" : "SHORT";
   const newOrders = { tp: null, sl: null };
   let noSl = false;
 
@@ -73,7 +84,7 @@ router.put("/", async (req, res) => {
 
   const placeAlgo = (type, price) =>
     binance("POST", "/fapi/v1/algoOrder", {
-      algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide,
+      algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
       type, triggerPrice: roundPrice(price),
       closePosition: "true", workingType: "MARK_PRICE",
     });
@@ -107,7 +118,7 @@ router.put("/", async (req, res) => {
   }
 });
 
-// POST /api/tpsl/split — 분할 TP 추가 (기존 단일 TP 취소 후 LIMIT reduceOnly 등록)
+// POST /api/tpsl/split — 분할 TP 추가 (기존 단일 TP 취소 후 LIMIT positionSide 등록)
 router.post("/split", async (req, res) => {
   const { side, price, qty, pct, tpOrderId, tpIsAlgo } = req.body;
   if (!side || !price || !qty) return res.status(400).json({ error: "side, price, qty 필요" });
@@ -121,13 +132,13 @@ router.post("/split", async (req, res) => {
     }
     const closeSide = side === "LONG" ? "SELL" : "BUY";
     const { data } = await binance("POST", "/fapi/v1/order", {
-      symbol: "BTCUSDT", side: closeSide, type: "LIMIT",
+      symbol: "BTCUSDT", side: closeSide, positionSide: side, type: "LIMIT",
       price: roundPrice(price), quantity: parseFloat(qty).toFixed(3),
-      timeInForce: "GTC", reduceOnly: "true",
+      timeInForce: "GTC",
     });
     store.set(String(data.orderId), {
       status: "SPLIT_TP", price: parseFloat(roundPrice(price)),
-      qty: parseFloat(qty), pct: pct ?? null, side: closeSide,
+      qty: parseFloat(qty), pct: pct ?? null, side: closeSide, positionSide: side,
     });
     res.json({ success: true, orderId: String(data.orderId),
       price: parseFloat(roundPrice(price)), qty: parseFloat(qty) });
