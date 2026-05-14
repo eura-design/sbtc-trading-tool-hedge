@@ -1,6 +1,7 @@
 const { binance, placeTPSL, checkExistingTPSL } = require("./binanceClient");
 const store = require("../store/pendingOrders");
 const { startUserDataStream } = require("./orderWatcher");
+const { closeToPosition, positionToSide } = require("../utils/side");
 
 async function recoverPendingOrders() {
   store.load();
@@ -71,10 +72,14 @@ async function recoverPendingOrders() {
         if (data.status === "FILLED" && info.tp && info.sl) {
           console.log(`[복구] 서버 다운 중 체결된 주문: orderId=${orderId}`);
           const { data: posData } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
-          const pos = posData.find(p => parseFloat(p.positionAmt) !== 0);
+          const orderPosSide = closeToPosition(info.closeSide);
+          // 헷지모드: 주문 사이드와 매칭되는 포지션이 있어야만 TP/SL 등록 시도
+          // (반대쪽만 열려있을 때 잘못된 사이드로 placeTPSL 호출하면 5회 재시도 = 31초 낭비)
+          const pos = posData.find(p =>
+            p.positionSide === orderPosSide && parseFloat(p.positionAmt) !== 0
+          );
 
           if (pos) {
-            const orderPosSide = info.closeSide === "SELL" ? "LONG" : "SHORT";
             const hasTpsl = await checkExistingTPSL(orderPosSide);
             if (!hasTpsl) {
               const tpsl = await placeTPSL(info);
@@ -100,9 +105,10 @@ async function recoverPendingOrders() {
     }
 
     // ── 3단계: 안전망 — 포지션이 열려 있는데 TP/SL 없으면 자동 복구 시도 ─────
+    // 헷지모드: LONG/SHORT 각각 독립적으로 확인
     const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
-    const openPos = posCheck.find(p => parseFloat(p.positionAmt) !== 0);
-    if (openPos) {
+    const openPositions = posCheck.filter(p => parseFloat(p.positionAmt) !== 0);
+    for (const openPos of openPositions) {
       // positionSide 필드 없으면 positionAmt 부호로 판단
       const openPosSide = openPos.positionSide === "LONG" || openPos.positionSide === "SHORT"
         ? openPos.positionSide
@@ -111,28 +117,31 @@ async function recoverPendingOrders() {
       if (!hasTpsl) {
         console.error("==================================================");
         console.error("[안전망] 포지션이 열려 있지만 TP/SL이 없습니다!");
-        console.error(`  방향: ${parseFloat(openPos.positionAmt) > 0 ? "LONG" : "SHORT"}`);
+        console.error(`  방향: ${openPosSide}`);
         console.error(`  수량: ${Math.abs(parseFloat(openPos.positionAmt))} BTC`);
 
-        // store에서 TP/SL 정보가 있는 주문을 찾아 자동 등록 시도
-        const recoverable = [...store.entries()].find(([, o]) => o.tp && o.sl);
+        // 해당 사이드의 TP/SL 정보가 있는 주문을 찾아 자동 등록 시도
+        const entrySide = positionToSide(openPosSide);
+        const recoverable = [...store.entries()].find(([, o]) =>
+          o.tp && o.sl && o.side === entrySide
+        );
         if (recoverable) {
           const [recoverId, recoverInfo] = recoverable;
-          console.log(`[안전망] store에서 TP/SL 정보 발견 (orderId=${recoverId}) → 자동 등록 시도`);
+          console.log(`[안전망] store에서 ${openPosSide} TP/SL 정보 발견 (orderId=${recoverId}) → 자동 등록 시도`);
           try {
             const tpsl = await placeTPSL(recoverInfo);
             if (tpsl.failed.length === 0) {
-              console.log("[안전망] TP/SL 자동 복구 성공!");
+              console.log(`[안전망] ${openPosSide} TP/SL 자동 복구 성공!`);
               store.set(recoverId, { ...recoverInfo, status: "TPSL_PLACED", tpsl });
             } else {
               const failed = tpsl.failed.map(f => f.type).join(", ");
-              console.error(`[안전망] TP/SL 자동 복구 부분 실패: ${failed} → 수동 설정 필요!`);
+              console.error(`[안전망] ${openPosSide} TP/SL 자동 복구 부분 실패: ${failed} → 수동 설정 필요!`);
             }
           } catch (e) {
-            console.error("[안전망] TP/SL 자동 복구 실패:", e.message);
+            console.error(`[안전망] ${openPosSide} TP/SL 자동 복구 실패:`, e.message);
           }
         } else {
-          console.error("  store에 TP/SL 정보 없음 → Binance에서 수동으로 설정하세요!");
+          console.error(`  ${openPosSide} store에 TP/SL 정보 없음 → Binance에서 수동으로 설정하세요!`);
         }
         console.error("==================================================");
       }
@@ -144,12 +153,12 @@ async function recoverPendingOrders() {
       console.log("[복구] 복구할 주문 없음");
     }
 
-    // User Data Stream 시작 (listenKey 기반 체결 감지)
-    await startUserDataStream();
-
   } catch (e) {
     console.warn("[복구] 복구 실패:", e.response?.data?.msg || e.message);
   }
+
+  // try 밖에서 호출 — 복구 실패해도 체결 감지는 반드시 시작
+  await startUserDataStream();
 }
 
 module.exports = { recoverPendingOrders };

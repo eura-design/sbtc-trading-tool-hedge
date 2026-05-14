@@ -48,11 +48,11 @@ export const HIT       = 8;
 export const API_BASE  = "http://localhost:3002";
 export const BN_PUBLIC = "https://fapi.binance.com";
 
-// 폴링 주기 (ms) — 한 곳에서 관리
+// 폴링 주기 (ms) — WS push가 주 경로, 폴링은 안전망 역할
 export const POLLING = {
-  BALANCE_MS:    30_000,
-  POSITION_MS:    5_000,
-  TPSL_MS:       10_000, // WS push 덕분에 느리게 해도 됨 (안전망 역할)
+  BALANCE_MS:    60_000,
+  POSITION_MS:   30_000,
+  TPSL_MS:       60_000,
   SR_LEVELS_MS: 4 * 60 * 60_000,
 };
 

@@ -14,7 +14,7 @@ export function useHealth() {
       }
     };
     check();
-    const id = setInterval(check, 10_000);
+    const id = setInterval(check, 60_000);
     return () => clearInterval(id);
   }, []);
 
