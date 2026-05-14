@@ -2,6 +2,7 @@ const express = require("express");
 const { binance } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const push    = require("../services/pushService");
+const { positionToClose } = require("../utils/side");
 const router  = express.Router();
 
 // POST /api/close
@@ -12,7 +13,7 @@ router.post("/", async (req, res) => {
   const { side, quantity, partial = false } = req.body;
   if (!side || !quantity) return res.status(400).json({ error: "side, quantity 필요" });
 
-  const closeSide = side === "LONG" ? "SELL" : "BUY";
+  const closeSide = positionToClose(side);
   const closeQty  = parseFloat(quantity);
 
   // 부분 청산 시 분할 TP 미리 취소 (race condition 방지)
@@ -25,8 +26,12 @@ router.post("/", async (req, res) => {
         binance("GET", "/fapi/v1/openOrders",   { symbol: "BTCUSDT" }),
         binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }),
       ]);
-      splitTpOrders = openOrders.filter(o => store.get(String(o.orderId))?.status === "SPLIT_TP");
-      const pos = posData.find(p => parseFloat(p.positionAmt) !== 0);
+      // 해당 사이드의 분할 TP만 취소 (반대쪽 SPLIT_TP는 건드리지 않음)
+      splitTpOrders = openOrders.filter(o =>
+        store.get(String(o.orderId))?.status === "SPLIT_TP" && o.side === closeSide
+      );
+      // 해당 사이드의 포지션 크기를 기준으로 비율 계산
+      const pos = posData.find(p => p.positionSide === side && parseFloat(p.positionAmt) !== 0);
       originalSize = pos ? Math.abs(parseFloat(pos.positionAmt)) : 0;
     } catch (e) {
       console.warn("[close] 분할 TP 사전 조회 실패:", e.message);
@@ -43,7 +48,7 @@ router.post("/", async (req, res) => {
     }
   }
 
-  // 1) 전량 청산 시에만 TP/SL + SCALE_IN 취소
+  // 1) 전량 청산 시에만 TP/SL + SCALE_IN 취소 (해당 사이드만)
   if (!partial) try {
     const [regularRes, algoRes] = await Promise.allSettled([
       binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
@@ -53,14 +58,18 @@ router.post("/", async (req, res) => {
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
     const algo    = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
 
-    const scaleInToCancel = regular.filter(o => store.get(String(o.orderId))?.status === "SCALE_IN");
+    // SCALE_IN: positionSide로 해당 사이드만 취소
+    const scaleInToCancel = regular.filter(o =>
+      store.get(String(o.orderId))?.status === "SCALE_IN" && o.positionSide === side
+    );
 
     await Promise.allSettled([
+      // TP/SL: positionSide로 해당 사이드만 취소 (반대쪽 TP/SL은 보존)
       ...regular
-        .filter(o => ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.type))
+        .filter(o => ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.type) && o.positionSide === side)
         .map(o => binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId: o.orderId })),
       ...algo
-        .filter(o => ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.orderType))
+        .filter(o => ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.orderType) && o.positionSide === side)
         .map(o => binance("DELETE", "/fapi/v1/algoOrder", { symbol: "BTCUSDT", algoId: o.algoId })),
       ...scaleInToCancel
         .map(o => binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId: o.orderId })),

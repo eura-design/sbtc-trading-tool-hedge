@@ -31,11 +31,12 @@ router.get("/", async (req, res) => {
       return stored?.status !== "SCALE_IN" && stored?.status !== "SPLIT_TP";
     });
 
-    let pending = null;
-    if (entryOrders.length > 0) {
-      const o = entryOrders[0];
-      const stored = store.get(o.orderId);
-      pending = {
+    // 헷지모드: LONG/SHORT 각각 독립 pending 추적
+    let longPending  = null;
+    let shortPending = null;
+    for (const o of entryOrders) {
+      const stored = store.get(String(o.orderId));
+      const pendingObj = {
         orderId: String(o.orderId),
         side:    o.side,
         price:   parseFloat(o.price),
@@ -46,7 +47,12 @@ router.get("/", async (req, res) => {
         sl:      stored?.sl ?? null,
         source:  stored ? "system" : "external",
       };
+      if (o.positionSide === "LONG") longPending = pendingObj;
+      else if (o.positionSide === "SHORT") shortPending = pendingObj;
     }
+    const pending = (longPending || shortPending)
+      ? { long: longPending, short: shortPending }
+      : null;
 
     // store에 WATCHING인데 바이낸스에 없는 주문 → 제거
     const GRACE_PERIOD = 30_000;

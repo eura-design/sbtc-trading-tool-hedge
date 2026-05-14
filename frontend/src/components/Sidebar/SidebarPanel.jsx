@@ -7,6 +7,8 @@ import { useShallow } from "zustand/react/shallow";
 import { calcPosition } from "../../utils/calc";
 import { api }       from "../../api/client";
 import { useDailyLoss } from "../../hooks/useDailyLoss";
+import { derivePositionFlags } from "../../hooks/usePositionFlags";
+import { isLongToPosition } from "../../utils/side";
 import { Slider }    from "../Slider";
 import { StatusAlert }                from "../StatusAlert";
 import { BalanceCard }                from "./BalanceCard";
@@ -37,22 +39,29 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     liveClose: s.liveClose, executeOrder: s.executeOrder,
   })));
 
-  const hasLong    = !!position?.long;
-  const hasShort   = !!position?.short;
-  const hasPos     = hasLong || hasShort;
-  const hasBoth    = hasLong && hasShort;
-  const hasPending = !!position?.pending;
+  const {
+    hasLong, hasShort, hasPos, hasBoth,
+    longPendingExists, shortPendingExists, hasPending,
+  } = derivePositionFlags(position);
   const effectiveLastPrice = liveClose ?? lastPrice;
 
-  const posLeverage = (position?.long ?? position?.short)?.leverage ?? null;
+  // 헷지모드: 양쪽 포지션의 레버리지 중 더 큰 값을 최소값으로 사용 (낮은 레버리지로 변경 시 오류 방지)
+  const longLeverage  = position?.long?.leverage  ?? null;
+  const shortLeverage = position?.short?.leverage ?? null;
+  const posLeverage = (longLeverage !== null && shortLeverage !== null)
+    ? Math.max(longLeverage, shortLeverage)
+    : (longLeverage ?? shortLeverage);
   const leverageMin = hasPos ? (posLeverage ?? leverage) : 1;
 
   const [pendingLeverage, setPendingLeverage] = useState(null);
   const [leverageLoading, setLeverageLoading] = useState(false);
   const [leverageErr, setLeverageErr]         = useState(null);
-  const [statsOpen, setStatsOpen]         = useState(false);
-  const [dailyLossOpen, setDailyLossOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen]   = useState(false);
+  const [statsOpen, setStatsOpen]         = useState(() => localStorage.getItem("accordion_stats") === "true");
+  const [dailyLossOpen, setDailyLossOpen] = useState(() => localStorage.getItem("accordion_dailyLoss") === "true");
+  const [settingsOpen, setSettingsOpen]   = useState(() => localStorage.getItem("accordion_settings") === "true");
+  const toggleStats     = () => setStatsOpen(v     => { const n = !v; localStorage.setItem("accordion_stats",     n); return n; });
+  const toggleDailyLoss = () => setDailyLossOpen(v => { const n = !v; localStorage.setItem("accordion_dailyLoss", n); return n; });
+  const toggleSettings  = () => setSettingsOpen(v  => { const n = !v; localStorage.setItem("accordion_settings",  n); return n; });
 
   const handleLeverageChange = useCallback((val) => {
     if (hasPos && val < leverageMin) return; // 포지션 있을 때 감소 차단
@@ -121,7 +130,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0,
             background: isExceeded ? theme.bgError : "transparent" }}>
             <button
-              onClick={() => setDailyLossOpen(v => !v)}
+              onClick={toggleDailyLoss}
               style={{
                 width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
                 background:"transparent", border:"none", cursor:"pointer", padding:0,
@@ -148,7 +157,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       {/* 거래 통계 */}
       <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
         <button
-          onClick={() => setStatsOpen(v => !v)}
+          onClick={toggleStats}
           style={{
             width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
             background:"transparent", border:"none", cursor:"pointer", padding:0,
@@ -163,7 +172,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       {/* 설정 — 리스크% + 레버리지 */}
       <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
         <button
-          onClick={() => setSettingsOpen(v => !v)}
+          onClick={toggleSettings}
           style={{
             width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
             background:"transparent", border:"none", cursor:"pointer", padding:0,
@@ -184,7 +193,9 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           color={leverage<=10?"#0ecb81":leverage<=20?"#f0b90b":"#f6465d"} />
         {hasPos && posLeverage !== null && !pendingLeverage && (
           <div style={{ fontSize:10, color:theme.textFaint, marginTop:3, textAlign:"right" }}>
-            포지션 보유 중 — {posLeverage}x 미만 불가
+            {longLeverage !== null && shortLeverage !== null && longLeverage !== shortLeverage
+              ? `L ${longLeverage}x / S ${shortLeverage}x — ${posLeverage}x 미만 불가`
+              : `포지션 보유 중 — ${posLeverage}x 미만 불가`}
           </div>
         )}
         {pendingLeverage && (
@@ -274,15 +285,28 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
         />
 
 
-        {drawing ? (
+        {drawing && (
           <PlanCard
             drawing={drawing} posCalc={posCalc} leverage={leverage} riskPct={riskPct}
-            position={position} hasPending={hasPending}
-            onConfirm={executeOrder} onCancel={onCancelOrder}
+            position={position}
+            hasPending={drawing.isLong ? longPendingExists : shortPendingExists}
+            onConfirm={executeOrder}
+            onCancel={() => onCancelOrder(isLongToPosition(drawing.isLong))}
           />
-        ) : hasPending ? (
-          <OrphanPendingCard pending={position?.pending} onCancel={onCancelOrder} />
-        ) : null}
+        )}
+        {/* 헷지모드: 각 사이드 orphan pending을 별도 카드로 표시 (drawing이 매칭되는 사이드는 PlanCard가 대체) */}
+        {longPendingExists && !(drawing && drawing.isLong) && (
+          <OrphanPendingCard
+            pending={position.pending.long}
+            onCancel={() => onCancelOrder("LONG")}
+          />
+        )}
+        {shortPendingExists && !(drawing && !drawing.isLong) && (
+          <OrphanPendingCard
+            pending={position.pending.short}
+            onCancel={() => onCancelOrder("SHORT")}
+          />
+        )}
 
 
       </div>

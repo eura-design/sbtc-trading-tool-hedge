@@ -1,6 +1,7 @@
 const express = require("express");
 const { binance, roundPrice } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
+const { sideToPosition, positionToClose } = require("../utils/side");
 const router  = express.Router();
 
 router.get("/", async (req, res) => {
@@ -16,7 +17,7 @@ router.get("/", async (req, res) => {
     const findOrder = (type, positionSide) => {
       const r = regular.find(o => o.type === type && o.positionSide === positionSide);
       if (r) return { orderId: r.orderId, price: parseFloat(r.stopPrice), isAlgo: false };
-      const closeSide = positionSide === "LONG" ? "SELL" : "BUY";
+      const closeSide = positionToClose(positionSide);
       // positionSide 필드 없는 algo 주문은 side(closeSide)로 폴백
       const a = algo.find(o => o.orderType === type &&
         (o.positionSide === positionSide || (!o.positionSide && o.side === closeSide)));
@@ -71,7 +72,7 @@ router.put("/", async (req, res) => {
   if (!tp && !sl) return res.status(400).json({ error: "tp 또는 sl 중 하나는 필요" });
 
   const closeSide    = side === "BUY" ? "SELL" : "BUY";
-  const positionSide = side === "BUY" ? "LONG" : "SHORT";
+  const positionSide = sideToPosition(side);
   const newOrders = { tp: null, sl: null };
   let noSl = false;
 
@@ -130,7 +131,7 @@ router.post("/split", async (req, res) => {
         : binance("DELETE", "/fapi/v1/order",     { symbol: "BTCUSDT", orderId: tpOrderId });
       await cancel.catch(e => console.warn(`기존 TP 취소 실패:`, e.response?.data?.msg));
     }
-    const closeSide = side === "LONG" ? "SELL" : "BUY";
+    const closeSide = positionToClose(side);
     const { data } = await binance("POST", "/fapi/v1/order", {
       symbol: "BTCUSDT", side: closeSide, positionSide: side, type: "LIMIT",
       price: roundPrice(price), quantity: parseFloat(qty).toFixed(3),

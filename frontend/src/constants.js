@@ -46,7 +46,8 @@ export const MIN_QTY   = 0.001;
 export const QTY_STEP  = 0.001;
 export const HIT       = 8;
 export const API_BASE  = "http://localhost:3002";
-export const BN_PUBLIC = "https://fapi.binance.com";
+export const BN_PUBLIC = "https://demo-fapi.binance.com";
+export const BN_WS     = "wss://demo-fstream.binance.com";
 
 // 폴링 주기 (ms) — WS push가 주 경로, 폴링은 안전망 역할
 export const POLLING = {

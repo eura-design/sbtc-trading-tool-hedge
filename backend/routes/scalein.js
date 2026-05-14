@@ -1,6 +1,7 @@
 const express = require("express");
 const { binance, roundPrice } = require("../services/binanceClient");
 const store = require("../store/pendingOrders");
+const { sideToPosition } = require("../utils/side");
 const router = express.Router();
 
 // POST /api/scale-in — 포지션 추가 진입 (TP/SL 없음)
@@ -13,7 +14,7 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "LIMIT 주문에는 price 필요" });
   }
   try {
-    const positionSide = side === "BUY" ? "LONG" : "SHORT";
+    const positionSide = sideToPosition(side);
     const params = {
       symbol:   "BTCUSDT",
       side,

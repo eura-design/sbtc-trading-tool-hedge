@@ -34,7 +34,7 @@ export function ChartArea({
   channels, channelMode, channelStep, setChannelStep,
   channelPoints, setChannelPoints, channelPreview, setChannelPreview,
   selectedChannelId, setSelectedChannelId,
-  addChannel, updateChannelEndpoint, setChannelPosition, setChannelOffset,
+  addChannel, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
   setChannelOpacity, toggleChannelLock, toggleChannelAlert, setChannelAlertOff,
   circles, circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
   selectedCircleId, setSelectedCircleId,
@@ -66,7 +66,9 @@ export function ChartArea({
     opacityPopup: s.opacityPopup, setOpacityPopup: s.setOpacityPopup,
   })));
 
-  const hasPos     = !!(position?.long || position?.short);
+  const hasLong    = !!position?.long;
+  const hasShort   = !!position?.short;
+  const hasPos     = hasLong || hasShort;
   const hasPending = !!position?.pending;
   const locked     = hasPending; // 헷지모드: 포지션만으로는 잠금 안 함
 
@@ -74,7 +76,7 @@ export function ChartArea({
   const INTERVAL_MS = { "5m": 5*60*1000, "15m": 15*60*1000, "1h": 60*60*1000, "4h": 4*60*60*1000, "1d": 24*60*60*1000, "1w": 7*24*60*60*1000 };
   const fmtCountdown = ms => {
     if (ms <= 0) return "00:00";
-    const s = Math.floor(ms / 1000);
+    const s = Math.ceil(ms / 1000);
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
     if (h > 0) return `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
     return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
@@ -84,19 +86,18 @@ export function ChartArea({
   const lastRef = useRef(last);
   lastRef.current = last;
   useEffect(() => {
-    const intervalMs = INTERVAL_MS[interval_] ?? 60*60*1000;
+    const iMs = INTERVAL_MS[interval_] ?? 60*60*1000;
     const tick = () => {
       const now = Date.now();
-      const arr = candlesRef.current;
-      const matchInterval = arr.length >= 2 &&
-        arr[arr.length - 1].t.getTime() - arr[arr.length - 2].t.getTime() === intervalMs;
-      if (!matchInterval) { setCountdown({ text: "", ratio: 1 }); return; }
-      const remaining = arr[arr.length - 1].t.getTime() + intervalMs - now;
-      setCountdown({ text: fmtCountdown(remaining), ratio: Math.max(0, remaining / intervalMs) });
+      // 1w는 에포크(목요일) 기준이므로 월요일 정렬을 위해 4일 보정
+      const elapsed = interval_ === '1w' ? (now - 4 * 24 * 60 * 60 * 1000) % iMs : now % iMs;
+      const remaining = iMs - elapsed;
+      setCountdown({ text: fmtCountdown(remaining), ratio: remaining / iMs });
     };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+    let rafId;
+    const loop = () => { tick(); rafId = requestAnimationFrame(loop); };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
   }, [interval_]); // eslint-disable-line react-hooks/exhaustive-deps
   const cdColor = countdown.ratio > 0.3 ? "#e2e8f0" : countdown.ratio > 0.1 ? "#f59e0b" : "#f6465d";
 
@@ -150,7 +151,9 @@ export function ChartArea({
   useEffect(() => { if (candles.length) redrawRSI(); }, [rsiData, showRsi, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
-  const { openConfirm, saveTpsl, moveScaleIn, moveSplitTp } = useOrderFlow();
+  const { saveTpsl, moveScaleIn, moveSplitTp } = useOrderFlow();
+
+  const splitTps = [...(tpsl?.long?.splitTps ?? []), ...(tpsl?.short?.splitTps ?? [])];
 
   // ── 크로스헤어 ────────────────────────────────────────────────────────────
   const { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, updateCrosshair, hideCrosshair } = useCrosshair();
@@ -166,16 +169,16 @@ export function ChartArea({
       lineMode, lineStart, lines, selectedLineId,
       setLineStart, setLinePreview, setSelectedLineId,
       addLine, updateLineEndpoint, setLinePosition,
-      hasPos, tpsl, scaleInOrders: position?.scaleInOrders, splitTps: [...(tpsl?.long?.splitTps ?? []), ...(tpsl?.short?.splitTps ?? [])],
+      hasPos, hasLong, hasShort, tpsl, scaleInOrders: position?.scaleInOrders, splitTps,
       dragTpsl, setDragTpsl, saveTpsl,
       dragScaleIn, setDragScaleIn, moveScaleIn,
       dragSplitTp, setDragSplitTp, moveSplitTp,
       selectedBox, setSelectedBox,
-      openConfirm, isLog,
+      isLog,
       channelMode, channelStep, setChannelStep,
       channelPoints, setChannelPoints, channelPreview, setChannelPreview,
       channels, selectedChannelId, setSelectedChannelId,
-      addChannel, updateChannelEndpoint, setChannelPosition, setChannelOffset,
+      addChannel, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
       circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
       circles, selectedCircleId, setSelectedCircleId,
       addCircle, moveCircle,
@@ -224,7 +227,7 @@ export function ChartArea({
         priceTextRef={priceTextRef} bodyPctRef={bodyPctRef}
         hasPos={hasPos} position={position} tpsl={tpsl} dragTpsl={dragTpsl} tpslSaving={tpslSaving}
         scaleInOrders={position?.scaleInOrders} dragScaleIn={dragScaleIn}
-        splitTps={[...(tpsl?.long?.splitTps ?? []), ...(tpsl?.short?.splitTps ?? [])]} dragSplitTp={dragSplitTp}
+        splitTps={splitTps} dragSplitTp={dragSplitTp}
         lines={lines} selectedLineId={selectedLineId} lineStart={lineStart} linePreview={linePreview} isLog={isLog}
         drawing={drawing} current={current} locked={locked} selectedBox={selectedBox}
         channels={channels} selectedChannelId={selectedChannelId}

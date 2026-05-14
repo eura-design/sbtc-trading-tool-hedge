@@ -22,8 +22,9 @@ export const Channels = memo(function Channels({
   }
 
   // offset 적용: 채널 생성 시점의 isLog 기준 (현재 스케일 무관)
-  function applyOffset(ch, price) {
-    return ch.isLog ? price * ch.offset : price + ch.offset;
+  function applyOffset(ch, price, useOffset2 = false) {
+    const off = useOffset2 ? (ch.offset2 ?? ch.offset) : ch.offset;
+    return ch.isLog ? price * off : price + off;
   }
 
   return (
@@ -32,8 +33,8 @@ export const Channels = memo(function Channels({
       {channels.map(ch => {
         const a1 = toXY(ch.t1, ch.p1);
         const b1 = toXY(ch.t2, ch.p2);
-        const a2 = toXY(ch.t1, applyOffset(ch, ch.p1));
-        const b2 = toXY(ch.t2, applyOffset(ch, ch.p2));
+        const a2 = toXY(ch.t1, applyOffset(ch, ch.p1, false));
+        const b2 = toXY(ch.t2, applyOffset(ch, ch.p2, true));
         const selected = ch.id === selectedChannelId;
         const alert    = !!ch.alert;
         const color    = selected ? "#f0b90b" : alert ? "#fbbf24" : CHANNEL_COLOR;
@@ -62,6 +63,8 @@ export const Channels = memo(function Channels({
             {selected && <>
               <circle cx={a1.x} cy={a1.y} r={5} fill="#f0b90b" opacity={0.9} />
               <circle cx={b1.x} cy={b1.y} r={5} fill="#f0b90b" opacity={0.9} />
+              <circle cx={a2.x} cy={a2.y} r={5} fill="#f0b90b" opacity={0.9} />
+              <circle cx={b2.x} cy={b2.y} r={5} fill="#f0b90b" opacity={0.9} />
               <circle cx={(a2.x+b2.x)/2} cy={(a2.y+b2.y)/2} r={5} fill="#f0b90b" opacity={0.9} />
             </>}
           </g>

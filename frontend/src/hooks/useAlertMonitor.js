@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BN_PUBLIC } from "../constants";
+import { BN_PUBLIC, BN_WS } from "../constants";
 
 const ALL_TF      = ["5m", "15m", "1h", "4h", "1d", "1w"];
 const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시간", "1d": "1일", "1w": "1주" };
@@ -147,7 +147,7 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
   // WebSocket 연결
   const connectWS = () => {
     if (closed) return;
-    const ws = new WebSocket(`wss://fstream.binance.com/ws/btcusdt@kline_${tf}`);
+    const ws = new WebSocket(`${BN_WS}/ws/btcusdt@kline_${tf}`);
     stateRef.current[tf].ws = ws;
 
     ws.onmessage = (evt) => {

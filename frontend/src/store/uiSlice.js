@@ -22,7 +22,6 @@ export const createUiSlice = (set, get) => ({
   // ── 모드 / UI 상태 ────────────────────────────────────────────────────────
   drawMode:      false,
   orderStatus:   null,
-  confirmInfo:   null,
   criticalAlert: null,
   tpslSaving:    false,
   selectedBox:   false,
@@ -45,7 +44,6 @@ export const createUiSlice = (set, get) => ({
 
   setDrawMode:      (v) => set({ drawMode: typeof v === "function" ? v(get().drawMode) : v }),
   setOrderStatus:   (v) => set({ orderStatus: v }),
-  setConfirmInfo:   (v) => set({ confirmInfo: v }),
   setCriticalAlert: (v) => set({ criticalAlert: v }),
   setTpslSaving:    (v) => set({ tpslSaving: v }),
   setSelectedBox:   (v) => set({ selectedBox: v }),

@@ -81,7 +81,18 @@ export const CURSOR_RULES = [
     },
     cursor: "move",
   },
-  // 채널 선택 시 미러선 중간 핸들 (오프셋 조절)
+  // 채널 선택 시 미러선 끝점 핸들 (메인 라인과 함께 이동 — 평행 유지)
+  {
+    test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
+      if (!selectedChannelId || !channels?.length) return false;
+      const ch = channels.find(c => c.id === selectedChannelId);
+      if (!ch) return false;
+      const { ax2, ay2, bx2, by2 } = channelXYs(ch, candles, xScale, yScale, isLog);
+      return Math.hypot(pos.x-ax2, pos.y-ay2) < 10 || Math.hypot(pos.x-bx2, pos.y-by2) < 10;
+    },
+    cursor: "move",
+  },
+  // 채널 선택 시 미러선 중간 핸들 (양쪽 offset 동일 delta 조절)
   {
     test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
       if (!selectedChannelId || !channels?.length) return false;
@@ -100,6 +111,7 @@ export const CURSOR_RULES = [
       if (!ch) return false;
       const { ax, ay, bx, by, ax2, ay2, bx2, by2 } = channelXYs(ch, candles, xScale, yScale, isLog);
       if (Math.hypot(pos.x-ax, pos.y-ay) < 10 || Math.hypot(pos.x-bx, pos.y-by) < 10) return false;
+      if (Math.hypot(pos.x-ax2, pos.y-ay2) < 10 || Math.hypot(pos.x-bx2, pos.y-by2) < 10) return false;
       if (Math.hypot(pos.x-(ax2+bx2)/2, pos.y-(ay2+by2)/2) < 10) return false;
       return distToSeg(pos.x, pos.y, ax, ay, bx, by) < 8
           || distToSeg(pos.x, pos.y, ax2, ay2, bx2, by2) < 8;

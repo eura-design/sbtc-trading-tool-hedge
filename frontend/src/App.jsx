@@ -24,6 +24,7 @@ import { useIndicatorParams }        from "./hooks/useIndicatorParams";
 import { useEMA }                    from "./hooks/useEMA";
 import { useKeyboardShortcuts }      from "./hooks/useKeyboardShortcuts";
 import { useShortcutSettings }      from "./hooks/useShortcutSettings";
+import { derivePositionFlags }      from "./hooks/usePositionFlags";
 import { TopBar }       from "./components/TopBar";
 import { SidebarPanel } from "./components/Sidebar/SidebarPanel";
 import { ChartArea }    from "./components/ChartArea";
@@ -41,11 +42,10 @@ export default function App() {
     position,
   } = useStore();
 
-  const hasLong    = !!position?.long;
-  const hasShort   = !!position?.short;
-  const hasPos     = hasLong || hasShort;
-  const hasBoth    = hasLong && hasShort;
-  const hasPending = !!position?.pending;
+  const {
+    hasLong, hasShort, hasPos, hasBoth,
+    longPendingExists, shortPendingExists, hasPending, drawLocked,
+  } = derivePositionFlags(position);
 
   // ── 폴링 / 실시간 ────────────────────────────────────────────────────────
   useBalance();
@@ -71,12 +71,22 @@ export default function App() {
       if (drawing.isLong  && position.long)  { setDrawing(null); return; }
       if (!drawing.isLong && position.short) { setDrawing(null); return; }
     }
-    if (drawing?.orderId && !hasPending)                 { setDrawing(null); return; }
-    if (hasPending && !drawing && position.pending?.drawing) {
-      const d = { ...position.pending.drawing };
-      if (!d.tStart) { d.tStart = 0; d.tEnd = 0; }
-      d.orderId = String(position.pending.orderId);
-      setDrawing(d);
+    // drawing이 주문과 연결됐는데 해당 사이드 pending이 사라진 경우 → drawing 제거
+    if (drawing?.orderId) {
+      const matchPending = drawing.isLong ? position.pending?.long : position.pending?.short;
+      if (!matchPending) { setDrawing(null); return; }
+    }
+    // drawing 없고 pending 있으면 → 저장된 drawing으로 복원 (LONG 우선)
+    if (!drawing) {
+      const lp = position.pending?.long;
+      const sp = position.pending?.short;
+      const pd = lp?.drawing ? lp : sp?.drawing ? sp : null;
+      if (pd) {
+        const d = { ...pd.drawing };
+        if (!d.tStart) { d.tStart = 0; d.tEnd = 0; }
+        d.orderId = String(pd.orderId);
+        setDrawing(d);
+      }
     }
   }, [position, hasPos, hasPending]);
 
@@ -133,7 +143,7 @@ export default function App() {
   }, [divsByTF, interval_, candles]);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
-  const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp, openConfirm } = useOrderFlow();
+  const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp } = useOrderFlow();
 
   // ── 단축키 설정 ─────────────────────────────────────────────────────────
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcutSettings();
@@ -150,7 +160,7 @@ export default function App() {
     selectedChannelId: trendLines.selectedChannelId, setSelectedChannelId: trendLines.setSelectedChannelId,
     selectedCircleId:  trendLines.selectedCircleId,  setSelectedCircleId:  trendLines.setSelectedCircleId,
     setSelectedBox,
-    drawing, hasPending, locked: hasPos || hasPending, selectedBox,
+    drawing, hasPending, locked: drawLocked, selectedBox,
     deleteBox,
     deleteLine:    trendLines.deleteLine,
     deleteChannel: trendLines.deleteChannel,
@@ -203,7 +213,7 @@ export default function App() {
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
           }}
           isDark={isDark} onThemeToggle={toggleTheme}
-          locked={hasBoth || hasPending} hasPos={hasPos} hasPending={hasPending}
+          locked={drawLocked} hasPos={hasPos} hasPending={hasPending}
           last={last} candleLoading={candleLoading}
           indicators={indicators} onIndicatorToggle={toggleIndicator}
           indicatorParams={indicatorParams} setIndicatorParam={setIndicatorParam}
@@ -264,7 +274,6 @@ export default function App() {
       <div style={{ width: sidebarOpen ? "272px" : "0px", overflow: "hidden", flexShrink: 0, transition: "width 0.2s ease" }}>
         <SidebarPanel
           lastPrice={last?.c}
-          openConfirm={openConfirm}
           onCancelOrder={deleteBox}
           onClosePosition={closePosition}
           onScaleIn={scaleIn}

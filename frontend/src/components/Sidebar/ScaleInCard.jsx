@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../../ThemeContext";
+import { isLongToSide } from "../../utils/side";
 
 export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders, onCancelScaleIn, embedded }) {
   const { theme } = useTheme();
@@ -136,7 +137,7 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
 
       <button
         disabled={!valid}
-        onClick={() => onScaleIn(isLong ? "BUY" : "SELL", orderType, parseFloat(price) || null, addQty)}
+        onClick={() => onScaleIn(isLongToSide(isLong), orderType, parseFloat(price) || null, addQty)}
         style={{
           width:"100%", padding:"8px 0", borderRadius:"5px",
           cursor: valid ? "pointer" : "not-allowed",

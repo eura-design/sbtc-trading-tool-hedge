@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { BN_PUBLIC } from "../constants";
+import { BN_PUBLIC, BN_WS } from "../constants";
 import { useStore } from "../store";
 
 export function useCandles(interval, onTickRef) {
@@ -18,7 +18,7 @@ export function useCandles(interval, onTickRef) {
         ws.onclose = null;
         ws.close();
       }
-      ws = new WebSocket(`wss://fstream.binance.com/ws/btcusdt@kline_${interval}`);
+      ws = new WebSocket(`${BN_WS}/ws/btcusdt@kline_${interval}`);
       ws.onmessage = (evt) => {
         const k = JSON.parse(evt.data).k;
         const candle = { t: new Date(k.t), o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v };
@@ -27,18 +27,16 @@ export function useCandles(interval, onTickRef) {
         const last = arr[arr.length - 1];
 
         if (candle.t.getTime() === last.t.getTime()) {
-          // 틱 업데이트: candlesRef만 갱신 — React 상태 건드리지 않음
           arr[arr.length - 1] = candle;
           if (wsRafRef.current !== null) return;
           wsRafRef.current = requestAnimationFrame(() => {
             wsRafRef.current = null;
             if (!closed) {
-              onTickRef?.current?.();                              // canvas 직접 재드로우 (React 외부)
-              useStore.getState().setLiveClose(arr[arr.length - 1].c); // store 직접 업데이트 (App 리렌더 없음)
+              onTickRef?.current?.();
+              useStore.getState().setLiveClose(arr[arr.length - 1].c);
             }
           });
         } else if (candle.t > last.t) {
-          // 새 캔들: React 상태 업데이트 (SVG 오버레이 포함 전체 동기화)
           arr.push(candle);
           if (arr.length > 3100) arr.shift();
           if (!closed) {

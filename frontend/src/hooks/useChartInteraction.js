@@ -15,18 +15,17 @@ export function useChartInteraction({
   lineMode, lineStart, lines, selectedLineId,
   setLineStart, setLinePreview, setSelectedLineId,
   addLine, updateLineEndpoint, setLinePosition,
-  hasPos, tpsl, scaleInOrders, splitTps,
+  hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
   dragTpsl, setDragTpsl, saveTpsl,
   dragScaleIn, setDragScaleIn, moveScaleIn,
   dragSplitTp, setDragSplitTp, moveSplitTp,
   selectedBox, setSelectedBox,
-  openConfirm,
   isLog = false,
   // 채널
   channelMode, channelStep, setChannelStep,
   channelPoints, setChannelPoints, channelPreview, setChannelPreview,
   channels, selectedChannelId, setSelectedChannelId,
-  addChannel, updateChannelEndpoint, setChannelPosition, setChannelOffset,
+  addChannel, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
   // 원
   circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
   circles, selectedCircleId, setSelectedCircleId,
@@ -126,7 +125,7 @@ export function useChartInteraction({
       pos, xScale, yScale, candles,
       lineMode, lineStart, setLineStart, addLine,
       selectedLineId, lines, setSelectedLineId, dragRef,
-      hasPos, tpsl, scaleInOrders, splitTps,
+      hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
       drawing, locked, drawMode, setCurrent,
       xDomainRef,
       setSelectedBox,
@@ -134,7 +133,7 @@ export function useChartInteraction({
       channelMode, channelStep, setChannelStep,
       channelPoints, setChannelPoints, channelPreview,
       channels, selectedChannelId, setSelectedChannelId,
-      addChannel, updateChannelEndpoint, setChannelPosition, setChannelOffset,
+      addChannel, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
       circleMode, circleCenter, setCircleCenter, circlePreview,
       circles, selectedCircleId, setSelectedCircleId,
       addCircle, moveCircle,
@@ -145,7 +144,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawing, locked, drawMode, candles, hasPos, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle]);
+  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle]);
 
   const onMouseMove = useCallback(e => {
     const clientX = e.clientX, clientY = e.clientY;
@@ -254,7 +253,7 @@ export function useChartInteraction({
         const panPos = { x: clientX - rect2.left - M.left, y: clientY - rect2.top - M.top };
         handler.onMove({
           pos: panPos, drag: dragRef.current ?? drag, scales: null, IW, IH, candles,
-          setters: { setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef, redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, isLog, updateChannelEndpoint, setChannelPosition, setChannelOffset, moveCircle, updateLineEndpoint, setLinePosition, overlaysRef },
+          setters: { setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef, redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets, moveCircle, updateLineEndpoint, setLinePosition, overlaysRef },
           state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
         });
         return;
@@ -262,7 +261,7 @@ export function useChartInteraction({
 
       handler.onMove({
         pos, drag, scales, IW, IH, candles,
-        setters: { setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef, redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, isLog, updateChannelEndpoint, setChannelPosition, setChannelOffset, moveCircle, updateLineEndpoint, setLinePosition },
+        setters: { setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef, redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets, moveCircle, updateLineEndpoint, setLinePosition },
         state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
       });
     });
@@ -280,7 +279,7 @@ export function useChartInteraction({
 
     handler.onUp({
       pos: getSvgPos(e), drag, scales, candles, IW, IH,
-      setters: { setDrawing, setCurrent, setDragTpsl, setCursor, saveTpsl, setDrawMode, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart, updateChannelEndpoint, setChannelPosition, setChannelOffset, moveCircle, updateLineEndpoint, setLinePosition, overlaysRef },
+      setters: { setDrawing, setCurrent, setDragTpsl, setCursor, saveTpsl, setDrawMode, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets, moveCircle, updateLineEndpoint, setLinePosition, overlaysRef },
       state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
     });
   }, [candles, drawing, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos]);
@@ -291,16 +290,6 @@ export function useChartInteraction({
     if (!scales) return;
     const { xScale, yScale } = scales;
 
-    if (drawing && !locked) {
-      const x1   = xScale(tsToIdx(drawing.tStart, candles)), x2 = xScale(tsToIdx(drawing.tEnd, candles));
-      const yMin = Math.min(yScale(drawing.tp), yScale(drawing.sl));
-      const yMax = Math.max(yScale(drawing.tp), yScale(drawing.sl));
-      if (pos.x >= x1 && pos.x <= x2 && pos.y >= yMin && pos.y <= yMax) {
-        openConfirm?.();
-        return;
-      }
-    }
-
     const hit = findHitLine(pos.x, pos.y, lines, xScale, yScale, candles, 8, isLog);
     if (hit) { onLineDoubleClick?.(hit.id, "line", e.clientX, e.clientY); return; }
 
@@ -309,7 +298,7 @@ export function useChartInteraction({
 
     const hitCi = findHitCircle(pos.x, pos.y, circles ?? [], xScale, yScale, candles);
     if (hitCi) { onLineDoubleClick?.(hitCi.id, "circle", e.clientX, e.clientY); return; }
-  }, [candles, lines, channels, circles, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick, openConfirm]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, lines, channels, circles, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMouseLeave = useCallback(() => {
     dragRef.current = null;

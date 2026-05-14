@@ -1,11 +1,11 @@
-import { calcPosition } from "../utils/calc";
-import { calcRR }       from "../utils/format";
-import { api }          from "../api/client";
+import { calcPosition }  from "../utils/calc";
+import { api }           from "../api/client";
+import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from "../utils/side";
 
 export const createOrderSlice = (set, get) => ({
 
-  openConfirm: async () => {
-    const { drawing, leverage, riskPct, balance, setConfirmInfo, setOrderStatus } = get();
+  executeOrder: async (orderType) => {
+    const { drawing, leverage, riskPct, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos } = get();
     if (!drawing) return;
     try {
       const dl = await api("GET", "/api/daily-loss");
@@ -17,26 +17,9 @@ export const createOrderSlice = (set, get) => ({
     const capital = balance?.availableBalance ?? 0;
     const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage);
     if (!posCalc) return;
-    setConfirmInfo({
-      ...drawing, leverage,
-      qty:              posCalc.actualQty.toFixed(3),
-      usd:              posCalc.actualQty * drawing.entry,
-      idealRiskPct:     posCalc.idealRiskPct,
-      actualRiskPct:    posCalc.actualRiskPct,
-      actualLoss:       posCalc.actualQty * Math.abs(drawing.entry - drawing.sl),
-      actualProfit:     posCalc.actualQty * Math.abs(drawing.tp - drawing.entry),
-      isMinCapped:      posCalc.isMinCapped,
-      isLeverageCapped: posCalc.isLeverageCapped,
-      rrRatio:          calcRR(drawing.entry, drawing.tp, drawing.sl, drawing.isLong),
-    });
-  },
-
-  executeOrder: async (orderType) => {
-    const { drawing, leverage, confirmInfo, setConfirmInfo, setOrderStatus, setDrawing, _refetchBal, _refetchPos } = get();
-    if (!drawing || !confirmInfo) return;
-    const qty = parseFloat(confirmInfo.qty);
+    const qty = posCalc.actualQty;
     if (!qty || qty <= 0) return;
-    setConfirmInfo(null); setOrderStatus(null);
+    setOrderStatus(null);
     try {
       const drawingPayload = orderType === "LIMIT" ? {
         tStart: drawing.tStart, tEnd: drawing.tEnd,
@@ -44,7 +27,7 @@ export const createOrderSlice = (set, get) => ({
         isLong: drawing.isLong, entry: drawing.entry, tp: drawing.tp, sl: drawing.sl,
       } : undefined;
       const data = await api("POST", "/api/order", {
-        side:     drawing.isLong ? "BUY" : "SELL",
+        side:     isLongToSide(drawing.isLong),
         orderType,
         entry:    drawing.entry,
         tp:       drawing.tp,
@@ -74,7 +57,7 @@ export const createOrderSlice = (set, get) => ({
     if (!newTp && !newSl) return;
     const positionSide = dragSide ?? (position.long ? "LONG" : "SHORT");
     const sideKey  = positionSide === "LONG" ? "long" : "short";
-    const entrySide = positionSide === "LONG" ? "BUY" : "SELL";
+    const entrySide = positionToSide(positionSide);
     const activeTpsl = tpsl[sideKey] ?? { tp: null, sl: null };
     const body = { side: entrySide };
     if (newTp) { body.tp = newTp; body.tpOrderId = activeTpsl.tp?.orderId; body.tpIsAlgo = activeTpsl.tp?.isAlgo; }
@@ -121,10 +104,11 @@ export const createOrderSlice = (set, get) => ({
     const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage);
     if (!posCalc) return;
     setDrawing(prev => prev ? { ...prev, orderId: undefined } : prev);
+    const cancelSide = isLongToPosition(drawing.isLong);
     try {
-      await api("DELETE", "/api/orders");
+      await api("DELETE", "/api/orders", { side: cancelSide });
       const data = await api("POST", "/api/order", {
-        side:      drawing.isLong ? "BUY" : "SELL",
+        side:      isLongToSide(drawing.isLong),
         orderType: "LIMIT",
         entry:     drawing.entry,
         tp:        drawing.tp,
@@ -220,7 +204,7 @@ export const createOrderSlice = (set, get) => ({
     const target = allSplitTps.find(o => o.orderId === orderId);
     if (!target) return;
     // target.side is close side: "SELL" = closing LONG, "BUY" = closing SHORT
-    const side = target.side === "SELL" ? "LONG" : "SHORT";
+    const side = closeToPosition(target.side);
     try {
       await api("DELETE", "/api/tpsl/split", { orderId });
       await api("POST", "/api/tpsl/split", {
@@ -245,17 +229,31 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
-  deleteBox: async () => {
-    const { position, setDrawing, setPosition, setOrderStatus } = get();
-    if (position?.pending) {
+  deleteBox: async (sideOverride) => {
+    const { drawing, position, setDrawing, setPosition, setOrderStatus } = get();
+    // 사이드 결정 우선순위: 명시적 sideOverride > drawing의 사이드
+    const side = sideOverride
+      ?? (drawing ? isLongToPosition(drawing.isLong) : undefined);
+    const hasPending = !!(position?.pending?.long || position?.pending?.short);
+    if (hasPending) {
+      if (!side) {
+        setOrderStatus({ type: "error", msg: "취소할 사이드를 알 수 없습니다" });
+        return;
+      }
       try {
-        await api("DELETE", "/api/orders");
+        await api("DELETE", "/api/orders", { side });
         setOrderStatus({ type: "success", msg: "미체결 주문 취소 완료" });
       } catch (e) {
         setOrderStatus({ type: "error", msg: `취소 실패: ${e.message}` }); return;
       }
     }
-    setDrawing(null);
-    setPosition(prev => prev ? { ...prev, pending: null } : null);
+    // drawing이 취소한 사이드와 같을 때만 drawing 제거
+    if (drawing && isLongToPosition(drawing.isLong) === side) setDrawing(null);
+    setPosition(prev => {
+      if (!prev?.pending) return prev;
+      if (side === "LONG")  return { ...prev, pending: { ...prev.pending, long:  null } };
+      if (side === "SHORT") return { ...prev, pending: { ...prev.pending, short: null } };
+      return prev;
+    });
   },
 });

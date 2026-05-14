@@ -1,5 +1,6 @@
 const axios  = require("axios");
 const crypto = require("crypto");
+const { closeToPosition } = require("../utils/side");
 
 // const BASE = "https://fapi.binance.com";
 const BASE = "https://demo-fapi.binance.com";
@@ -91,7 +92,7 @@ async function placeTPSL({ closeSide, tp, sl }) {
     }
   }
 
-  const positionSide = closeSide === "SELL" ? "LONG" : "SHORT";
+  const positionSide = closeToPosition(closeSide);
 
   const tpResult = await tryPlace("TP", {
     algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,

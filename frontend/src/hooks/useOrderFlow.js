@@ -7,7 +7,6 @@ import { useShallow } from "zustand/react/shallow";
  */
 export function useOrderFlow() {
   return useStore(useShallow(s => ({
-    openConfirm:   s.openConfirm,
     executeOrder:  s.executeOrder,
     saveTpsl:      s.saveTpsl,
     deleteBox:     s.deleteBox,

@@ -284,19 +284,40 @@ export const DRAG_HANDLERS = {
     onUp({ setters }) { setters.setCursor("crosshair"); },
   },
 
-  channel_offset: {
+  channel_mid_offset: {
     onMove({ pos, drag, scales, IH, setters }) {
       if (!scales) return;
       const nowPrice   = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
       const startPrice = scales.yScale.invert(drag.startY);
+      let newOffset, newOffset2;
       if (setters.isLog) {
-        // log 모드: offset을 비율(ratio)로 저장
         const ratio = (startPrice > 0 && nowPrice > 0) ? nowPrice / startPrice : 1;
-        setters.setChannelOffset(drag.channelId, drag.startOffset * ratio);
+        newOffset  = drag.startOffset  * ratio;
+        newOffset2 = drag.startOffset2 * ratio;
       } else {
-        setters.setChannelOffset(drag.channelId, drag.startOffset + (nowPrice - startPrice));
+        const delta = nowPrice - startPrice;
+        newOffset  = drag.startOffset  + delta;
+        newOffset2 = drag.startOffset2 + delta;
       }
+      setters.updateChannelBothOffsets(drag.channelId, newOffset, newOffset2);
       setters.setCursor("ns-resize");
+    },
+    onUp({ setters }) { setters.setCursor("crosshair"); },
+  },
+
+  // 미러 라인 끝점 드래그: 마우스가 미러 위치를 따라가도록 offset 보정 후 메인 라인 이동
+  channel_mirror_ep: {
+    onMove({ pos, drag, scales, candles, IW, IH, setters }) {
+      if (!scales || !candles.length) return;
+      const { xScale, yScale } = scales;
+      const rawIdx    = xScale.invert(Math.min(Math.max(pos.x, 0), IW));
+      const t         = idxToTimestamp(rawIdx, candles);
+      const mousePrice = yScale.invert(Math.min(Math.max(pos.y, 0), IH));
+      // a2 = p1 + offset  →  p1 = mousePrice - offset  (linear)
+      // a2 = p1 * offset  →  p1 = mousePrice / offset  (log)
+      const p = setters.isLog ? mousePrice / drag.offset : mousePrice - drag.offset;
+      setters.updateChannelEndpoint(drag.channelId, drag.endpoint, t, p);
+      setters.setCursor("move");
     },
     onUp({ setters }) { setters.setCursor("crosshair"); },
   },

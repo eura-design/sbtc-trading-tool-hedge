@@ -45,9 +45,12 @@ export function PositionCard({
   const [closePct, setClosePct] = useState(() => Number(localStorage.getItem("closePct")) || 100);
   const handleClosePct = v => { setClosePct(v); localStorage.setItem("closePct", v); };
   const [confirming, setConfirming] = useState(false);
-  const [scaleInOpen, setScaleInOpen] = useState(false);
-  const [splitTPOpen, setSplitTPOpen] = useState(false);
-  const [expanded, setExpanded] = useState(true);
+  const [scaleInOpen, setScaleInOpen] = useState(() => localStorage.getItem(`accordion_scaleIn_${side}`) === "true");
+  const [splitTPOpen, setSplitTPOpen] = useState(() => localStorage.getItem(`accordion_splitTP_${side}`) === "true");
+  const [expanded, setExpanded] = useState(() => localStorage.getItem(`accordion_pos_${side}`) !== "false");
+  const toggleExpanded  = () => setExpanded(v  => { const n = !v; localStorage.setItem(`accordion_pos_${side}`,     n); return n; });
+  const toggleScaleIn   = () => setScaleInOpen(v => { const n = !v; localStorage.setItem(`accordion_scaleIn_${side}`, n); return n; });
+  const toggleSplitTP   = () => setSplitTPOpen(v => { const n = !v; localStorage.setItem(`accordion_splitTP_${side}`, n); return n; });
 
   if (!posData) return null;
 
@@ -78,7 +81,7 @@ export function PositionCard({
     }}>
       {/* 포지션 헤더 — 클릭으로 접기/펼치기 */}
       <button
-        onClick={() => setExpanded(v => !v)}
+        onClick={toggleExpanded}
         style={{
           width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
           background:"transparent", border:"none", cursor:"pointer", padding:0,
@@ -180,7 +183,7 @@ export function PositionCard({
         label="추가 진입"
         badge={scaleInOrders?.length}
         isOpen={scaleInOpen}
-        onToggle={() => setScaleInOpen(v => !v)}
+        onToggle={toggleScaleIn}
         theme={theme}
         posColor={posColor}
       >
@@ -200,7 +203,7 @@ export function PositionCard({
         label="분할 TP"
         badge={splitTpCount}
         isOpen={splitTPOpen}
-        onToggle={() => setSplitTPOpen(v => !v)}
+        onToggle={toggleSplitTP}
         theme={theme}
         posColor={posColor}
       >

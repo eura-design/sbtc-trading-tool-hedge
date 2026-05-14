@@ -3,6 +3,7 @@ const { binance, roundPrice, placeTPSL } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { validateOrder } = require("../middleware/validate");
 const { checkDailyLoss } = require("./dailyloss");
+const { sideToPosition } = require("../utils/side");
 const router  = express.Router();
 
 router.post("/", validateOrder, async (req, res) => {
@@ -14,16 +15,26 @@ router.post("/", validateOrder, async (req, res) => {
     // 0) 일일 손실 한도 체크
     await checkDailyLoss();
 
-    // 1) 레버리지 설정
-    if (leverage) {
-      await binance("POST", "/fapi/v1/leverage", {
-        symbol: "BTCUSDT", leverage: parseInt(leverage),
-      });
-      leverageChanged = true;
-    }
+    // 1) positionSide 결정
+    const positionSide = sideToPosition(side);
 
-    // 2) 진입 주문
-    const positionSide = side === "BUY" ? "LONG" : "SHORT";
+    // 2) 레버리지 설정 — 반대쪽 포지션이 이미 있으면 건너뜀 (기존 포지션 레버리지 보호)
+    if (leverage) {
+      const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
+      const oppositeSide = positionSide === "LONG" ? "SHORT" : "LONG";
+      const hasOppositePos = posCheck.some(p =>
+        p.positionSide === oppositeSide && parseFloat(p.positionAmt) !== 0
+      );
+      if (hasOppositePos) {
+        console.log(`[ORDER] 반대쪽 ${oppositeSide} 포지션 있음 → 레버리지 변경 생략 (요청값: ${leverage}x)`);
+      } else {
+        await binance("POST", "/fapi/v1/leverage", {
+          symbol: "BTCUSDT", leverage: parseInt(leverage),
+        });
+        leverageChanged = true;
+      }
+    }
+    // 3) 진입 주문
     const entryParams = {
       symbol: "BTCUSDT", side, positionSide, type: orderType,
       quantity: parseFloat(quantity).toFixed(3),

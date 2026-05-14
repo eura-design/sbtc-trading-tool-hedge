@@ -4,9 +4,11 @@ const store          = require("../store/pendingOrders");
 const push           = require("./pushService");
 const tradeLog       = require("../store/tradeLog");
 const statsCache     = require("./statsCache");
+const { closeToPosition } = require("../utils/side");
 
-// 포지션 상태 추적 (reconcile 간 상태 유지)
-let prevHasPos          = null; // null = 최초 실행 전
+// 포지션 상태 추적 (reconcile 간 상태 유지) — 헷지모드: LONG/SHORT 각각 독립 추적
+let prevHasLong         = null; // null = 최초 실행 전
+let prevHasShort        = null;
 let currentEntryFilledAt = null; // 진입 체결 시각 (ms)
 
 const RECONCILE_INTERVAL = 60 * 1000; // 60초마다 바이낸스 실제 상태와 검증
@@ -116,8 +118,11 @@ async function reconcileWithBinance() {
   );
 
   // store에 pending 없어도 포지션 추적은 항상 실행
+  // 첫 실행 시(prevHas*가 null) early return 금지 — 포지션 상태를 한 번은 초기화해야
+  // 이후 LONG/SHORT 종료를 정상 감지할 수 있음
   const hasStoreEntries = store.size > 0;
-  if (!relevant.length && !hasStoreEntries && prevHasPos !== true) return;
+  const isInitialized   = prevHasLong !== null && prevHasShort !== null;
+  if (isInitialized && !relevant.length && !hasStoreEntries && !prevHasLong && !prevHasShort) return;
 
   try {
     const [{ data: openOrders }, { data: posData }] = await Promise.all([
@@ -125,10 +130,13 @@ async function reconcileWithBinance() {
       binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }),
     ]);
     const openIds  = new Set(openOrders.map(o => String(o.orderId)));
-    const hasPos   = posData.some(p => parseFloat(p.positionAmt) !== 0);
+    const hasLong  = posData.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0);
+    const hasShort = posData.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0);
+    const hasPos   = hasLong || hasShort;
+    const prevHasPos = prevHasLong || prevHasShort;
 
     // ── 포지션 오픈 → 진입 시각 기록 ──────────────────────────────────────
-    if (hasPos && prevHasPos !== true && currentEntryFilledAt === null) {
+    if (hasPos && !prevHasPos && currentEntryFilledAt === null) {
       const storeEntry = [...store.entries()].find(([, o]) =>
         o.status === "TPSL_PLACED" || o.status === "TPSL_PARTIAL" || o.status === "FILLED"
       );
@@ -138,15 +146,19 @@ async function reconcileWithBinance() {
       console.log(`[RECONCILE] 포지션 진입 감지, filledAt=${currentEntryFilledAt}`);
     }
 
-    // ── 포지션 클로즈 → stats 캐시 무효화 신호 ──────────────────────────
-    if (prevHasPos === true && !hasPos) {
-      console.log("[RECONCILE] 포지션 종료 감지 → stats 갱신 push");
+    // ── 포지션 클로즈 → stats 캐시 무효화 신호 (한쪽만 닫혀도 즉시 갱신) ──
+    const longJustClosed  = prevHasLong  === true && !hasLong;
+    const shortJustClosed = prevHasShort === true && !hasShort;
+    if (longJustClosed || shortJustClosed) {
+      const closedSide = longJustClosed && shortJustClosed ? "LONG+SHORT" : longJustClosed ? "LONG" : "SHORT";
+      console.log(`[RECONCILE] ${closedSide} 포지션 종료 감지 → stats 갱신 push`);
       statsCache.invalidateCache();
       push.pushUpdate(["stats"]);
-      currentEntryFilledAt = null;
+      if (!hasPos) currentEntryFilledAt = null; // 양쪽 모두 닫혔을 때만 진입 시각 초기화
     }
 
-    prevHasPos = hasPos;
+    prevHasLong  = hasLong;
+    prevHasShort = hasShort;
 
     // ── TPSL_PARTIAL / FILLED(TP/SL 미등록) → 포지션 있으면 재시도 ──────────
     const retryable = [...store.entries()].filter(
@@ -159,7 +171,7 @@ async function reconcileWithBinance() {
       } else {
         for (const [orderId, info] of retryable) {
           // 헤지 모드: 해당 포지션 방향의 TP/SL만 확인
-          const orderPosSide = info.closeSide === "SELL" ? "LONG" : "SHORT";
+          const orderPosSide = closeToPosition(info.closeSide);
           const hasTpsl = await checkExistingTPSL(orderPosSide);
           if (hasTpsl) {
             // TP/SL이 이미 등록돼 있으면 PLACED로 전환
@@ -202,11 +214,21 @@ async function reconcileWithBinance() {
       if (scaleIns.length) push.pushUpdate(["position"]);
     }
 
-    for (const [orderId, info] of relevant) {
-      if (openIds.has(String(orderId))) continue;
-
-      try {
-        const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+    const toCheck = relevant.filter(([orderId]) => !openIds.has(String(orderId)));
+    if (toCheck.length > 0) {
+      const results = await Promise.allSettled(
+        toCheck.map(([orderId]) =>
+          binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId }).then(r => r.data)
+        )
+      );
+      for (let i = 0; i < toCheck.length; i++) {
+        const [orderId, info] = toCheck[i];
+        const result = results[i];
+        if (result.status === "rejected") {
+          console.warn(`[RECONCILE] orderId=${orderId} 조회 실패:`, result.reason?.response?.data?.msg || result.reason?.message);
+          continue;
+        }
+        const data = result.value;
         if (data.status === "FILLED") {
           if (info.status === "WATCHING") {
             await onFilled(orderId, data);
@@ -225,11 +247,8 @@ async function reconcileWithBinance() {
           push.pushUpdate(["position"]);
         } else {
           // NEW / PARTIALLY_FILLED 등 아직 살아있는 상태 — openOrders 응답 지연일 뿐
-          // (실수로 지우면 position.js에서 external 주문으로 오인됨)
           console.log(`[RECONCILE] 주문 ${orderId} 상태: ${data.status} → 유지 (openOrders 응답 지연)`);
         }
-      } catch (e) {
-        console.warn(`[RECONCILE] orderId=${orderId} 조회 실패:`, e.response?.data?.msg || e.message);
       }
     }
   } catch (e) {

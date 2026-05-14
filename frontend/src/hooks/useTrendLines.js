@@ -79,7 +79,7 @@ export function useTrendLines() {
   }, []);
 
   const addChannel = useCallback((t1, p1, t2, p2, offset, isLog = false) => {
-    channelStore.add({ t1, p1, t2, p2, offset, isLog });
+    channelStore.add({ t1, p1, t2, p2, offset, offset2: offset, isLog });
     setChannelMode(false); setChannelStep(0); setChannelPoints(null); setChannelPreview(null);
   }, [channelStore]);
 
@@ -95,8 +95,8 @@ export function useTrendLines() {
     channelStore.update(channelId, { t1, p1, t2, p2 });
   }, [channelStore]);
 
-  const setChannelOffset = useCallback((channelId, offset) => {
-    channelStore.update(channelId, { offset });
+  const updateChannelBothOffsets = useCallback((channelId, offset, offset2) => {
+    channelStore.update(channelId, { offset, offset2 });
   }, [channelStore]);
 
   return {
@@ -130,7 +130,7 @@ export function useTrendLines() {
     channelPreview,    setChannelPreview,
     selectedChannelId, setSelectedChannelId,
     cancelChannelDraw, addChannel, deleteChannel,
-    updateChannelEndpoint, setChannelPosition, setChannelOffset,
+    updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
     setChannelOpacity:  channelStore.setOpacity,
     toggleChannelLock:  channelStore.toggleLock,
     toggleChannelAlert: channelStore.toggleAlert,

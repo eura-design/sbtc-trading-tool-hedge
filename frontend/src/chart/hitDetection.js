@@ -7,8 +7,9 @@ import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
 export function channelXYs(ch, candles, xScale, yScale, _isLog = false) {
   const i1 = tsToIdx(ch.t1, candles), i2 = tsToIdx(ch.t2, candles);
   const chIsLog = ch.isLog ?? false;
+  const offset2 = ch.offset2 ?? ch.offset;
   const p1off = chIsLog ? ch.p1 * ch.offset : ch.p1 + ch.offset;
-  const p2off = chIsLog ? ch.p2 * ch.offset : ch.p2 + ch.offset;
+  const p2off = chIsLog ? ch.p2 * offset2   : ch.p2 + offset2;
   return {
     ax: xScale(i1), ay: yScale(ch.p1),
     bx: xScale(i2), by: yScale(ch.p2),
@@ -50,7 +51,7 @@ export function buildHitChain(ctx) {
     pos, xScale, yScale, candles,
     lineMode, lineStart, setLineStart, addLine,
     selectedLineId, lines, setSelectedLineId, dragRef,
-    hasPos, tpsl, scaleInOrders, splitTps,
+    hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
     drawing, locked, drawMode, setCurrent,
     xDomainRef,
     setSelectedBox,
@@ -135,7 +136,7 @@ export function buildHitChain(ctx) {
     },
     // 3. 박스 라인 드래그
     {
-      when: !!drawing && !hasPos,
+      when: !!drawing && !(drawing.isLong ? hasLong : hasShort),
       handle() {
         const ePx = yScale(drawing.entry), tPx = yScale(drawing.tp), slPx = yScale(drawing.sl);
         const x1  = xScale(tsToIdx(drawing.tStart, candles)), x2 = xScale(tsToIdx(drawing.tEnd, candles));
@@ -226,10 +227,18 @@ export function buildHitChain(ctx) {
         if (Math.hypot(pos.x-bx, pos.y-by) < 10) {
           dragRef.current = { type:"channel_ep", channelId:selectedChannelId, endpoint:"end" }; return true;
         }
-        // 미러선 중간 핸들 (오프셋 조절)
+        // 미러 라인 시작점 핸들 → offset 보정 후 p1 이동 (평행 유지)
+        if (Math.hypot(pos.x-ax2, pos.y-ay2) < 10) {
+          dragRef.current = { type:"channel_mirror_ep", channelId:selectedChannelId, endpoint:"start", offset:ch.offset }; return true;
+        }
+        // 미러 라인 끝점 핸들 → offset2 보정 후 p2 이동 (평행 유지)
+        if (Math.hypot(pos.x-bx2, pos.y-by2) < 10) {
+          dragRef.current = { type:"channel_mirror_ep", channelId:selectedChannelId, endpoint:"end", offset:ch.offset2 ?? ch.offset }; return true;
+        }
+        // 미러 라인 중간 핸들 (양쪽 offset 동일 delta 조절)
         const midX = (ax2+bx2)/2, midY = (ay2+by2)/2;
         if (Math.hypot(pos.x-midX, pos.y-midY) < 10) {
-          dragRef.current = { type:"channel_offset", channelId:selectedChannelId, startY:pos.y, startOffset:ch.offset }; return true;
+          dragRef.current = { type:"channel_mid_offset", channelId:selectedChannelId, startY:pos.y, startOffset:ch.offset, startOffset2:ch.offset2 ?? ch.offset }; return true;
         }
         // 몸통 드래그
         if (distToSeg(pos.x, pos.y, ax, ay, bx, by) < 8 || distToSeg(pos.x, pos.y, ax2, ay2, bx2, by2) < 8) {
