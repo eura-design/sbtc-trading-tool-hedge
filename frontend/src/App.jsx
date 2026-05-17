@@ -148,6 +148,41 @@ export default function App() {
   // ── 단축키 설정 ─────────────────────────────────────────────────────────
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcutSettings();
 
+  // ── 도형 통합 인터페이스 (chart/drawables.js) ──────────────────────────
+  const drawables = useMemo(() => ({
+    line: {
+      id: trendLines.selectedLineId, items: trendLines.lines,
+      setSelectedId: trendLines.setSelectedLineId,
+      delete:        trendLines.deleteLine,
+      toggleAlert:   trendLines.toggleLineAlert,
+      toggleLock:    trendLines.toggleLineLock,
+      setOpacity:    trendLines.setLineOpacity,
+    },
+    channel: {
+      id: trendLines.selectedChannelId, items: trendLines.channels,
+      setSelectedId: trendLines.setSelectedChannelId,
+      delete:        trendLines.deleteChannel,
+      toggleAlert:   trendLines.toggleChannelAlert,
+      toggleLock:    trendLines.toggleChannelLock,
+      setOpacity:    trendLines.setChannelOpacity,
+    },
+    circle: {
+      id: trendLines.selectedCircleId, items: trendLines.circles,
+      setSelectedId: trendLines.setSelectedCircleId,
+      delete:        trendLines.deleteCircle,
+      toggleAlert:   trendLines.toggleCircleAlert,
+      toggleLock:    trendLines.toggleCircleLock,
+      setOpacity:    trendLines.setCircleOpacity,
+    },
+  }), [
+    trendLines.selectedLineId, trendLines.lines, trendLines.setSelectedLineId,
+    trendLines.deleteLine, trendLines.toggleLineAlert, trendLines.toggleLineLock, trendLines.setLineOpacity,
+    trendLines.selectedChannelId, trendLines.channels, trendLines.setSelectedChannelId,
+    trendLines.deleteChannel, trendLines.toggleChannelAlert, trendLines.toggleChannelLock, trendLines.setChannelOpacity,
+    trendLines.selectedCircleId, trendLines.circles, trendLines.setSelectedCircleId,
+    trendLines.deleteCircle, trendLines.toggleCircleAlert, trendLines.toggleCircleLock, trendLines.setCircleOpacity,
+  ]);
+
   // ── 키보드 단축키 ─────────────────────────────────────────────────────────
   useKeyboardShortcuts({
     shortcuts,
@@ -156,27 +191,10 @@ export default function App() {
     cancelDraw:        trendLines.cancelDraw,
     cancelChannelDraw: trendLines.cancelChannelDraw,
     cancelCircleDraw:  trendLines.cancelCircleDraw,
-    selectedLineId:    trendLines.selectedLineId,   setSelectedLineId:    trendLines.setSelectedLineId,
-    selectedChannelId: trendLines.selectedChannelId, setSelectedChannelId: trendLines.setSelectedChannelId,
-    selectedCircleId:  trendLines.selectedCircleId,  setSelectedCircleId:  trendLines.setSelectedCircleId,
+    drawables,
     setSelectedBox,
     drawing, hasPending, locked: drawLocked, selectedBox,
     deleteBox,
-    deleteLine:    trendLines.deleteLine,
-    deleteChannel: trendLines.deleteChannel,
-    deleteCircle:  trendLines.deleteCircle,
-    toggleLineAlert:    trendLines.toggleLineAlert,
-    toggleChannelAlert: trendLines.toggleChannelAlert,
-    toggleCircleAlert:  trendLines.toggleCircleAlert,
-    toggleLineLock:    trendLines.toggleLineLock,
-    toggleChannelLock: trendLines.toggleChannelLock,
-    toggleCircleLock:  trendLines.toggleCircleLock,
-    lines:    trendLines.lines,
-    channels: trendLines.channels,
-    circles:  trendLines.circles,
-    setLineOpacity:    trendLines.setLineOpacity,
-    setChannelOpacity: trendLines.setChannelOpacity,
-    setCircleOpacity:  trendLines.setCircleOpacity,
     onIntervalChange:  val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain(); },
   });
 
@@ -244,6 +262,7 @@ export default function App() {
           divData={divData}
           current={current} setCurrent={setCurrent}
           actionsRef={chartActionsRef}
+          drawables={drawables}
           {...trendLines}
         />
       </div>

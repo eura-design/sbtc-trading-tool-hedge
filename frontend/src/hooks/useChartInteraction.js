@@ -30,6 +30,8 @@ export function useChartInteraction({
   circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
   circles, selectedCircleId, setSelectedCircleId,
   addCircle, moveCircle,
+  // 도형 통합 인터페이스
+  drawables,
   overlaysRef,
 }) {
   const replacePendingOrder = useStore(s => s.replacePendingOrder);
@@ -118,18 +120,19 @@ export function useChartInteraction({
     const chain = buildHitChain({
       pos, xScale, yScale, candles,
       lineMode, lineStart, setLineStart, addLine,
-      selectedLineId, lines, setSelectedLineId, dragRef,
+      selectedLineId, lines, dragRef,
       hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
       drawing, locked, drawMode, setCurrent,
       xDomainRef,
       setSelectedBox,
       isLog,
+      drawables,
       channelMode, channelStep, setChannelStep,
       channelPoints, setChannelPoints, channelPreview,
-      channels, selectedChannelId, setSelectedChannelId,
+      channels, selectedChannelId,
       addChannel, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
       circleMode, circleCenter, setCircleCenter, circlePreview,
-      circles, selectedCircleId, setSelectedCircleId,
+      circles, selectedCircleId,
       addCircle, moveCircle,
     });
 

@@ -2,6 +2,7 @@ import { HIT } from "../constants";
 import { distToSeg, findHitLine } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
+import { clearAllSelections, selectDrawable } from "./drawables";
 
 // 채널 두 선의 픽셀 좌표 계산
 export function channelXYs(ch, candles, xScale, yScale, _isLog = false) {
@@ -50,20 +51,21 @@ export function buildHitChain(ctx) {
   const {
     pos, xScale, yScale, candles,
     lineMode, lineStart, setLineStart, addLine,
-    selectedLineId, lines, setSelectedLineId, dragRef,
+    selectedLineId, lines, dragRef,
     hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
     drawing, locked, drawMode, setCurrent,
     xDomainRef,
     setSelectedBox,
     isLog,
+    drawables,
     // 채널
     channelMode, channelStep, setChannelStep,
     channelPoints, setChannelPoints, channelPreview,
-    channels, selectedChannelId, setSelectedChannelId,
+    channels, selectedChannelId,
     addChannel, updateChannelEndpoint, setChannelPosition, setChannelOffset,
     // 원
     circleMode, circleCenter, setCircleCenter, circlePreview,
-    circles, selectedCircleId, setSelectedCircleId,
+    circles, selectedCircleId,
     addCircle, moveCircle,
   } = ctx;
 
@@ -141,9 +143,9 @@ export function buildHitChain(ctx) {
         const ePx = yScale(drawing.entry), tPx = yScale(drawing.tp), slPx = yScale(drawing.sl);
         const x1  = xScale(tsToIdx(drawing.tStart, candles)), x2 = xScale(tsToIdx(drawing.tEnd, candles));
         if (pos.x < x1-10 || pos.x > x2+10) return false;
-        if (Math.abs(pos.y-slPx) < HIT) { setSelectedBox(true); setSelectedLineId(null); dragRef.current = { type:"sl",    startY:pos.y, startSl:drawing.sl }; return true; }
-        if (Math.abs(pos.y-tPx)  < HIT) { setSelectedBox(true); setSelectedLineId(null); dragRef.current = { type:"tp",    startY:pos.y, startTp:drawing.tp }; return true; }
-        if (Math.abs(pos.y-ePx)  < HIT) { setSelectedBox(true); setSelectedLineId(null); dragRef.current = { type:"entry", startY:pos.y, startX:pos.x, startEntry:drawing.entry, startTp:drawing.tp, startSl:drawing.sl, startTStart:drawing.tStart, startTEnd:drawing.tEnd }; return true; }
+        if (Math.abs(pos.y-slPx) < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"sl",    startY:pos.y, startSl:drawing.sl }; return true; }
+        if (Math.abs(pos.y-tPx)  < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"tp",    startY:pos.y, startTp:drawing.tp }; return true; }
+        if (Math.abs(pos.y-ePx)  < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"entry", startY:pos.y, startX:pos.x, startEntry:drawing.entry, startTp:drawing.tp, startSl:drawing.sl, startTStart:drawing.tStart, startTEnd:drawing.tEnd }; return true; }
         return false;
       },
     },
@@ -156,7 +158,7 @@ export function buildHitChain(ctx) {
         const yMax = Math.max(yScale(drawing.tp), yScale(drawing.sl));
         if (pos.x >= x1 && pos.x <= x2 && pos.y >= yMin && pos.y <= yMax) {
           setSelectedBox(true);
-          setSelectedLineId(null);
+          clearAllSelections(drawables);
           return true;
         }
         return false;
@@ -267,19 +269,17 @@ export function buildHitChain(ctx) {
         return false;
       },
     },
-    // 5. 선 선택/해제 (drawMode 중에는 실행 안 함)
+    // 5. 도형 선택/해제 (drawMode 중에는 실행 안 함)
     {
       when: !drawMode,
       handle() {
         const hit = findHitLine(pos.x, pos.y, lines, xScale, yScale, candles, 8, isLog);
-        if (hit) { setSelectedLineId(hit.id); setSelectedBox(false); setSelectedChannelId(null); setSelectedCircleId(null); return true; }
+        if (hit)   { selectDrawable(drawables, "line",    hit.id);   setSelectedBox(false); return true; }
         const hitCh = findHitChannel(pos.x, pos.y, channels ?? [], xScale, yScale, candles, 8, isLog);
-        if (hitCh) { setSelectedChannelId(hitCh.id); setSelectedLineId(null); setSelectedBox(false); setSelectedCircleId(null); return true; }
+        if (hitCh) { selectDrawable(drawables, "channel", hitCh.id); setSelectedBox(false); return true; }
         const hitCi = findHitCircle(pos.x, pos.y, circles ?? [], xScale, yScale, candles);
-        if (hitCi) { setSelectedCircleId(hitCi.id); setSelectedLineId(null); setSelectedChannelId(null); setSelectedBox(false); return true; }
-        setSelectedLineId(null);
-        setSelectedChannelId(null);
-        setSelectedCircleId(null);
+        if (hitCi) { selectDrawable(drawables, "circle",  hitCi.id); setSelectedBox(false); return true; }
+        clearAllSelections(drawables);
         return false;
       },
     },

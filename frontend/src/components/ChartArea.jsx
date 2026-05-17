@@ -52,6 +52,8 @@ export function ChartArea({
   addCircle, moveCircle,
   setCircleOpacity, toggleCircleLock, toggleCircleAlert, setCircleAlertOff,
   cancelDraw, cancelChannelDraw, cancelCircleDraw,
+  // 도형 통합 인터페이스 (App.jsx에서 구성)
+  drawables,
   // 공유 상태 (App.jsx에서 관리 — 키보드 ESC와 공유)
   current, setCurrent,
   // resetDomain 노출용 ref (App.jsx에서 interval 변경 시 호출)
@@ -184,6 +186,7 @@ export function ChartArea({
       circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
       circles, selectedCircleId, setSelectedCircleId,
       addCircle, moveCircle,
+      drawables,
       overlaysRef,
     });
 
@@ -262,19 +265,8 @@ export function ChartArea({
       )}
       {opacityPopup && (
         <LineOpacityPopup
-          popup={opacityPopup} lines={lines}
-          onChangeOpacity={setLineOpacity}
-          onToggleLock={toggleLineLock}
-          onToggleAlert={toggleLineAlert}
+          popup={opacityPopup} drawables={drawables}
           onClose={() => setOpacityPopup(null)}
-          channels={channels}
-          onChangeChannelOpacity={setChannelOpacity}
-          onToggleChannelLock={toggleChannelLock}
-          onToggleChannelAlert={toggleChannelAlert}
-          circles={circles}
-          onChangeCircleOpacity={setCircleOpacity}
-          onToggleCircleLock={toggleCircleLock}
-          onToggleCircleAlert={toggleCircleAlert}
         />
       )}
     </div>

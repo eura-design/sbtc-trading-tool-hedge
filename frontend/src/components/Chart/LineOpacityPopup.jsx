@@ -1,14 +1,15 @@
-﻿import { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useTheme } from "../../ThemeContext";
+import { PALETTE } from "../../constants";
 
-export function LineOpacityPopup({ popup, lines, onChangeOpacity, onToggleLock, onToggleAlert, onClose, channels, onChangeChannelOpacity, onToggleChannelLock, onToggleChannelAlert, circles, onChangeCircleOpacity, onToggleCircleLock, onToggleCircleAlert }) {
+const KIND_LABEL = { line: "선", channel: "채널", circle: "원" };
+
+export function LineOpacityPopup({ popup, drawables, onClose }) {
   const { theme } = useTheme();
   const ref  = useRef(null);
-  const isChannel = popup.type === "channel";
-  const isCircle  = popup.type === "circle";
-  const item = isChannel ? channels?.find(c => c.id === popup.id)
-             : isCircle  ? circles?.find(c => c.id === popup.id)
-             : lines.find(l => l.id === popup.id);
+  const kind = popup.type; // "line" | "channel" | "circle"
+  const d    = drawables[kind];
+  const item = d?.items?.find(x => x.id === popup.id) ?? null;
 
   // 대상 도형이 사라지면(Delete 키 등) popup 자동 닫기
   useEffect(() => {
@@ -18,10 +19,6 @@ export function LineOpacityPopup({ popup, lines, onChangeOpacity, onToggleLock, 
   const opacity = item?.opacity ?? 1.0;
   const locked  = item?.locked  ?? false;
   const alert   = item?.alert   ?? false;
-
-  const handleOpacity = v => isChannel ? onChangeChannelOpacity(popup.id, v) : isCircle ? onChangeCircleOpacity(popup.id, v) : onChangeOpacity(popup.id, v);
-  const handleLock    = () => isChannel ? onToggleChannelLock(popup.id)    : isCircle ? onToggleCircleLock(popup.id)    : onToggleLock(popup.id);
-  const handleAlert   = () => isChannel ? onToggleChannelAlert(popup.id)   : isCircle ? onToggleCircleAlert(popup.id)   : onToggleAlert(popup.id);
 
   // 외부 클릭 시 닫기
   useEffect(() => {
@@ -52,22 +49,23 @@ export function LineOpacityPopup({ popup, lines, onChangeOpacity, onToggleLock, 
       userSelect: "none",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-        <span style={{ fontSize: "12px", color: theme.textMuted }}>{isChannel ? "채널 투명도" : isCircle ? "원 투명도" : "선 투명도"}</span>
+        <span style={{ fontSize: "12px", color: theme.textMuted }}>{KIND_LABEL[kind]} 투명도</span>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "12px", color: "#c084fc", fontWeight: "700" }}>
+          <span style={{ fontSize: "12px", color: PALETTE.accent, fontWeight: "700" }}>
             {Math.round(opacity * 100)}%
           </span>
-          <button onClick={handleAlert} title={alert ? "알림 ON — 클릭하여 OFF" : "알림 OFF — 클릭하여 ON"} style={{
+          <button onClick={() => d.toggleAlert(popup.id)}
+            title={alert ? "알림 ON — 클릭하여 OFF" : "알림 OFF — 클릭하여 ON"} style={{
             background: "none", border: "none", cursor: "pointer", padding: 0,
             fontSize: "14px", lineHeight: 1, opacity: alert ? 1 : 0.35,
-            color: alert ? "#f0b90b" : theme.textMuted,
+            color: alert ? PALETTE.warn : theme.textMuted,
           }}>
             🔔
           </button>
-          <button onClick={handleLock} style={{
+          <button onClick={() => d.toggleLock(popup.id)} style={{
             background: "none", border: "none", cursor: "pointer", padding: 0,
             fontSize: "14px", lineHeight: 1, opacity: locked ? 1 : 0.4,
-            color: locked ? "#f0b90b" : theme.textMuted,
+            color: locked ? PALETTE.warn : theme.textMuted,
           }}>
             {locked ? "🔒" : "🔓"}
           </button>
@@ -76,8 +74,8 @@ export function LineOpacityPopup({ popup, lines, onChangeOpacity, onToggleLock, 
       <input
         type="range" min={0.25} max={1} step={0.25}
         value={opacity}
-        onChange={e => handleOpacity(Math.max(0.25, parseFloat(e.target.value)))}
-        style={{ width: "100%", accentColor: "#c084fc", cursor: "pointer" }}
+        onChange={e => d.setOpacity(popup.id, Math.max(0.25, parseFloat(e.target.value)))}
+        style={{ width: "100%", accentColor: PALETTE.accent, cursor: "pointer" }}
       />
     </div>
   );
