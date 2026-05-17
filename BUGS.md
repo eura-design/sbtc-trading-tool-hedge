@@ -353,3 +353,44 @@
 
 - AddL3, AddL4, AddL5, AddL6: 모두 영향이 무시할 정도이거나 의도된 trade-off
 - L7, L9, L14, L15, M15: 이전 1차 조사에서 동일한 사유로 보류
+
+---
+
+## 3차 조사 — 회귀/cross-cutting/상태 일관성
+
+### 🟠 3N1. `onFilled` fillPrice 추출에서 REST 응답 `avgPrice` 필드 누락
+- **파일**: `backend/services/orderWatcher.js:72-74`
+- **현상**: `executionData.ap || executionData.L || executionData.price` — UDS 메시지 필드(`ap`/`L`)는 있지만 폴링 fallback(`/fapi/v1/order`)이 사용하는 `avgPrice` 필드 누락. UDS 실패 시 polling 케이스에서 시장가 체결의 fillPrice가 0 또는 LIMIT 가격으로 저장 → C3 안전망의 ±2% 매칭이 영영 실패 (자동 TP/SL 복구 불가).
+- **수정**: `avgPrice` 를 최우선으로 추가.
+- **상태**: ✅ 수정됨.
+
+### 🟠 3N2. `EmaSettingsPanel` 신규 EMA 추가 시 `enabled` 속성 누락
+- **파일**: `frontend/src/components/IndicatorMenu.jsx:167`
+- **현상**: `setEmaList([...emaList, { id, period: 20, color: "#888888" }])` — `enabled` 없음. `useEMA` 의 `if (!enabled) continue` (H6에서 추가된 분기) 때문에 새 EMA가 차트에 안 그려짐. 토글 ON 클릭하면 보이지만 사용자 입장에선 "추가 안 됨" 으로 보임.
+- **수정**: `enabled: true` 명시.
+- **상태**: ✅ 수정됨.
+
+### 🟡 3N3. `ChartArea` 봉마감 카운트다운이 매 RAF(60fps)마다 setState
+- **파일**: `frontend/src/components/ChartArea.jsx:87-101`
+- **현상**: `requestAnimationFrame` 루프 안에서 매 프레임 `setCountdown(...)` 호출 → React 전체 트리 60Hz 리렌더. ChartSvg, BoxOverlay, PositionLines 등 모든 자식이 매 프레임 reconcile (memo가 props 비교는 하지만 부모 리렌더 자체 비용 큼).
+- **수정**: `setInterval(..., 250)` + 텍스트 변경 시에만 setState → 초당 최대 1회 리렌더.
+- **상태**: ✅ 수정됨.
+
+### 🔵 3N4. `ChartArea::lastRef` 정의·할당만 있고 사용처 없음
+- **파일**: `frontend/src/components/ChartArea.jsx:85-86` (3N3 수정에서 함께 제거됨)
+- **상태**: ✅ 수정됨.
+
+### 🔵 3N5. `App.jsx` drawing 동기화 effect deps 중복
+- **파일**: `frontend/src/App.jsx:91`
+- **현상**: `[position, hasPos, hasPending]` 중 hasPos/hasPending은 position에서 파생. position만 deps로 충분.
+- **수정 보류**: 동작 영향 없음, eslint 경고만.
+
+### 🔵 3N6. `replacePendingOrder` 빠른 연속 호출 race
+- **파일**: `frontend/src/store/orderSlice.js:100`
+- **현상**: settingsSlice 800ms debounce로 완화되지만 슬라이더 조작 + drawing 변경이 동시 발생하는 시나리오에선 DELETE→POST 사이클이 겹칠 수 있음.
+- **수정 보류**: 실무 영향 작음. 필요 시 in-progress flag 추가.
+
+### 🔵 3N7. `pendingOrders.#save()` 동시 실행 순서 보장 없음
+- **파일**: `backend/store/pendingOrders.js:56-63`
+- **현상**: debounce timer 발화와 외부 즉시 호출이 겹치면 마지막 finish하는 쓰기가 디스크에 남음. snapshot은 호출 시점 #map 스냅샷이라 데이터 자체는 올바르나 순서 보장 안 됨.
+- **수정 보류**: 매우 작은 윈도우. 필요 시 단일 큐 또는 lock 패턴.

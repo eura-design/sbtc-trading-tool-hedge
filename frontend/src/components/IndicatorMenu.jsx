@@ -164,7 +164,7 @@ function EmaSettingsPanel({ emaList, setEmaList, resetIndicator, theme }) {
           }}
         >초기화</button>
         <button
-          onClick={() => setEmaList([...emaList, { id: nextId(), period: 20, color: "#888888" }])}
+          onClick={() => setEmaList([...emaList, { id: nextId(), period: 20, color: "#888888", enabled: true }])}
           style={{
             flex: 2, padding: "4px 0", borderRadius: 4, border: "none",
             background: "#c084fc", color: "#000", fontSize: 11, fontWeight: 700,

@@ -69,7 +69,11 @@ async function onFilled(orderId, executionData) {
   const info = store.get(orderId);
   if (!info) return;
 
-  const fillPrice = parseFloat(executionData.ap || executionData.L || executionData.price || 0);
+  // REST(/fapi/v1/order) 응답: avgPrice / UDS(ORDER_TRADE_UPDATE): ap(avg) | L(last fill)
+  // price는 LIMIT 주문 가격이라 시장가 체결 시 0 → 최후 폴백
+  const fillPrice = parseFloat(
+    executionData.avgPrice || executionData.ap || executionData.L || executionData.price || 0
+  );
   console.log(`[UDS] 진입 체결됨 orderId=${orderId} fillPrice=${fillPrice} → TP/SL 등록 시작`);
   store.set(orderId, { ...info, status: "FILLED", fillPrice, filledAt: Date.now() });
 

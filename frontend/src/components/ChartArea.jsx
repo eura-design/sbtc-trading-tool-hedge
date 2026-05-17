@@ -82,21 +82,25 @@ export function ChartArea({
   };
   const [countdown, setCountdown] = useState({ text: "", ratio: 1 });
   const last = candles.length > 0 ? candles[candles.length - 1] : null;
-  const lastRef = useRef(last);
-  lastRef.current = last;
   useEffect(() => {
     const iMs = INTERVAL_MS[interval_] ?? 60*60*1000;
+    let prevText = "";
     const tick = () => {
       const now = Date.now();
       // 1w는 에포크(목요일) 기준이므로 월요일 정렬을 위해 4일 보정
       const elapsed = interval_ === '1w' ? (now - 4 * 24 * 60 * 60 * 1000) % iMs : now % iMs;
       const remaining = iMs - elapsed;
-      setCountdown({ text: fmtCountdown(remaining), ratio: remaining / iMs });
+      const text = fmtCountdown(remaining);
+      // 텍스트(초 단위)가 바뀔 때만 setState → React 매 프레임 리렌더 방지
+      if (text !== prevText) {
+        prevText = text;
+        setCountdown({ text, ratio: remaining / iMs });
+      }
     };
-    let rafId;
-    const loop = () => { tick(); rafId = requestAnimationFrame(loop); };
-    rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
+    tick();
+    // 250ms 폴링: 초 변경 감지에 충분히 자주, 리렌더는 초당 1회로 자연 제한
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
   }, [interval_]); // eslint-disable-line react-hooks/exhaustive-deps
   const cdColor = countdown.ratio > 0.3 ? "#e2e8f0" : countdown.ratio > 0.1 ? "#f59e0b" : "#f6465d";
 
