@@ -5,6 +5,7 @@ const push           = require("./pushService");
 const tradeLog       = require("../store/tradeLog");
 const statsCache     = require("./statsCache");
 const { closeToPosition } = require("../utils/side");
+const { checkDailyLoss } = require("../routes/dailyloss");
 
 // 포지션 상태 추적 (reconcile 간 상태 유지) — 헷지모드: LONG/SHORT 각각 독립 추적
 let prevHasLong         = null; // null = 최초 실행 전
@@ -13,6 +14,23 @@ let currentEntryFilledAt = null; // 진입 체결 시각 (ms)
 
 const RECONCILE_INTERVAL = 60 * 1000; // 60초마다 바이낸스 실제 상태와 검증
 let reconcileTimer = null;
+
+// placeTPSL 중복 호출 방지 락 — onFilled와 reconcile이 동시에 같은 orderId에 진입하지 않도록
+// 재시도 최대 31초가 걸리므로 reconcile(60초) 윈도우와 겹칠 수 있음
+const placingTpsl = new Set();
+
+async function safePlaceTPSL(orderId, info) {
+  if (placingTpsl.has(String(orderId))) {
+    console.log(`[TPSL] orderId=${orderId} 이미 등록 진행 중 → 중복 호출 스킵`);
+    return null;
+  }
+  placingTpsl.add(String(orderId));
+  try {
+    return await placeTPSL(info);
+  } finally {
+    placingTpsl.delete(String(orderId));
+  }
+}
 
 let listenKeyTimer    = null;
 let userDataWS        = null;
@@ -58,6 +76,16 @@ async function onFilled(orderId, executionData) {
   // 거래 로그 기록
   tradeLog.append({ event: "FILLED", orderId, side: info.side, qty: info.qty, fillPrice, tp: info.tp, sl: info.sl });
 
+  // 일일 손실 한도 재검증 — 주문 등록 시점엔 OK였지만 체결까지 대기 중 한도 초과 가능
+  // 체결 자체는 막을 수 없으므로 critical alert로 사용자에게 즉시 알림 (수동 청산 판단)
+  try {
+    await checkDailyLoss();
+  } catch (e) {
+    const msg = `⚠ 체결됨 (orderId=${orderId}) — ${e.message}. 수동 청산 검토 필요`;
+    console.error(`[경고] ${msg}`);
+    push.pushAlert("critical", msg);
+  }
+
   if (!info.tp || !info.sl) {
     console.error(`[경고] TP/SL 가격 없음 (orderId=${orderId}) — 수동 설정 필요!`);
     store.set(orderId, { ...info, status: "TPSL_MISSING" });
@@ -66,7 +94,8 @@ async function onFilled(orderId, executionData) {
     return;
   }
 
-  const tpsl = await placeTPSL(info);
+  const tpsl = await safePlaceTPSL(orderId, info);
+  if (!tpsl) return; // 중복 호출 스킵된 경우 (다른 호출자가 처리 중)
   const slFailed = tpsl.failed.some(f => f.type === "SL");
   const tpFailed = tpsl.failed.some(f => f.type === "TP");
 
@@ -179,7 +208,8 @@ async function reconcileWithBinance() {
             console.log(`[RECONCILE] TP/SL 이미 존재 → TPSL_PLACED 전환 orderId=${orderId}`);
           } else {
             console.log(`[RECONCILE] TPSL 재시도 orderId=${orderId} (status=${info.status})`);
-            const tpsl = await placeTPSL(info);
+            const tpsl = await safePlaceTPSL(orderId, info);
+            if (!tpsl) continue; // 다른 호출자가 진행 중 → 다음 reconcile 사이클에 재확인
             if (tpsl.failed.length === 0) {
               store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
               console.log(`[RECONCILE] TPSL 재등록 완료 orderId=${orderId}`);

@@ -4,7 +4,7 @@ const { startUserDataStream } = require("./orderWatcher");
 const { closeToPosition, positionToSide } = require("../utils/side");
 
 async function recoverPendingOrders() {
-  store.load();
+  // store.load()는 모듈 로드 시점에 호출됨 (pendingOrders.js 모듈 레벨)
 
   try {
     // ── 1단계: 미체결 지정가 주문 복구 ──────────────────────────────────────
@@ -108,6 +108,8 @@ async function recoverPendingOrders() {
     // 헷지모드: LONG/SHORT 각각 독립적으로 확인
     const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
     const openPositions = posCheck.filter(p => parseFloat(p.positionAmt) !== 0);
+    const PRICE_TOLERANCE = 0.02; // 현재 포지션 entryPrice ±2% 내 매칭만 신뢰
+    const usedRecoverIds = new Set();
     for (const openPos of openPositions) {
       // positionSide 필드 없으면 positionAmt 부호로 판단
       const openPosSide = openPos.positionSide === "LONG" || openPos.positionSide === "SHORT"
@@ -115,19 +117,31 @@ async function recoverPendingOrders() {
         : parseFloat(openPos.positionAmt) > 0 ? "LONG" : "SHORT";
       const hasTpsl = await checkExistingTPSL(openPosSide);
       if (!hasTpsl) {
+        const posEntry = parseFloat(openPos.entryPrice);
         console.error("==================================================");
         console.error("[안전망] 포지션이 열려 있지만 TP/SL이 없습니다!");
         console.error(`  방향: ${openPosSide}`);
         console.error(`  수량: ${Math.abs(parseFloat(openPos.positionAmt))} BTC`);
+        console.error(`  진입가: ${posEntry}`);
 
-        // 해당 사이드의 TP/SL 정보가 있는 주문을 찾아 자동 등록 시도
+        // 해당 사이드의 TP/SL 정보가 있는 주문 중 현재 진입가 근접 + 최신 항목만 신뢰
         const entrySide = positionToSide(openPosSide);
-        const recoverable = [...store.entries()].find(([, o]) =>
-          o.tp && o.sl && o.side === entrySide
-        );
+        const candidates = [...store.entries()]
+          .filter(([orderId, o]) => {
+            if (usedRecoverIds.has(orderId)) return false;
+            if (!o.tp || !o.sl || o.side !== entrySide) return false;
+            // 체결가 정보가 있으면 entry 근접도 검증 (없으면 stale 데이터로 간주하고 거부)
+            if (!o.fillPrice || !posEntry) return false;
+            const dist = Math.abs(o.fillPrice - posEntry) / posEntry;
+            return dist <= PRICE_TOLERANCE;
+          })
+          .sort((a, b) => (b[1].filledAt ?? b[1].createdAt ?? 0) - (a[1].filledAt ?? a[1].createdAt ?? 0));
+
+        const recoverable = candidates[0];
         if (recoverable) {
           const [recoverId, recoverInfo] = recoverable;
-          console.log(`[안전망] store에서 ${openPosSide} TP/SL 정보 발견 (orderId=${recoverId}) → 자동 등록 시도`);
+          usedRecoverIds.add(recoverId);
+          console.log(`[안전망] ${openPosSide} 매칭 entry 발견 (orderId=${recoverId}, fillPrice=${recoverInfo.fillPrice}) → 자동 등록 시도`);
           try {
             const tpsl = await placeTPSL(recoverInfo);
             if (tpsl.failed.length === 0) {
@@ -141,7 +155,8 @@ async function recoverPendingOrders() {
             console.error(`[안전망] ${openPosSide} TP/SL 자동 복구 실패:`, e.message);
           }
         } else {
-          console.error(`  ${openPosSide} store에 TP/SL 정보 없음 → Binance에서 수동으로 설정하세요!`);
+          console.error(`  ${openPosSide} store에 신뢰 가능한 TP/SL 정보 없음 (진입가 ±${PRICE_TOLERANCE*100}% 매칭 실패)`);
+          console.error(`  → Binance에서 수동으로 TP/SL 설정하세요!`);
         }
         console.error("==================================================");
       }

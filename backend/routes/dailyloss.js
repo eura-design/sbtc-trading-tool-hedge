@@ -43,9 +43,11 @@ router.get("/", async (req, res) => {
 module.exports = router;
 
 // 주문 가드용 — order.js에서 import
+// EPSILON: 부동소수점 비교 오차 마진 (0.01 USDT) — 경계 통과 방지
+const DAILY_LOSS_EPSILON = 0.01;
 module.exports.checkDailyLoss = async function checkDailyLoss() {
   const { todayPnl, limit } = await computeDailyLoss();
-  if (todayPnl <= -limit) {
+  if (todayPnl + limit < DAILY_LOSS_EPSILON) {
     const err = new Error(`일일 손실 한도 초과 (오늘 ${todayPnl.toFixed(2)} USDT / 한도 -${limit.toFixed(2)} USDT)`);
     err.status = 403;
     throw err;

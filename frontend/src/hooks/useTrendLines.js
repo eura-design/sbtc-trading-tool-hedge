@@ -1,5 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
-import { api } from "../api/client";
+import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
 
 export function useTrendLines() {
@@ -10,16 +9,6 @@ export function useTrendLines() {
   const [lineStart,      setLineStart]      = useState(null);
   const [linePreview,    setLinePreview]    = useState(null);
   const [selectedLineId, setSelectedLineId] = useState(null);
-
-  // 구버전 서버 저장 데이터 1회 마이그레이션
-  useEffect(() => {
-    if (lineStore.items.length > 0) return;
-    api("GET", "/api/trendlines")
-      .then(data => {
-        if (Array.isArray(data) && data.length > 0) lineStore.replaceAll(data);
-      })
-      .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cancelDraw = useCallback(() => {
     setLineMode(false); setLineStart(null); setLinePreview(null);

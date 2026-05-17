@@ -4,9 +4,11 @@ import { useTheme } from "../../ThemeContext";
 import { calcRR } from "../../utils/format";
 import { tsToIdx } from "../../chart/scales";
 
-export const BoxOverlay = memo(function BoxOverlay({ drawing, scales, IW, hasPos, selectedBox, candles }) {
+export const BoxOverlay = memo(function BoxOverlay({ drawing, scales, IW, hasLong, hasShort, selectedBox, candles }) {
   const { theme } = useTheme();
   if (!drawing || !scales || !candles?.length) return null;
+  // 헷지모드: 박스가 그려진 사이드의 포지션만 점유 판정 (반대편 포지션과 무관)
+  const sameSidePos = drawing.isLong ? hasLong : hasShort;
   const { xScale, yScale } = scales;
   const fmtI = p => `$${d3.format(",.0f")(p)}`;
 
@@ -35,7 +37,7 @@ export const BoxOverlay = memo(function BoxOverlay({ drawing, scales, IW, hasPos
       <line x1={x1} x2={x2} y1={tPx}  y2={tPx}  stroke={color}   strokeWidth={1.5} />
       <line x1={x1} x2={x2} y1={ePx}  y2={ePx}  stroke="#f0b90b" strokeWidth={2} />
       <line x1={x1} x2={x2} y1={slPx} y2={slPx} stroke="#f6465d" strokeWidth={1.5} strokeDasharray="5,2" />
-      {!hasPos && <>
+      {!sameSidePos && <>
         <polygon points={`${cx},${tPx-9} ${cx-7},${tPx-2} ${cx+7},${tPx-2}`}
           fill={color} opacity={0.9} style={{ cursor:"ns-resize" }} />
         <circle cx={cx} cy={ePx} r={6} fill="#f0b90b" opacity={0.9} style={{ cursor:"ns-resize" }} />

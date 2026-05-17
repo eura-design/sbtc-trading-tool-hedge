@@ -6,6 +6,12 @@ export async function api(method, path, body) {
     headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error((await res.json()).error);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let msg;
+    try { msg = JSON.parse(text).error || text; }
+    catch { msg = text || `HTTP ${res.status}`; }
+    throw new Error(msg);
+  }
   return res.json();
 }

@@ -30,7 +30,14 @@ export function useEMA(candles, emaList) {
     const t0  = candles[0].t instanceof Date ? candles[0].t.getTime() : +candles[0].t;
     const len = candles.length;
     const result = [];
+    const seenIds = new Set();
     for (const { id, period, color, enabled } of emaList) {
+      seenIds.add(id);
+      // enabled=false면 계산 스킵 — 렌더 시점에 필터되지만 큰 캔들에선 낭비 큼
+      if (!enabled) {
+        result.push({ id, period, color, enabled, data: [] });
+        continue;
+      }
       const cache = cacheRef.current.get(id);
       if (cache && cache.t0 === t0 && cache.period === period && cache.len === len) {
         result.push({ id, period, color, enabled, data: cache.data });
@@ -39,6 +46,10 @@ export function useEMA(candles, emaList) {
         cacheRef.current.set(id, { t0, period, len, data });
         result.push({ id, period, color, enabled, data });
       }
+    }
+    // 삭제된 EMA의 cache 엔트리 정리
+    for (const id of cacheRef.current.keys()) {
+      if (!seenIds.has(id)) cacheRef.current.delete(id);
     }
     return result;
   }, [candles, emaList]); // eslint-disable-line react-hooks/exhaustive-deps

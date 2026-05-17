@@ -5,8 +5,11 @@ export function usePositionCloseAlert(position, onAlert) {
   const prevShortRef = useRef(null);
 
   useEffect(() => {
-    const hasLong  = !!position?.long;
-    const hasShort = !!position?.short;
+    // position 자체가 null/undefined면 첫 로드 전 또는 일시적 미반영 → 비교 스킵
+    if (position == null) return;
+
+    const hasLong  = !!position.long;
+    const hasShort = !!position.short;
 
     // 초기 마운트 시 기록만 하고 종료
     if (prevLongRef.current === null) {

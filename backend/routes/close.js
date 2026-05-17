@@ -5,6 +5,10 @@ const push    = require("../services/pushService");
 const { positionToClose } = require("../utils/side");
 const router  = express.Router();
 
+// 사이드별 처리 중 락 — 부분 청산의 분할TP 사전취소~재등록 윈도우와
+// 다른 close/scale-in 요청이 겹쳐서 잔여 수량 계산이 꼬이는 race 방지
+const closeInProgress = new Set();
+
 // POST /api/close
 // body: { side: "LONG"|"SHORT", quantity: string, partial?: boolean }
 // 1) 전량 청산: TP/SL 취소 후 시장가 청산
@@ -12,6 +16,12 @@ const router  = express.Router();
 router.post("/", async (req, res) => {
   const { side, quantity, partial = false } = req.body;
   if (!side || !quantity) return res.status(400).json({ error: "side, quantity 필요" });
+
+  if (closeInProgress.has(side)) {
+    return res.status(409).json({ error: `${side} 청산이 이미 진행 중입니다. 잠시 후 다시 시도하세요` });
+  }
+  closeInProgress.add(side);
+  try {
 
   const closeSide = positionToClose(side);
   const closeQty  = parseFloat(quantity);
@@ -167,6 +177,10 @@ router.post("/", async (req, res) => {
     }
 
     res.status(500).json({ error: msg });
+  }
+
+  } finally {
+    closeInProgress.delete(side);
   }
 });
 

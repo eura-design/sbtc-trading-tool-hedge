@@ -283,15 +283,8 @@ export function buildHitChain(ctx) {
         return false;
       },
     },
-    // 6. 박스 그리기 시작
-    {
-      when: drawMode && !locked,
-      handle() {
-        dragRef.current = { type:"draw", startX:pos.x, startY:pos.y };
-        setCurrent({ x1:pos.x, y1:pos.y, x2:pos.x, y2:pos.y });
-      },
-    },
-    // 7. 팬 (기본)
+    // 6. 팬 (기본)
+    // 박스 그리기는 위 3.7에서 처리됨 (drawMode && !locked) — 여기엔 중복 분기 두지 않음
     {
       when: true,
       handle() {

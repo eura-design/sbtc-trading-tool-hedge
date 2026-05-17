@@ -22,8 +22,16 @@ function broadcast(type, data) {
   if (!wss || clients.size === 0) return;
   const msg = JSON.stringify({ type, ...data, ts: Date.now() });
   for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
+    if (client.readyState !== WebSocket.OPEN) {
+      // OPEN이 아닌(CLOSING/CLOSED) 클라이언트는 close 이벤트 누락 가능 → 즉시 제거
+      clients.delete(client);
+      continue;
+    }
+    try {
       client.send(msg);
+    } catch (e) {
+      console.warn("[PUSH] 전송 실패 → 클라이언트 제거:", e.message);
+      clients.delete(client);
     }
   }
 }

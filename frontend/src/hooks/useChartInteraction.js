@@ -315,5 +315,18 @@ export function useChartInteraction({
     return () => el.removeEventListener("wheel", onWheel);
   }, [svgRef, onWheel]);
 
+  // isLog 토글 시 진행 중인 wheel RAF/타이머가 옛 yDomain 계산을 마저 적용하지 않도록 즉시 정리
+  useEffect(() => {
+    if (wheelRafRef.current !== null) {
+      cancelAnimationFrame(wheelRafRef.current);
+      wheelRafRef.current = null;
+    }
+    if (wheelSyncTimerRef.current) {
+      clearTimeout(wheelSyncTimerRef.current);
+      wheelSyncTimerRef.current = null;
+      if (overlaysRef) overlaysRef.current._panning = false;
+    }
+  }, [isLog]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return { dragRef, getSvgPos, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onDoubleClick };
 }

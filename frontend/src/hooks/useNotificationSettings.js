@@ -1,11 +1,12 @@
 import { useState, useCallback } from "react";
 
 const DEFAULT = {
-  "5m":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false, tri: false },
-  "15m": { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false, tri: false },
-  "1h":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false, tri: false },
-  "4h":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false, tri: false },
-  "1d":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false, tri: false },
+  "5m":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
+  "15m": { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
+  "1h":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
+  "4h":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
+  "1d":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
+  "1w":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
 };
 
 export function useNotificationSettings() {

@@ -73,7 +73,7 @@ export const CURSOR_RULES = [
   },
   {
     test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
-      if (!selectedChannelId || !channels?.length) return false;
+      if (selectedChannelId == null || !channels?.length) return false;
       const ch = channels.find(c => c.id === selectedChannelId);
       if (!ch) return false;
       const { ax, ay, bx, by } = channelXYs(ch, candles, xScale, yScale, isLog);
@@ -84,7 +84,7 @@ export const CURSOR_RULES = [
   // 채널 선택 시 미러선 끝점 핸들 (메인 라인과 함께 이동 — 평행 유지)
   {
     test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
-      if (!selectedChannelId || !channels?.length) return false;
+      if (selectedChannelId == null || !channels?.length) return false;
       const ch = channels.find(c => c.id === selectedChannelId);
       if (!ch) return false;
       const { ax2, ay2, bx2, by2 } = channelXYs(ch, candles, xScale, yScale, isLog);
@@ -95,7 +95,7 @@ export const CURSOR_RULES = [
   // 채널 선택 시 미러선 중간 핸들 (양쪽 offset 동일 delta 조절)
   {
     test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
-      if (!selectedChannelId || !channels?.length) return false;
+      if (selectedChannelId == null || !channels?.length) return false;
       const ch = channels.find(c => c.id === selectedChannelId);
       if (!ch) return false;
       const { ax2, ay2, bx2, by2 } = channelXYs(ch, candles, xScale, yScale, isLog);
@@ -106,7 +106,7 @@ export const CURSOR_RULES = [
   // 채널 선택 시 몸통
   {
     test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
-      if (!selectedChannelId || !channels?.length) return false;
+      if (selectedChannelId == null || !channels?.length) return false;
       const ch = channels.find(c => c.id === selectedChannelId);
       if (!ch) return false;
       const { ax, ay, bx, by, ax2, ay2, bx2, by2 } = channelXYs(ch, candles, xScale, yScale, isLog);
@@ -121,7 +121,7 @@ export const CURSOR_RULES = [
   // 원 선택 시 중심/반지름 핸들
   {
     test: ({ selectedCircleId, circles, pos, xScale, yScale, candles }) => {
-      if (!selectedCircleId || !circles?.length) return false;
+      if (selectedCircleId == null || !circles?.length) return false;
       const ci = circles.find(c => c.id === selectedCircleId);
       if (!ci) return false;
       const cx = xScale(tsToIdx(ci.cx_t, candles)), cy = yScale(ci.cx_p);
@@ -133,7 +133,7 @@ export const CURSOR_RULES = [
   // 원 선택 시 테두리
   {
     test: ({ selectedCircleId, circles, pos, xScale, yScale, candles }) => {
-      if (!selectedCircleId || !circles?.length) return false;
+      if (selectedCircleId == null || !circles?.length) return false;
       const ci = circles.find(c => c.id === selectedCircleId);
       if (!ci) return false;
       const cx = xScale(tsToIdx(ci.cx_t, candles)), cy = yScale(ci.cx_p);

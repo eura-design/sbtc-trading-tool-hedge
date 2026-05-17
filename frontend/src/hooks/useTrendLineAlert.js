@@ -38,6 +38,23 @@ export function useTrendLineAlert(
     const lastT = last.t instanceof Date ? last.t.getTime() : +last.t;
     const price = last.c;
 
+    // 삭제된 도형의 nearRef/pendingRef 잔존 키 정리 (메모리 누수 + alert 복귀 막힘 방지)
+    const aliveKeys = new Set();
+    for (const ln of (lines || []))     aliveKeys.add(`l${ln.id}`);
+    for (const ch of (channels || [])) { aliveKeys.add(`ch${ch.id}`); aliveKeys.add(`ch${ch.id}_m`); aliveKeys.add(`ch${ch.id}_r`); }
+    for (const ci of (circles || []))   aliveKeys.add(`ci${ci.id}`);
+    const aliveGroupKeys = new Set([
+      ...(lines || []).map(l => `l${l.id}`),
+      ...(channels || []).map(c => `ch${c.id}`),
+      ...(circles || []).map(c => `ci${c.id}`),
+    ]);
+    for (const k of Object.keys(nearRef.current)) {
+      if (!aliveKeys.has(k)) delete nearRef.current[k];
+    }
+    for (const k of Array.from(pendingRef.current)) {
+      if (!aliveGroupKeys.has(k)) pendingRef.current.delete(k);
+    }
+
     // ── 추세선 ────────────────────────────────────────────────────────────────
     for (const line of (lines || [])) {
       if (!line.alert) continue;

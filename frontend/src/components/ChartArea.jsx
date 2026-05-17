@@ -9,6 +9,7 @@ import { useCrosshair }      from "../hooks/useCrosshair";
 import { useChartRenderer }  from "../hooks/useChartRenderer";
 import { useChartInteraction } from "../hooks/useChartInteraction";
 import { useOrderFlow }      from "../hooks/useOrderFlow";
+import { derivePositionFlags } from "../hooks/usePositionFlags";
 import { getScales }         from "../chart/scales";
 import { ChartSvg }          from "./Chart/ChartSvg";
 import { LineOpacityPopup }  from "./Chart/LineOpacityPopup";
@@ -66,11 +67,9 @@ export function ChartArea({
     opacityPopup: s.opacityPopup, setOpacityPopup: s.setOpacityPopup,
   })));
 
-  const hasLong    = !!position?.long;
-  const hasShort   = !!position?.short;
-  const hasPos     = hasLong || hasShort;
-  const hasPending = !!position?.pending;
-  const locked     = hasPending; // 헷지모드: 포지션만으로는 잠금 안 함
+  // 헷지모드: 양쪽 모두 점유(포지션 or pending)됐을 때만 신규 박스 드로잉 차단
+  const { hasLong, hasShort, hasPos, drawLocked } = derivePositionFlags(position);
+  const locked = drawLocked;
 
   // ── 봉마감 카운트다운 ──────────────────────────────────────────────────────
   const INTERVAL_MS = { "5m": 5*60*1000, "15m": 15*60*1000, "1h": 60*60*1000, "4h": 4*60*60*1000, "1d": 24*60*60*1000, "1w": 7*24*60*60*1000 };
@@ -225,7 +224,7 @@ export function ChartArea({
         showVol={showVol} volH={effectiveVolH} onVolDividerMouseDown={onVolDividerMouseDown}
         vLineRef={vLineRef} hLineMainRef={hLineMainRef} hLineRsiRef={hLineRsiRef}
         priceTextRef={priceTextRef} bodyPctRef={bodyPctRef}
-        hasPos={hasPos} position={position} tpsl={tpsl} dragTpsl={dragTpsl} tpslSaving={tpslSaving}
+        hasPos={hasPos} hasLong={hasLong} hasShort={hasShort} position={position} tpsl={tpsl} dragTpsl={dragTpsl} tpslSaving={tpslSaving}
         scaleInOrders={position?.scaleInOrders} dragScaleIn={dragScaleIn}
         splitTps={splitTps} dragSplitTp={dragSplitTp}
         lines={lines} selectedLineId={selectedLineId} lineStart={lineStart} linePreview={linePreview} isLog={isLog}

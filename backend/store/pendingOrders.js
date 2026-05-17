@@ -33,7 +33,10 @@ class PendingOrderStore {
 
   set(orderId, info) {
     const existing = this.#map.get(String(orderId));
-    const entry = existing?.createdAt ? info : { ...info, createdAt: Date.now() };
+    // createdAt 우선순위: info 명시값 > 기존 entry 값 > 현재 시각
+    // (recoveryService가 createdAt을 명시 전달하는 경우 보존)
+    const createdAt = info.createdAt ?? existing?.createdAt ?? Date.now();
+    const entry = { ...info, createdAt };
     this.#map.set(String(orderId), entry);
     // 크리티컬 상태 전환은 debounce 없이 즉시 저장
     if (PendingOrderStore.#CRITICAL.has(info.status)) {
@@ -66,4 +69,7 @@ class PendingOrderStore {
   }
 }
 
-module.exports = new PendingOrderStore();
+const _store = new PendingOrderStore();
+// 서버 시작 직후 라우트가 호출돼도 store가 빈 상태가 되지 않도록 모듈 로드 시점에 동기 load
+_store.load();
+module.exports = _store;

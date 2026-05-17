@@ -56,9 +56,13 @@ export function useCandles(interval, onTickRef) {
 
     const load = async () => {
       try {
-        const parse = d => d.map(k => ({ t: new Date(k[0]), o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] }));
+        const parse = d => Array.isArray(d) ? d.map(k => ({ t: new Date(k[0]), o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] })) : [];
         const r1 = await fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=BTCUSDT&interval=${interval}&limit=1500`);
         const recent = parse(await r1.json());
+        if (!recent.length) {
+          console.warn(`[useCandles] ${interval} 캔들 응답 없음 — 재연결 대기`);
+          return;
+        }
         const endTime = recent[0].t.getTime() - 1;
         const r2 = await fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=BTCUSDT&interval=${interval}&limit=1500&endTime=${endTime}`);
         const older = parse(await r2.json());

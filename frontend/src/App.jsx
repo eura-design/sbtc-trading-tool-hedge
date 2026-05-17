@@ -35,7 +35,7 @@ export default function App() {
   const {
     interval_, setInterval_,
     indicators, toggleIndicator,
-    drawMode, setDrawMode,
+    setDrawMode,
     drawing, setDrawing,
     criticalAlert, setCriticalAlert,
     selectedBox, setSelectedBox,
@@ -196,10 +196,6 @@ export default function App() {
 
         <TopBar
           interval_={interval_} onIntervalChange={val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain(); }}
-          drawMode={drawMode} onDrawModeToggle={() => {
-            trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
-            setDrawMode(m => !m);
-          }}
           lineMode={trendLines.lineMode} onLineModeToggle={() => {
             setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
             trendLines.setLineMode(m => { if (m) trendLines.cancelDraw(); return !m; });
@@ -213,7 +209,6 @@ export default function App() {
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
           }}
           isDark={isDark} onThemeToggle={toggleTheme}
-          locked={drawLocked} hasPos={hasPos} hasPending={hasPending}
           last={last} candleLoading={candleLoading}
           indicators={indicators} onIndicatorToggle={toggleIndicator}
           indicatorParams={indicatorParams} setIndicatorParam={setIndicatorParam}

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTheme } from "../ThemeContext";
 
-const TFS  = ["5m", "15m", "1h", "4h", "1d"];
+const TFS  = ["5m", "15m", "1h", "4h", "1d", "1w"];
 const ROWS = [
   { key: "rsiOB",     label: "RSI 과매수" },
   { key: "rsiOS",     label: "RSI 과매도" },

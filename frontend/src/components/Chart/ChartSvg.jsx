@@ -16,7 +16,7 @@ export function ChartSvg({
   showRsi, showDiv, rsiH, onDividerMouseDown,
   showVol, volH, onVolDividerMouseDown,
   vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef,
-  hasPos, position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp,
+  hasPos, hasLong, hasShort, position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp,
   lines, selectedLineId, lineStart, linePreview, isLog,
   drawing, current, locked, selectedBox,
   channels, selectedChannelId, channelStep, channelPoints, channelPreview,
@@ -56,7 +56,7 @@ export function ChartSvg({
             scales={scales} IW={IW} IH={IH}
           />
         )}
-        <BoxOverlay drawing={drawing} scales={scales} IW={IW} hasPos={hasPos} selectedBox={selectedBox} candles={candles} />
+        <BoxOverlay drawing={drawing} scales={scales} IW={IW} hasLong={hasLong} hasShort={hasShort} selectedBox={selectedBox} candles={candles} />
         <DrawingCurrent current={current} scales={scales} IW={IW} IH={IH} />
       </g>
 

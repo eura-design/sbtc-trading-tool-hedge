@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { API_BASE } from "../constants";
 import { useStore } from "../store";
 
@@ -10,7 +10,6 @@ const WS_URL = API_BASE.replace(/^http/, "ws");
  * 연결 끊김 시 5초 후 자동 재연결.
  */
 export function useRealtimeData() {
-  const [wsConnected, setWsConnected] = useState(false);
   const wsRef    = useRef(null);
   const timerRef = useRef(null);
 
@@ -21,8 +20,6 @@ export function useRealtimeData() {
       if (!alive) return;
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
-
-      ws.onopen = () => { if (alive) setWsConnected(true); };
 
       ws.onmessage = (e) => {
         try {
@@ -45,7 +42,6 @@ export function useRealtimeData() {
 
       ws.onclose = () => {
         if (!alive) return;
-        setWsConnected(false);
         timerRef.current = setTimeout(connect, 5000);
       };
 
@@ -60,6 +56,4 @@ export function useRealtimeData() {
       wsRef.current?.close();
     };
   }, []); // stable — 모든 콜백은 useStore.getState()로 최신 참조 사용
-
-  return { wsConnected };
 }

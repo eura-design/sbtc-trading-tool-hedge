@@ -72,7 +72,8 @@ function roundPrice(p) {
   return (Math.round(parseFloat(p) * 10) / 10).toFixed(1);
 }
 
-// TP/SL 등록 (각각 독립 재시도 5회, exponential backoff, 부분 실패 허용)
+// TP/SL 등록 (SL 우선, exponential backoff, 부분 실패 허용)
+// SL이 실패하면 TP는 시도하지 않음 — SL 없는 포지션 노출 시간을 최소화하기 위함
 async function placeTPSL({ closeSide, tp, sl }) {
   const results = { tp: null, sl: null, failed: [] };
   const RETRY = 5;
@@ -94,6 +95,23 @@ async function placeTPSL({ closeSide, tp, sl }) {
 
   const positionSide = closeToPosition(closeSide);
 
+  // 1) SL 먼저 등록 — 손절 안전판이 최우선
+  const slResult = await tryPlace("SL", {
+    algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
+    type: "STOP_MARKET", triggerPrice: roundPrice(sl),
+    closePosition: "true", workingType: "MARK_PRICE",
+  });
+  if (slResult && !slResult.error) {
+    results.sl = slResult;
+  } else {
+    // SL 실패 시 TP는 시도하지 않음 — 포지션은 무방비 상태로 노출
+    // (caller가 pushAlert("critical")로 사용자에게 즉시 알림)
+    results.failed.push({ type: "SL", error: slResult?.error || "실패" });
+    results.failed.push({ type: "TP", error: "SL 실패로 등록 스킵" });
+    return results;
+  }
+
+  // 2) SL 성공 후에만 TP 등록
   const tpResult = await tryPlace("TP", {
     algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
     type: "TAKE_PROFIT_MARKET", triggerPrice: roundPrice(tp),
@@ -101,14 +119,6 @@ async function placeTPSL({ closeSide, tp, sl }) {
   });
   if (tpResult && !tpResult.error) results.tp = tpResult;
   else results.failed.push({ type: "TP", error: tpResult?.error || "실패" });
-
-  const slResult = await tryPlace("SL", {
-    algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
-    type: "STOP_MARKET", triggerPrice: roundPrice(sl),
-    closePosition: "true", workingType: "MARK_PRICE",
-  });
-  if (slResult && !slResult.error) results.sl = slResult;
-  else results.failed.push({ type: "SL", error: slResult?.error || "실패" });
 
   return results;
 }
