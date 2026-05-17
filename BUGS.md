@@ -278,8 +278,78 @@
 
 ---
 
-## 참고: 조사하지 못한 영역
+## 2차 조사 — 1차에서 미조사했던 영역
 
-- 일부 보조 파일 미확인: `Confluence.jsx`, `DivergenceLines.jsx`, `RSIPanel.jsx`, `VolumePanel.jsx`, `LineOpacityPopup.jsx`, `Slider.jsx`, `Divider.jsx`, `Toast.jsx`, `StatusAlert.jsx`, `ShortcutMenu.jsx`, `useChartSize.js`, `useRsiResize.js`, `useVolResize.js`, `useCrosshair.js`, `chart/canvasUtils.js`, `chart/candleRenderer.js`, `chart/overlayRenderers.js`, `chart/volumeRenderer.js`, `chart/rsiRenderer.js`, `utils/format.js`, `utils/hitTest.js`, `utils/coordUtils.js`
-- 시각화 정확성(차트 렌더링 픽셀-퍼펙트) 검증은 별도
-- Binance API 응답 형식 변경에 대한 견고성은 미점검
+### 🟡 AddM1. `rsiRenderer.js` DPR 미적용 → HiDPI 디스플레이에서 RSI 라인 흐릿
+- **파일**: `frontend/src/chart/rsiRenderer.js:18-21`
+- **현상**: `canvas.width = M.left + IW + M.right` / `canvas.height = rsiH` — raw 픽셀. `candleRenderer`/`volumeRenderer`는 `initCanvas`로 DPR 적용하는데 여기만 누락.
+- **수정**: `initCanvas(canvas, logW, rsiH)` 호출로 통일.
+- **상태**: ✅ 수정됨.
+
+### 🔵 AddL1. dead 컴포넌트 3개 삭제
+- **파일**: `frontend/src/components/Chart/RSIPanel.jsx`, `VolumePanel.jsx`, `Confluence.jsx`
+- **현상**: 어디서도 import 안 됨. RSIPanel/VolumePanel은 캔버스 렌더러로 대체됨. Confluence는 `xScale(new Date(z.t))` (잘못된 호출)인데 dead라 무해.
+- **수정**: 파일 삭제.
+- **상태**: ✅ 수정됨.
+
+### 🔵 AddL2. `hitTest.js::findHitLine` log 모드에서 `p1`/`p2` <= 0 시 NaN
+- **파일**: `frontend/src/utils/hitTest.js:30-31`
+- **현상**: `Math.pow(ln.p2 / ln.p1, a0)` — p1이 0 또는 음수면 분수 거듭제곱이 NaN/Inf. 가격이 음수는 아니지만 yScale.invert가 극단 영역에서 0 이하를 반환할 가능성.
+- **수정**: `if (!(ln.p1 > 0) || !(ln.p2 > 0))` 가드 → 선형 폴백.
+- **상태**: ✅ 수정됨.
+
+### 🔵 AddL3. `coordUtils::idxToTimestamp` 가 과거 영역(rawIdx<0) 외삽 안 함 → 0 캔들로 클램프
+- **파일**: `frontend/src/utils/coordUtils.js:11-12`
+- **현상**: 미래 외삽은 있지만 과거는 없음. 트렌드라인 끝점을 차트 좌측 너머로 드래그하면 시작점이 0번 캔들에 강제 클램프되어 점프하는 시각적 어색함.
+- **수정 보류**: 의도된 동작일 가능성 (과거로 무한 외삽 시 t가 음수가 되어 다른 곳에서 깨질 위험).
+
+### 🔵 AddL4. `useRsiResize`/`useVolResize` `onDividerMouseDown` deps에 `rsiH`/`volH`
+- **파일**: `frontend/src/hooks/useRsiResize.js:45`, `useVolResize.js:44`
+- **현상**: rsiH/volH 변경마다 함수 재생성. handlers는 ref로 관리되어 실제 영향 없음.
+- **수정 보류**: 영향 무시할 정도.
+
+### 🔵 AddL5. `useCrosshair::bodyPctEl` x 위치를 `priceText.textContent.length * 8` 로 계산
+- **파일**: `frontend/src/hooks/useCrosshair.js:57`
+- **현상**: 모노스페이스 13px 가정. 폰트 폭이 다르면 어긋남. (`getComputedTextLength`는 강제 레이아웃 유발하므로 의도된 trade-off라 주석에 명시)
+- **수정 보류**: 인정된 trade-off.
+
+### 🔵 AddL6. `volumeRenderer` 압축+useCandle 모드 fillStyle batch 없음
+- **파일**: `frontend/src/chart/volumeRenderer.js:52-58`
+- **현상**: 픽셀마다 `fillStyle` 변경 + `fillRect`. 색상별로 batch 가능.
+- **수정 보류**: 압축 모드 픽셀 수는 viewport width 한도(<2000) → 미미한 성능 영향.
+
+### 🔵 AddL7. `LineOpacityPopup` 이 도형 삭제 시 자동으로 닫히지 않음
+- **파일**: `frontend/src/components/Chart/LineOpacityPopup.jsx:9-14`
+- **현상**: `item = ...find(...)` 결과가 undefined여도 popup은 떠 있음 — opacity 100%로 표시되지만 조작 무효.
+- **수정**: `useEffect(() => { if (!item) onClose(); }, [item, onClose])` 추가.
+- **상태**: ✅ 수정됨.
+
+### 🔵 AddL8. `Confluence.jsx::xScale(new Date(z.t))` — Date 객체를 bar-index 스케일에 전달
+- **파일**: ~~`Confluence.jsx:21`~~ (삭제됨)
+- **상태**: dead code 삭제로 자연 해결.
+
+### 🔵 AddL9. CLAUDE.md의 `index.css` 설명에 `@keyframes toastIn` 미언급
+- **파일**: `CLAUDE.md`
+- **수정**: "전역 리셋 + @keyframes toastIn" 으로 보강.
+- **상태**: ✅ 수정됨.
+
+---
+
+## 권장 수정 우선순위
+
+1. **C1, C2** — 헷지모드 잠금/핸들 표시 로직 통일 (사용자 체감 가장 큼)
+2. **C3** — recoveryService 안전망의 잘못된 TP/SL 자동 등록 차단 (실제 자금 위험)
+3. **C5, C6** — 일일 손실 한도 가드 강화, placeTPSL 중복 방지 락
+4. **C4** — SL 우선 등록 또는 SL 실패 시 즉시 청산 옵션
+5. **H1** — api/client 에러 파싱 견고화
+6. **H2** — 1w 알람 통일 (제거 or 추가)
+7. **H8** — start.bat 상대 경로화
+8. **M1, M5, M14, AddM1** — 안정성/렌더 보강
+9. **L1, L2, L4, L12, AddL1, AddL7** — 데드 코드/문서 정리
+
+---
+
+## 미수정 보류 항목 (영향 작음/의도된 동작)
+
+- AddL3, AddL4, AddL5, AddL6: 모두 영향이 무시할 정도이거나 의도된 trade-off
+- L7, L9, L14, L15, M15: 이전 1차 조사에서 동일한 사유로 보류

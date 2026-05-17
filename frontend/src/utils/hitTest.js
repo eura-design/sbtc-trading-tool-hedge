@@ -21,7 +21,8 @@ export function findHitLine(px, py, lines, xScale, yScale, candles, threshold = 
     const ax = xScale(i1), ay = yScale(ln.p1);
     const bx = xScale(i2), by = yScale(ln.p2);
     if (!isLog) return distToSeg(px, py, ax, ay, bx, by) < threshold;
-    // 로그 모드: 지수 보간 폴리라인의 각 세그먼트에 대해 히트 테스트
+    // 로그 모드: 지수 보간 — p1/p2가 양수가 아니면 분수 거듭제곱이 NaN → 선형으로 폴백
+    if (!(ln.p1 > 0) || !(ln.p2 > 0)) return distToSeg(px, py, ax, ay, bx, by) < threshold;
     const N = 20;
     for (let i = 0; i < N; i++) {
       const a0 = i / N, a1 = (i + 1) / N;

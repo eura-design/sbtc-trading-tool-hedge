@@ -1,5 +1,6 @@
 import * as d3 from "d3";
 import { M } from "../constants";
+import { initCanvas } from "./canvasUtils";
 
 const RSI_OB_C  = "#60a5fa";
 const RSI_OS_C  = "#60a5fa";
@@ -15,10 +16,9 @@ export function renderRSICanvas(canvas, rsiData, xScale, IW, rsiH, isDark, rsiPa
   const os     = rsiParams.oversold   ?? 30;
   const period = rsiParams.period     ?? 14;
 
-  canvas.width  = M.left + IW + M.right;
-  canvas.height = rsiH;
-
-  const ctx = canvas.getContext("2d");
+  // DPR 적용 — initCanvas가 clearRect + setTransform(dpr) 처리 → HiDPI 디스플레이 선명
+  const logW = M.left + IW + M.right;
+  const ctx  = initCanvas(canvas, logW, rsiH);
   ctx.save();
 
   ctx.beginPath();

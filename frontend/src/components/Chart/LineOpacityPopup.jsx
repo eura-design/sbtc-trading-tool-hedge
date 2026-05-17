@@ -9,6 +9,12 @@ export function LineOpacityPopup({ popup, lines, onChangeOpacity, onToggleLock, 
   const item = isChannel ? channels?.find(c => c.id === popup.id)
              : isCircle  ? circles?.find(c => c.id === popup.id)
              : lines.find(l => l.id === popup.id);
+
+  // 대상 도형이 사라지면(Delete 키 등) popup 자동 닫기
+  useEffect(() => {
+    if (!item) onClose();
+  }, [item, onClose]);
+
   const opacity = item?.opacity ?? 1.0;
   const locked  = item?.locked  ?? false;
   const alert   = item?.alert   ?? false;

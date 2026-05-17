@@ -142,12 +142,10 @@ frontend/src/
 │   │   ├── TrendLines.jsx         ← 트렌드 라인 SVG (선택 시 끝점 핸들)
 │   │   ├── Channels.jsx           ← 채널 SVG (메인선+미러선+채우기, 알림 글로우, 선택 핸들)
 │   │   ├── Circles.jsx            ← 원 SVG (채우기+테두리, 알림 아이콘, 선택 핸들)
-│   │   ├── VolumePanel.jsx        ← 거래량 패널 (별도 캔버스, 가시 범위 기반 maxVol 정규화)
-│   │   ├── RSIPanel.jsx           ← RSI(14) 서브패널 (캔버스 렌더, 메인 차트 하단, xScale 공유)
 │   │   ├── DivergenceLines.jsx    ← RSI 다이버전스 라인 (RSI 패널 내)
-│   │   ├── Confluence.jsx         ← 지지/저항 컨플루언스 표시
 │   │   └── LineOpacityPopup.jsx   ← 트렌드라인/채널/원 투명도(0.25~1.0)·잠금·알림 설정 팝업
 │   │                                  ※ FVG/OB/SR/EMA는 SVG가 아닌 `overlayRenderers.js`로 캔버스 렌더
+│   │                                  ※ Volume/RSI 패널은 `volumeRenderer.js`/`rsiRenderer.js` (캔버스) 사용
 │   └── Sidebar/
 │       ├── SidebarPanel.jsx   ← 사이드바 전체 패널 조합 + 레버리지 즉시 변경 UI + 일일 손실 한도 표시
 │       │                         (포지션 보유 중 레버리지 감소 차단, 확인 패널 표시)
@@ -169,7 +167,7 @@ frontend/src/
 │                                 derivePositionFlags로 hasLong/hasShort/hasPos/hasBoth/hasPending/drawLocked 파생
 │                                 sidebarOpen/isLog는 App 로컬 상태 (localStorage 동기화)
 ├── main.jsx                   ← React 진입점
-└── index.css                  ← 전역 리셋 (overflow:hidden)
+└── index.css                  ← 전역 리셋 (overflow:hidden) + @keyframes toastIn
 ```
 
 ### 기타 파일
