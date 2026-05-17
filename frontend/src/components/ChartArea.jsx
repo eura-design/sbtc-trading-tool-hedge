@@ -14,6 +14,16 @@ import { getScales }         from "../chart/scales";
 import { ChartSvg }          from "./Chart/ChartSvg";
 import { LineOpacityPopup }  from "./Chart/LineOpacityPopup";
 
+// 봉마감 카운트다운 — 봉 간격(ms)
+const INTERVAL_MS = { "5m": 5*60*1000, "15m": 15*60*1000, "1h": 60*60*1000, "4h": 4*60*60*1000, "1d": 24*60*60*1000, "1w": 7*24*60*60*1000 };
+function fmtCountdown(ms) {
+  if (ms <= 0) return "00:00";
+  const s = Math.ceil(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+  return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+}
+
 export function ChartArea({
   // 캔들 데이터
   candles, candlesRef, candleLoading, onTickRef, interval_, isDark, isLog,
@@ -72,14 +82,6 @@ export function ChartArea({
   const locked = drawLocked;
 
   // ── 봉마감 카운트다운 ──────────────────────────────────────────────────────
-  const INTERVAL_MS = { "5m": 5*60*1000, "15m": 15*60*1000, "1h": 60*60*1000, "4h": 4*60*60*1000, "1d": 24*60*60*1000, "1w": 7*24*60*60*1000 };
-  const fmtCountdown = ms => {
-    if (ms <= 0) return "00:00";
-    const s = Math.ceil(ms / 1000);
-    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-    if (h > 0) return `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
-    return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
-  };
   const [countdown, setCountdown] = useState({ text: "", ratio: 1 });
   const last = candles.length > 0 ? candles[candles.length - 1] : null;
   useEffect(() => {
@@ -120,9 +122,6 @@ export function ChartArea({
   const canvasRef    = useRef(null);
   const volCanvasRef = useRef(null);
   const rsiCanvasRef = useRef(null);
-
-  // current: 박스 그리기 중 드래그 사각형 (App.jsx에서 관리 — 키보드 ESC 공유)
-
 
   // ── 오버레이 ref (틱마다 React 상태 없이 최신값 반영) ─────────────────────
   const overlaysRef = useRef({});

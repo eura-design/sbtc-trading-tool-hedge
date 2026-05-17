@@ -1,12 +1,11 @@
-import { useState } from "react";
 import { useTheme } from "../../ThemeContext";
 import { useMarketInfo } from "../../hooks/useMarketInfo";
+import { useAccordion } from "../../hooks/useAccordion";
 
 export function MarketInfoCard() {
   const { theme } = useTheme();
   const { fundingRate, fundingCountdown, fearGreed } = useMarketInfo();
-  const [open, setOpen] = useState(() => localStorage.getItem("accordion_marketInfo") === "true");
-  const toggle = () => setOpen(v => { const n = !v; localStorage.setItem("accordion_marketInfo", n); return n; });
+  const [open, toggle] = useAccordion("accordion_marketInfo");
 
   const row = (label, value, sub) => (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",

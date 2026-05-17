@@ -72,6 +72,14 @@ function roundPrice(p) {
   return (Math.round(parseFloat(p) * 10) / 10).toFixed(1);
 }
 
+// 일반 주문/알고 주문 취소 공통 헬퍼
+// 사용처: routes/order, routes/tpsl, routes/close, services/orderWatcher 등
+function cancelOrder({ orderId, algoId, isAlgo }) {
+  return isAlgo
+    ? binance("DELETE", "/fapi/v1/algoOrder", { symbol: "BTCUSDT", algoId: algoId ?? orderId })
+    : binance("DELETE", "/fapi/v1/order",     { symbol: "BTCUSDT", orderId });
+}
+
 // TP/SL 등록 (SL 우선, exponential backoff, 부분 실패 허용)
 // SL이 실패하면 TP는 시도하지 않음 — SL 없는 포지션 노출 시간을 최소화하기 위함
 async function placeTPSL({ closeSide, tp, sl }) {
@@ -148,4 +156,4 @@ async function checkExistingTPSL(positionSide) {
   } catch { return false; }
 }
 
-module.exports = { binance, roundPrice, placeTPSL, checkExistingTPSL, syncServerTime };
+module.exports = { binance, roundPrice, cancelOrder, placeTPSL, checkExistingTPSL, syncServerTime };

@@ -56,6 +56,17 @@ export function tsToIdx(t, candles) {
   return lo;
 }
 
+// 로그 스케일에서도 선형과 동일한 시각적 여백을 만드는 Y 도메인 패딩
+// 선형: [lo - range*p, hi + range*p]
+// 로그: lo/(hi/lo)^p, hi*(hi/lo)^p
+export function padYDomain(lo, hi, padFrac, isLog) {
+  if (!isLog) return [lo - (hi - lo) * padFrac, hi + (hi - lo) * padFrac];
+  const safeLo = Math.max(lo, 1);
+  const safeHi = Math.max(hi, safeLo * 1.001);
+  const logPad = Math.pow(safeHi / safeLo, padFrac);
+  return [safeLo / logPad, safeHi * logPad];
+}
+
 export function getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog = false) {
   if (!candles.length || IW <= 0 || IH <= 0) return null;
   const lastIdx = candles.length - 1;

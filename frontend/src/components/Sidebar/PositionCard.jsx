@@ -1,6 +1,7 @@
 import * as d3 from "d3";
 import { useState } from "react";
 import { useTheme } from "../../ThemeContext";
+import { useAccordion } from "../../hooks/useAccordion";
 import { ScaleInCard } from "./ScaleInCard";
 import { SplitTPCard } from "./SplitTPCard";
 
@@ -48,8 +49,7 @@ export function PositionCard({
   const [scaleInOpen, setScaleInOpen] = useState(false);
   const [splitTPOpen, setSplitTPOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
-  const [expanded, setExpanded] = useState(() => localStorage.getItem(`accordion_pos_${side}`) !== "false");
-  const toggleExpanded  = () => setExpanded(v  => { const n = !v; localStorage.setItem(`accordion_pos_${side}`, n); return n; });
+  const [expanded, toggleExpanded] = useAccordion(`accordion_pos_${side}`, true);
   const toggleScaleIn   = () => setScaleInOpen(v => !v);
   const toggleSplitTP   = () => setSplitTPOpen(v => !v);
   const toggleClose     = () => { setCloseOpen(v => !v); setConfirming(false); };
@@ -237,41 +237,3 @@ export function PositionCard({
   );
 }
 
-export function PendingCard({ pending }) {
-  const { theme } = useTheme();
-  if (!pending) return null;
-
-  const isLong   = pending.side === "BUY";
-  const posColor = isLong ? "#0ecb81" : "#f6465d";
-  const fmtI     = p => `$${d3.format(",.0f")(p)}`;
-
-  return (
-    <div style={{
-      marginBottom:"12px", padding:"10px",
-      border:`1px solid ${posColor}33`, borderLeft:`2px solid ${posColor}`,
-      borderRadius:"5px",
-    }}>
-      <div style={{ fontSize:"13px", color:posColor, fontWeight:"700", marginBottom:"8px" }}>
-        {isLong ? "▲ LONG" : "▼ SHORT"} 체결 대기중
-      </div>
-      {[
-        ["청산가",     "—",                                                                          "#ff4444"],
-        ["손익비 R:R", "—",                                                                          "#a78bfa"],
-        ["수량",       `${pending.qty} BTC`,                                                        "#94a3b8"],
-        ["포지션 USD", pending.price ? fmtI(pending.qty * pending.price) : "—",                    "#94a3b8"],
-        ["예상 손실",  "—",                                                                          "#f6465d"],
-        ["예상 수익",  "—",                                                                          "#0ecb81"],
-        ["미실현",     "—",                                                                          theme.textFaint],
-      ].map(([l, v, c]) => (
-        <div key={l} style={{ display:"flex", justifyContent:"space-between",
-          padding:"3px 0", borderBottom:`1px solid ${theme.border}` }}>
-          <span style={{ fontSize:"12px", color:theme.textMuted }}>{l}</span>
-          <span style={{ fontSize:"13px", color:c, fontWeight:"600" }}>{v}</span>
-        </div>
-      ))}
-      <div style={{ marginTop:"8px", fontSize:"11px", color:theme.textFaint, textAlign:"right" }}>
-        체결 시 TP/SL 자동 등록
-      </div>
-    </div>
-  );
-}

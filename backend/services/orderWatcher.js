@@ -1,5 +1,5 @@
 const WebSocket    = require("ws");
-const { binance, placeTPSL, checkExistingTPSL } = require("./binanceClient");
+const { binance, cancelOrder, placeTPSL, checkExistingTPSL } = require("./binanceClient");
 const store          = require("../store/pendingOrders");
 const push           = require("./pushService");
 const tradeLog       = require("../store/tradeLog");
@@ -238,7 +238,7 @@ async function reconcileWithBinance() {
       const scaleIns = relevant.filter(([, o]) => o.status === "SCALE_IN");
       for (const [orderId] of scaleIns) {
         try {
-          await binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+          await cancelOrder({ orderId });
         } catch (e) {
           console.warn(`[RECONCILE] SCALE_IN 취소 실패 orderId=${orderId}:`, e.response?.data?.msg);
         }

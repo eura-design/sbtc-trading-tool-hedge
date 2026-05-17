@@ -1,7 +1,8 @@
-import { useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import { api } from "../api/client";
 import { POLLING } from "../constants";
 import { useStore } from "../store";
+import { usePoll } from "./usePoll";
 
 export function useBalance() {
   const setBalance  = useStore(s => s.setBalance);
@@ -16,10 +17,5 @@ export function useBalance() {
     }
   }, [setBalance, setBalError]);
 
-  useEffect(() => {
-    useStore.setState({ _refetchBal: fetch_ });
-    fetch_();
-    const id = setInterval(fetch_, POLLING.BALANCE_MS);
-    return () => clearInterval(id);
-  }, [fetch_]);
+  usePoll(fetch_, POLLING.BALANCE_MS, "_refetchBal");
 }

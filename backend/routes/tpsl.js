@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, roundPrice } = require("../services/binanceClient");
+const { binance, roundPrice, cancelOrder } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
 const router  = express.Router();
@@ -76,12 +76,9 @@ router.put("/", async (req, res) => {
   const newOrders = { tp: null, sl: null };
   let noSl = false;
 
-  const cancelOrder = (isAlgo, id) => {
-    const p = isAlgo
-      ? binance("DELETE", "/fapi/v1/algoOrder", { symbol: "BTCUSDT", algoId: id })
-      : binance("DELETE", "/fapi/v1/order",     { symbol: "BTCUSDT", orderId: id });
-    return p.catch(e => console.warn(`기존 주문 취소 실패 (id=${id}):`, e.response?.data?.msg));
-  };
+  const cancelExisting = (isAlgo, id) =>
+    cancelOrder({ orderId: id, algoId: id, isAlgo })
+      .catch(e => console.warn(`기존 주문 취소 실패 (id=${id}):`, e.response?.data?.msg));
 
   const placeAlgo = (type, price) =>
     binance("POST", "/fapi/v1/algoOrder", {
@@ -93,14 +90,14 @@ router.put("/", async (req, res) => {
   try {
     // TP가 변경된 경우에만 처리 (H1)
     if (tp) {
-      if (tpOrderId) await cancelOrder(tpIsAlgo, tpOrderId);
+      if (tpOrderId) await cancelExisting(tpIsAlgo, tpOrderId);
       const r = await placeAlgo("TAKE_PROFIT_MARKET", tp);
       newOrders.tp = { orderId: r.data.algoId, price: parseFloat(roundPrice(tp)), isAlgo: true };
     }
 
     // SL이 변경된 경우에만 처리 (H1)
     if (sl) {
-      if (slOrderId) await cancelOrder(slIsAlgo, slOrderId);
+      if (slOrderId) await cancelExisting(slIsAlgo, slOrderId);
       try {
         const r = await placeAlgo("STOP_MARKET", sl);
         newOrders.sl = { orderId: r.data.algoId, price: parseFloat(roundPrice(sl)), isAlgo: true };
@@ -126,10 +123,8 @@ router.post("/split", async (req, res) => {
   try {
     // 기존 단일 TP 취소
     if (tpOrderId) {
-      const cancel = tpIsAlgo
-        ? binance("DELETE", "/fapi/v1/algoOrder", { symbol: "BTCUSDT", algoId: tpOrderId })
-        : binance("DELETE", "/fapi/v1/order",     { symbol: "BTCUSDT", orderId: tpOrderId });
-      await cancel.catch(e => console.warn(`기존 TP 취소 실패:`, e.response?.data?.msg));
+      await cancelOrder({ orderId: tpOrderId, algoId: tpOrderId, isAlgo: tpIsAlgo })
+        .catch(e => console.warn(`기존 TP 취소 실패:`, e.response?.data?.msg));
     }
     const closeSide = positionToClose(side);
     const { data } = await binance("POST", "/fapi/v1/order", {
@@ -153,7 +148,7 @@ router.delete("/split", async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
-    await binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+    await cancelOrder({ orderId });
     store.delete(String(orderId));
     res.json({ success: true });
   } catch (err) {

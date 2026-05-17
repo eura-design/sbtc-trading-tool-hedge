@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance } = require("../services/binanceClient");
+const { binance, cancelOrder } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const push    = require("../services/pushService");
 const { positionToClose } = require("../utils/side");
@@ -50,7 +50,7 @@ router.post("/", async (req, res) => {
     if (splitTpOrders.length > 0) {
       await Promise.allSettled(
         splitTpOrders.map(o =>
-          binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId: o.orderId })
+          cancelOrder({ orderId: o.orderId })
             .catch(e => console.warn(`[close] 분할 TP 사전 취소 실패 ${o.orderId}:`, e.response?.data?.msg))
         )
       );
@@ -77,12 +77,12 @@ router.post("/", async (req, res) => {
       // TP/SL: positionSide로 해당 사이드만 취소 (반대쪽 TP/SL은 보존)
       ...regular
         .filter(o => ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.type) && o.positionSide === side)
-        .map(o => binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId: o.orderId })),
+        .map(o => cancelOrder({ orderId: o.orderId })),
       ...algo
         .filter(o => ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.orderType) && o.positionSide === side)
-        .map(o => binance("DELETE", "/fapi/v1/algoOrder", { symbol: "BTCUSDT", algoId: o.algoId })),
+        .map(o => cancelOrder({ algoId: o.algoId, isAlgo: true })),
       ...scaleInToCancel
-        .map(o => binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId: o.orderId })),
+        .map(o => cancelOrder({ orderId: o.orderId })),
     ]);
     scaleInToCancel.forEach(o => {
       store.delete(String(o.orderId));

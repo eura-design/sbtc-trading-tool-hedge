@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, roundPrice } = require("../services/binanceClient");
+const { binance, roundPrice, cancelOrder } = require("../services/binanceClient");
 const store = require("../store/pendingOrders");
 const { sideToPosition } = require("../utils/side");
 const router = express.Router();
@@ -39,7 +39,7 @@ router.delete("/", async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
-    await binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+    await cancelOrder({ orderId });
     store.delete(String(orderId));
     res.json({ success: true });
   } catch (err) {

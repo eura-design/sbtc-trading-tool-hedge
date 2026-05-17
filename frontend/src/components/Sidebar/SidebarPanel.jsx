@@ -7,13 +7,14 @@ import { useShallow } from "zustand/react/shallow";
 import { calcPosition } from "../../utils/calc";
 import { api }       from "../../api/client";
 import { useDailyLoss } from "../../hooks/useDailyLoss";
+import { useAccordion } from "../../hooks/useAccordion";
 import { derivePositionFlags } from "../../hooks/usePositionFlags";
 import { isLongToPosition } from "../../utils/side";
 import { Slider }    from "../Slider";
 import { StatusAlert }                from "../StatusAlert";
 import { BalanceCard }                from "./BalanceCard";
 import { MarketInfoCard }            from "./MarketInfoCard";
-import { PositionCard, PendingCard }  from "./PositionCard";
+import { PositionCard }  from "./PositionCard";
 import { PlanCard, OrphanPendingCard } from "./PlanCard";
 import { StatsCard }    from "./StatsCard";
 
@@ -56,12 +57,9 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   const [pendingLeverage, setPendingLeverage] = useState(null);
   const [leverageLoading, setLeverageLoading] = useState(false);
   const [leverageErr, setLeverageErr]         = useState(null);
-  const [statsOpen, setStatsOpen]         = useState(() => localStorage.getItem("accordion_stats") === "true");
-  const [dailyLossOpen, setDailyLossOpen] = useState(() => localStorage.getItem("accordion_dailyLoss") === "true");
-  const [settingsOpen, setSettingsOpen]   = useState(() => localStorage.getItem("accordion_settings") === "true");
-  const toggleStats     = () => setStatsOpen(v     => { const n = !v; localStorage.setItem("accordion_stats",     n); return n; });
-  const toggleDailyLoss = () => setDailyLossOpen(v => { const n = !v; localStorage.setItem("accordion_dailyLoss", n); return n; });
-  const toggleSettings  = () => setSettingsOpen(v  => { const n = !v; localStorage.setItem("accordion_settings",  n); return n; });
+  const [statsOpen,     toggleStats]     = useAccordion("accordion_stats");
+  const [dailyLossOpen, toggleDailyLoss] = useAccordion("accordion_dailyLoss");
+  const [settingsOpen,  toggleSettings]  = useAccordion("accordion_settings");
 
   const handleLeverageChange = useCallback((val) => {
     if (hasPos && val < leverageMin) return; // 포지션 있을 때 감소 차단

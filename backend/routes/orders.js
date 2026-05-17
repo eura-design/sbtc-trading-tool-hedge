@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance } = require("../services/binanceClient");
+const { binance, cancelOrder } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const router  = express.Router();
 
@@ -25,7 +25,7 @@ router.delete("/", async (req, res) => {
     });
 
     for (const o of entryOrders) {
-      await binance("DELETE", "/fapi/v1/order", { symbol: "BTCUSDT", orderId: o.orderId })
+      await cancelOrder({ orderId: o.orderId })
         .catch(e => console.warn(`주문 취소 실패 (orderId=${o.orderId}):`, e.response?.data?.msg));
       store.delete(String(o.orderId));
     }

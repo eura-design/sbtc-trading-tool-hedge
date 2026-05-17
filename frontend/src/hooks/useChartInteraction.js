@@ -1,6 +1,6 @@
 import { useCallback, useRef, useEffect } from "react";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
-import { getScales, tsToIdx } from "../chart/scales";
+import { getScales, padYDomain, tsToIdx } from "../chart/scales";
 import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
@@ -95,13 +95,7 @@ export function useChartInteraction({
       if (lo === Infinity) { lo = candles[0].l; hi = candles[0].h; }
       const zr  = (newI1 - newI0) / (candles.length - 1 || 1);
       const padFrac = Math.max(0.08, zr * 0.5);
-      if (!isLog) {
-        yDomainRef.current = [lo - (hi - lo) * padFrac, hi + (hi - lo) * padFrac];
-      } else {
-        const safeLo = Math.max(lo, 1), safeHi = Math.max(hi, safeLo * 1.001);
-        const logPad = Math.pow(safeHi / safeLo, padFrac);
-        yDomainRef.current = [safeLo / logPad, safeHi * logPad];
-      }
+      yDomainRef.current = padYDomain(lo, hi, padFrac, isLog);
       if (overlaysRef) overlaysRef.current._panning = true;
       redrawChart();
       clearTimeout(wheelSyncTimerRef.current);
@@ -247,23 +241,23 @@ export function useChartInteraction({
       const handler = DRAG_HANDLERS[drag.type];
       if (!handler) return;
 
+      const setters = {
+        setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef,
+        redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp,
+        isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
+        moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
+      };
+      const state = { drawing, dragTpsl, dragScaleIn, dragSplitTp };
+
       if (drag.type === "pan") {
         const rect2 = svgRef.current?.getBoundingClientRect();
         if (!rect2) return;
         const panPos = { x: clientX - rect2.left - M.left, y: clientY - rect2.top - M.top };
-        handler.onMove({
-          pos: panPos, drag: dragRef.current ?? drag, scales: null, IW, IH, candles,
-          setters: { setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef, redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets, moveCircle, updateLineEndpoint, setLinePosition, overlaysRef },
-          state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
-        });
+        handler.onMove({ pos: panPos, drag: dragRef.current ?? drag, scales: null, IW, IH, candles, setters, state });
         return;
       }
 
-      handler.onMove({
-        pos, drag, scales, IW, IH, candles,
-        setters: { setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef, redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets, moveCircle, updateLineEndpoint, setLinePosition },
-        state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
-      });
+      handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
   }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles]);
 
@@ -279,7 +273,13 @@ export function useChartInteraction({
 
     handler.onUp({
       pos: getSvgPos(e), drag, scales, candles, IW, IH,
-      setters: { setDrawing, setCurrent, setDragTpsl, setCursor, saveTpsl, setDrawMode, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp, setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets, moveCircle, updateLineEndpoint, setLinePosition, overlaysRef },
+      setters: {
+        setDrawing, setCurrent, setDragTpsl, setCursor, saveTpsl, setDrawMode,
+        setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp,
+        setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart,
+        updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
+        moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
+      },
       state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
     });
   }, [candles, drawing, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos]);

@@ -88,9 +88,9 @@ export default function App() {
         setDrawing(d);
       }
     }
-  }, [position, hasPos, hasPending]);
+  }, [position, hasPos, hasPending, drawing, setDrawing]);
 
-  useEffect(() => { if (!drawing) setSelectedBox(false); }, [drawing]);
+  useEffect(() => { if (!drawing) setSelectedBox(false); }, [drawing, setSelectedBox]);
 
   // ── 로컬 상태 ────────────────────────────────────────────────────────────
   const [isLog, setIsLog] = useState(() => localStorage.getItem("chart_isLog") === "true");

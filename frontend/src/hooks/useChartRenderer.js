@@ -1,18 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-
-// 로그 스케일 패딩: 로그 공간에서 비율로 패딩 적용 (선형과 동등한 시각적 여백)
-// 선형: [lo - range*p, hi + range*p]
-// 로그: [(hi/lo)^p 만큼 로그 공간에서 양쪽 확장] → lo/(hi/lo)^p, hi*(hi/lo)^p
-// 분봉처럼 range가 좁아도 선형과 동일한 픽셀 비율로 패딩됨
-function padYDomain(lo, hi, padFrac, isLog) {
-  if (!isLog) return [lo - (hi - lo) * padFrac, hi + (hi - lo) * padFrac];
-  const safeLo = Math.max(lo, 1);
-  const safeHi = Math.max(hi, safeLo * 1.001);
-  const logPad = Math.pow(safeHi / safeLo, padFrac);
-  return [safeLo / logPad, safeHi * logPad];
-}
 import * as d3 from "d3";
-import { getScales } from "../chart/scales";
+import { getScales, padYDomain } from "../chart/scales";
 import { renderCandles, renderVolumeCanvas, renderRSICanvas } from "../chart/candleRenderer";
 
 export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, IH, canvasRef, volCanvasRef, rsiCanvasRef, isLog = false, overlaysRef }) {

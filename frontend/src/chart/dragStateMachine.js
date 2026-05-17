@@ -1,4 +1,24 @@
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
+import { padYDomain } from "./scales";
+
+// 두 가격(p1, p2)을 마우스 드래그 vector에 따라 같이 이동시킨다.
+// 선형 모드: delta(가격 차) 가산 / 로그 모드: ratio(가격 비율) 곱
+function movePricePair(yScale, pos, drag, isLog) {
+  const dragStartPrice = yScale.invert(drag.startY);
+  const nowPrice       = yScale.invert(pos.y);
+  if (isLog) {
+    const ratio = (dragStartPrice > 0 && nowPrice > 0) ? nowPrice / dragStartPrice : 1;
+    return { newP1: drag.startP1 * ratio, newP2: drag.startP2 * ratio };
+  }
+  const dp = nowPrice - dragStartPrice;
+  return { newP1: drag.startP1 + dp, newP2: drag.startP2 + dp };
+}
+
+// 시간 vector — 메인 라인/채널/원 몸통 이동 시 공통
+function moveTimeDelta(xScale, pos, drag, candles) {
+  const di = xScale.invert(pos.x) - xScale.invert(drag.startX);
+  return di * getCandleMs(candles);
+}
 
 export const DRAG_HANDLERS = {
   pan: {
@@ -23,14 +43,7 @@ export const DRAG_HANDLERS = {
       if (lo !== Infinity) {
         const zr  = span / (candles.length - 1 || 1);
         const padFrac = Math.max(0.08, zr * 0.5);
-        if (!setters.isLog) {
-          const pad = (hi - lo) * padFrac;
-          yDomainRef.current = [lo - pad, hi + pad];
-        } else {
-          const safeLo = Math.max(lo, 1), safeHi = Math.max(hi, safeLo * 1.001);
-          const logPad = Math.pow(safeHi / safeLo, padFrac);
-          yDomainRef.current = [safeLo / logPad, safeHi * logPad];
-        }
+        yDomainRef.current = padYDomain(lo, hi, padFrac, setters.isLog);
       }
       if (setters.overlaysRef) setters.overlaysRef.current._panning = true;
       // redrawChart = redrawCanvas + redrawVolume + redrawRSI + forceUpdate
@@ -195,22 +208,8 @@ export const DRAG_HANDLERS = {
   channel_move: {
     onMove({ pos, drag, scales, candles, IW, IH, setters }) {
       if (!scales) return;
-      const { xScale, yScale } = scales;
-      const di = xScale.invert(pos.x) - xScale.invert(drag.startX);
-      const dt = di * getCandleMs(candles);
-      let newP1, newP2;
-      if (setters.isLog) {
-        // log 모드: 비율 이동 (시각적으로 동일한 픽셀 간격 유지)
-        const dragStartPrice = yScale.invert(drag.startY);
-        const nowPrice       = yScale.invert(pos.y);
-        const ratio = (dragStartPrice > 0 && nowPrice > 0) ? nowPrice / dragStartPrice : 1;
-        newP1 = drag.startP1 * ratio;
-        newP2 = drag.startP2 * ratio;
-      } else {
-        const dp = yScale.invert(pos.y) - yScale.invert(drag.startY);
-        newP1 = drag.startP1 + dp;
-        newP2 = drag.startP2 + dp;
-      }
+      const dt = moveTimeDelta(scales.xScale, pos, drag, candles);
+      const { newP1, newP2 } = movePricePair(scales.yScale, pos, drag, setters.isLog);
       setters.setChannelPosition(drag.channelId, drag.startT1 + dt, newP1, drag.startT2 + dt, newP2);
       setters.setCursor("move");
     },
@@ -262,22 +261,8 @@ export const DRAG_HANDLERS = {
   line_move: {
     onMove({ pos, drag, scales, candles, setters }) {
       if (!scales) return;
-      const { xScale, yScale } = scales;
-      const di = xScale.invert(pos.x) - xScale.invert(drag.startX);
-      const dt = di * getCandleMs(candles);
-      let newP1, newP2;
-      if (setters.isLog) {
-        // log 모드: 비율 이동
-        const dragStartPrice = yScale.invert(drag.startY);
-        const nowPrice       = yScale.invert(pos.y);
-        const ratio = (dragStartPrice > 0 && nowPrice > 0) ? nowPrice / dragStartPrice : 1;
-        newP1 = drag.startP1 * ratio;
-        newP2 = drag.startP2 * ratio;
-      } else {
-        const dp = yScale.invert(pos.y) - yScale.invert(drag.startY);
-        newP1 = drag.startP1 + dp;
-        newP2 = drag.startP2 + dp;
-      }
+      const dt = moveTimeDelta(scales.xScale, pos, drag, candles);
+      const { newP1, newP2 } = movePricePair(scales.yScale, pos, drag, setters.isLog);
       setters.setLinePosition(drag.lineId, drag.startT1 + dt, newP1, drag.startT2 + dt, newP2);
       setters.setCursor("move");
     },

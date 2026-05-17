@@ -1,7 +1,8 @@
-import { useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import { api } from "../api/client";
 import { POLLING } from "../constants";
 import { useStore } from "../store";
+import { usePoll } from "./usePoll";
 
 export function usePosition() {
   const setPosition = useStore(s => s.setPosition);
@@ -11,10 +12,5 @@ export function usePosition() {
     catch(e) { console.error(e); }
   }, [setPosition]);
 
-  useEffect(() => {
-    useStore.setState({ _refetchPos: fetch_ });
-    fetch_();
-    const id = setInterval(fetch_, POLLING.POSITION_MS);
-    return () => clearInterval(id);
-  }, [fetch_]);
+  usePoll(fetch_, POLLING.POSITION_MS, "_refetchPos");
 }
