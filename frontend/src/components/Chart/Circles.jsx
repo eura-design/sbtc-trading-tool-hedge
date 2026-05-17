@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { tsToIdx } from "../../chart/scales";
 
-const CIRCLE_COLOR = "#60a5fa"; // 진입선과 동일
+const CIRCLE_COLOR = "#a9d0fd"; // 연한 파랑
 
 export const Circles = memo(function Circles({
   circles, selectedCircleId,
@@ -33,7 +33,7 @@ export const Circles = memo(function Circles({
         const alert    = !!ci.alert;
         const color    = selected ? "#f0b90b" : alert ? "#fbbf24" : CIRCLE_COLOR;
         const opacity  = ci.opacity ?? 1.0;
-        const sw       = selected || alert ? 4.5 : 3;
+        const sw       = 4.5;
 
         return (
           <g key={ci.id}>
@@ -66,7 +66,7 @@ export const Circles = memo(function Circles({
           <g>
             <circle cx={c.x} cy={c.y} r={Math.max(r, 2)}
               fill="none"
-              stroke={CIRCLE_COLOR} strokeWidth={3} opacity={0.5} strokeDasharray="4,3" />
+              stroke={CIRCLE_COLOR} strokeWidth={4.5} opacity={0.5} strokeDasharray="4,3" />
             <circle cx={c.x} cy={c.y} r={3} fill={CIRCLE_COLOR} opacity={0.7} />
           </g>
         );

@@ -45,12 +45,14 @@ export function PositionCard({
   const [closePct, setClosePct] = useState(() => Number(localStorage.getItem("closePct")) || 100);
   const handleClosePct = v => { setClosePct(v); localStorage.setItem("closePct", v); };
   const [confirming, setConfirming] = useState(false);
-  const [scaleInOpen, setScaleInOpen] = useState(() => localStorage.getItem(`accordion_scaleIn_${side}`) === "true");
-  const [splitTPOpen, setSplitTPOpen] = useState(() => localStorage.getItem(`accordion_splitTP_${side}`) === "true");
+  const [scaleInOpen, setScaleInOpen] = useState(false);
+  const [splitTPOpen, setSplitTPOpen] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
   const [expanded, setExpanded] = useState(() => localStorage.getItem(`accordion_pos_${side}`) !== "false");
-  const toggleExpanded  = () => setExpanded(v  => { const n = !v; localStorage.setItem(`accordion_pos_${side}`,     n); return n; });
-  const toggleScaleIn   = () => setScaleInOpen(v => { const n = !v; localStorage.setItem(`accordion_scaleIn_${side}`, n); return n; });
-  const toggleSplitTP   = () => setSplitTPOpen(v => { const n = !v; localStorage.setItem(`accordion_splitTP_${side}`, n); return n; });
+  const toggleExpanded  = () => setExpanded(v  => { const n = !v; localStorage.setItem(`accordion_pos_${side}`, n); return n; });
+  const toggleScaleIn   = () => setScaleInOpen(v => !v);
+  const toggleSplitTP   = () => setSplitTPOpen(v => !v);
+  const toggleClose     = () => { setCloseOpen(v => !v); setConfirming(false); };
 
   if (!posData) return null;
 
@@ -112,63 +114,71 @@ export function PositionCard({
         </div>
       ))}
 
-      {/* 청산 */}
-      <div style={{ marginTop:"10px", display:"flex", flexDirection:"column", gap:"6px" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span style={{ fontSize:"12px", color:theme.textMuted, letterSpacing:"0.06em" }}>시장가 청산</span>
-          <span style={{ fontSize:"15px", color:posColor, fontWeight:"700" }}>
-            {closePct}%
-            <span style={{ fontSize:"11px", color:theme.textMuted, fontWeight:"400", marginLeft:"6px" }}>
-              ({closeQty} BTC)
+      {/* 아코디언: 시장가 청산 */}
+      <AccordionSection
+        label="시장가 청산"
+        isOpen={closeOpen}
+        onToggle={toggleClose}
+        theme={theme}
+        posColor={posColor}
+      >
+        <div style={{ display:"flex", flexDirection:"column", gap:"6px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ fontSize:"12px", color:theme.textMuted, letterSpacing:"0.06em" }}>청산 비율</span>
+            <span style={{ fontSize:"15px", color:posColor, fontWeight:"700" }}>
+              {closePct}%
+              <span style={{ fontSize:"11px", color:theme.textMuted, fontWeight:"400", marginLeft:"6px" }}>
+                ({closeQty} BTC)
+              </span>
             </span>
-          </span>
-        </div>
-        <input
-          type="range" min={0} max={100} step={5} value={closePct}
-          onChange={e => { handleClosePct(Math.max(5, Number(e.target.value))); setConfirming(false); }}
-          style={{ width:"100%", accentColor:posColor, cursor:"pointer", height:"3px" }}
-        />
-        <div style={{ display:"flex", justifyContent:"space-between", fontSize:"11px", color:theme.textBare }}>
-          <span>0%</span><span>100%</span>
-        </div>
-        {confirming ? (
-          <div style={{ display:"flex", gap:"6px" }}>
-            <button
-              onClick={() => { setConfirming(false); onClose(side, closeQty, closePct < 100); }}
-              style={{
-                flex:1, padding:"9px 0", borderRadius:"5px",
-                cursor:"pointer", fontFamily:"inherit",
-                fontSize:"13px", fontWeight:"700",
-                background:"#60a5fa", border:"1px solid #60a5fa", color:"#fff",
-              }}
-            >✓ 확인</button>
-            <button
-              onClick={() => setConfirming(false)}
-              style={{
-                flex:1, padding:"9px 0", borderRadius:"5px",
-                cursor:"pointer", fontFamily:"inherit",
-                fontSize:"13px", fontWeight:"700",
-                background:"transparent", border:`1px solid ${theme.borderSec}`, color:theme.textMuted,
-              }}
-            >✕ 취소</button>
           </div>
-        ) : (
-          <button
-            onClick={() => setConfirming(true)}
-            style={{
-              width:"100%", padding:"9px 0", borderRadius:"5px",
-              cursor:"pointer", fontFamily:"inherit",
-              fontSize:"13px", fontWeight:"700",
-              background:"transparent", border:"1px solid #60a5fa", color:"#60a5fa",
-              transition:"background 0.15s",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background="#60a5fa22"; }}
-            onMouseLeave={e => { e.currentTarget.style.background="transparent"; }}
-          >
-            청산 {closePct === 100 ? "(전체)" : `(${closePct}%)`}
-          </button>
-        )}
-      </div>
+          <input
+            type="range" min={0} max={100} step={5} value={closePct}
+            onChange={e => { handleClosePct(Math.max(5, Number(e.target.value))); setConfirming(false); }}
+            style={{ width:"100%", accentColor:posColor, cursor:"pointer", height:"3px" }}
+          />
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:"11px", color:theme.textBare }}>
+            <span>0%</span><span>100%</span>
+          </div>
+          {confirming ? (
+            <div style={{ display:"flex", gap:"6px" }}>
+              <button
+                onClick={() => { setConfirming(false); onClose(side, closeQty, closePct < 100); }}
+                style={{
+                  flex:1, padding:"9px 0", borderRadius:"5px",
+                  cursor:"pointer", fontFamily:"inherit",
+                  fontSize:"13px", fontWeight:"700",
+                  background:"#60a5fa", border:"1px solid #60a5fa", color:"#fff",
+                }}
+              >✓ 확인</button>
+              <button
+                onClick={() => setConfirming(false)}
+                style={{
+                  flex:1, padding:"9px 0", borderRadius:"5px",
+                  cursor:"pointer", fontFamily:"inherit",
+                  fontSize:"13px", fontWeight:"700",
+                  background:"transparent", border:`1px solid ${theme.borderSec}`, color:theme.textMuted,
+                }}
+              >✕ 취소</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirming(true)}
+              style={{
+                width:"100%", padding:"9px 0", borderRadius:"5px",
+                cursor:"pointer", fontFamily:"inherit",
+                fontSize:"13px", fontWeight:"700",
+                background:"transparent", border:"1px solid #60a5fa", color:"#60a5fa",
+                transition:"background 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background="#60a5fa22"; }}
+              onMouseLeave={e => { e.currentTarget.style.background="transparent"; }}
+            >
+              청산 {closePct === 100 ? "(전체)" : `(${closePct}%)`}
+            </button>
+          )}
+        </div>
+      </AccordionSection>
 
       {tpslSaving && (
         <div style={{ marginTop:"8px", padding:"8px 10px", background:theme.bgWarning,
