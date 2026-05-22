@@ -2,8 +2,8 @@ const axios  = require("axios");
 const crypto = require("crypto");
 const { closeToPosition } = require("../utils/side");
 
-// const BASE = "https://fapi.binance.com";
-const BASE = "https://demo-fapi.binance.com";
+const BASE = "https://fapi.binance.com";
+// const BASE = "https://demo-fapi.binance.com";
 
 let _timeOffset  = 0;   // 로컬 시간 - 바이낸스 서버 시간 (ms)
 let _bannedUntil = 0;   // IP 밴 해제 시각 (ms, 0 = 밴 없음)

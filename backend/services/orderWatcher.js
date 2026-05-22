@@ -305,8 +305,8 @@ function connectUserDataStream(listenKey) {
     try { userDataWS.terminate(); } catch {}
   }
 
-  // userDataWS = new WebSocket(`wss://fstream.binance.com/ws/${listenKey}`);
-  userDataWS = new WebSocket(`wss://demo-fstream.binance.com/ws/${listenKey}`);
+  userDataWS = new WebSocket(`wss://fstream.binance.com/ws/${listenKey}`);
+  // userDataWS = new WebSocket(`wss://demo-fstream.binance.com/ws/${listenKey}`);
 
   userDataWS.on("open", () => {
     stopPolling();
