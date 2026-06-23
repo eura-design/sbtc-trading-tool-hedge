@@ -3,7 +3,7 @@ const path         = require("path");
 const paramStore   = require("../store/indicatorParamsStore");
 
 const KDE_SCRIPT   = path.resolve(__dirname, "../../기타/KDE.py");
-const INTERVAL_MS  = 4 * 60 * 60 * 1000;
+const INTERVAL_MS  = 24 * 60 * 60 * 1000;
 
 let cache = { price: null, timestamp: null, levels: [] };
 let timer = null;

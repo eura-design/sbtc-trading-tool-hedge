@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { BN_PUBLIC, BN_WS } from "../constants";
 
-const ALL_TF      = ["5m", "15m", "1h", "4h", "1d", "1w"];
-const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시간", "1d": "1일", "1w": "1주" };
+const ALL_TF      = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
+const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시간", "1d": "1일", "1w": "1주", "1M": "1월" };
 // 타임프레임별 봉 길이(초) — 알람 쿨다운 기준
-const TF_SECS     = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800 };
+const TF_SECS     = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800, "1M": 30 * 24 * 3600 };
 
 // ── RSI 유틸 ──────────────────────────────────────────────────────────────────
 
@@ -123,6 +123,8 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
     lastDivKeys: new Set(),
     inOB: false, inOS: false,
     lastOBAlert: 0, lastOSAlert: 0, // 마지막 알람 타임스탬프(ms)
+    lastOBAlertCandleTime: 0,
+    lastOSAlertCandleTime: 0,
   };
 
   // 초기 캔들 REST 로드
@@ -225,20 +227,23 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
         const currRSI    = tickRSI(st.rsiState, prevClose, candle.c, period_);
         const cooldownMs = (TF_SECS[tf] ?? 300) * 1000;
         const now        = Date.now();
+        const candleTime = candle.t.getTime();
         if (currRSI !== null) {
           if (s.rsiOB) {
-            if (!st.inOB && currRSI >= obThr_ && now - st.lastOBAlert > cooldownMs) {
+            if (!st.inOB && currRSI >= obThr_ && st.lastOBAlertCandleTime !== candleTime && now - st.lastOBAlert > cooldownMs) {
               st.inOB = true;
               st.lastOBAlert = now;
+              st.lastOBAlertCandleTime = candleTime;
               onAlertRef.current(`${TF_LABEL[tf]} RSI 과매수 진입 (${currRSI.toFixed(1)})`);
             } else if (st.inOB && currRSI < obThr_ - 5) {
               st.inOB = false;
             }
           }
           if (s.rsiOS) {
-            if (!st.inOS && currRSI <= osThr_ && now - st.lastOSAlert > cooldownMs) {
+            if (!st.inOS && currRSI <= osThr_ && st.lastOSAlertCandleTime !== candleTime && now - st.lastOSAlert > cooldownMs) {
               st.inOS = true;
               st.lastOSAlert = now;
+              st.lastOSAlertCandleTime = candleTime;
               onAlertRef.current(`${TF_LABEL[tf]} RSI 과매도 진입 (${currRSI.toFixed(1)})`);
             } else if (st.inOS && currRSI > osThr_ + 5) {
               st.inOS = false;

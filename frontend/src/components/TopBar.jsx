@@ -111,11 +111,20 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
 
       {/* 현재가 (오른쪽 고정) — price>0 조건: 타임프레임 전환 중 last=undefined가 되어도 레이아웃 유지 */}
       {price > 0 && (
-        <span style={{ fontSize:"22px", fontWeight:"700", flexShrink:0,
-          color: isGreen ? "#0ecb81" : "#f6465d",
-          fontVariantNumeric:"tabular-nums" }}>
-          {fmtI(price)}
-        </span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexShrink: 0 }}>
+          <span style={{ fontSize:"22px", fontWeight:"700",
+            color: isGreen ? "#0ecb81" : "#f6465d",
+            fontVariantNumeric:"tabular-nums" }}>
+            {fmtI(price)}
+          </span>
+          {last && (
+            <span style={{ fontSize:"14px", fontWeight:"600",
+              color: isGreen ? "#0ecb81" : "#f6465d",
+              fontVariantNumeric:"tabular-nums" }}>
+              {pct >= 0 ? "+" : ""}{pct}%
+            </span>
+          )}
+        </div>
       )}
 
     </div>

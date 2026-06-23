@@ -15,11 +15,27 @@ import { ChartSvg }          from "./Chart/ChartSvg";
 import { LineOpacityPopup }  from "./Chart/LineOpacityPopup";
 
 // 봉마감 카운트다운 — 봉 간격(ms)
-const INTERVAL_MS = { "5m": 5*60*1000, "15m": 15*60*1000, "1h": 60*60*1000, "4h": 4*60*60*1000, "1d": 24*60*60*1000, "1w": 7*24*60*60*1000 };
+const INTERVAL_MS = { "5m": 5*60*1000, "15m": 15*60*1000, "1h": 60*60*1000, "4h": 4*60*60*1000, "1d": 24*60*60*1000, "1w": 7*24*60*60*1000, "1M": 30*24*60*60*1000 };
+
+// 달봉: 다음 달 1일 00:00 UTC까지 남은 ms 반환 (실제 월말 기준)
+function msUntilMonthEnd() {
+  const now = new Date();
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+  return nextMonth.getTime() - now.getTime();
+}
+// 현재 달의 총 ms (주기 비율 계산용)
+function msDurationOfCurrentMonth() {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  const end   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+  return end.getTime() - start.getTime();
+}
 function fmtCountdown(ms) {
   if (ms <= 0) return "00:00";
   const s = Math.ceil(ms / 1000);
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (d > 0) return `${d}d ${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
   if (h > 0) return `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
   return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
 }
@@ -86,26 +102,59 @@ export function ChartArea({
   // ── 봉마감 카운트다운 ──────────────────────────────────────────────────────
   const [countdown, setCountdown] = useState({ text: "", ratio: 1 });
   const last = candles.length > 0 ? candles[candles.length - 1] : null;
+
   useEffect(() => {
-    const iMs = INTERVAL_MS[interval_] ?? 60*60*1000;
     let prevText = "";
     const tick = () => {
       const now = Date.now();
-      // 1w는 에포크(목요일) 기준이므로 월요일 정렬을 위해 4일 보정
-      const elapsed = interval_ === '1w' ? (now - 4 * 24 * 60 * 60 * 1000) % iMs : now % iMs;
-      const remaining = iMs - elapsed;
+      let remaining, ratio;
+
+      if (interval_ === '1M') {
+        // 달봉: 실제 월말(다음 달 1일 00:00 UTC) 기준
+        remaining = msUntilMonthEnd();
+        ratio     = remaining / msDurationOfCurrentMonth();
+      } else {
+        const iMs      = INTERVAL_MS[interval_] ?? 60 * 60 * 1000;
+        const arr      = candlesRef.current; // React state가 아닌 항상 최신 ref 사용
+        const lastCdl  = arr.length > 0 ? arr[arr.length - 1] : null;
+
+        if (lastCdl) {
+          const r = lastCdl.t.getTime() + iMs - now;
+          // 결과가 유효 범위(0 < r ≤ iMs)일 때만 사용
+          // 타임프레임 전환 직후 stale candle이 섞이면 범위를 벗어남 → 폴백
+          if (r > 0 && r <= iMs) {
+            remaining = r;
+            ratio     = r / iMs;
+          }
+        }
+
+        // epoch 기반 폴백 (캔들 미로드 or 범위 검증 실패 시)
+        // 5m·15m·1h·4h·1d 는 모두 UTC 자정 기준으로 정확히 나뉨
+        // 1w 는 epoch(목요일)에서 월요일까지 4일 보정
+        if (remaining === undefined) {
+          if (interval_ === '1w') {
+            const elapsed = ((now - 4 * 86400000) % iMs + iMs) % iMs; // 음수 모듈로 방지
+            remaining = iMs - elapsed;
+          } else {
+            remaining = iMs - (now % iMs);
+          }
+          ratio = remaining / iMs;
+        }
+      }
+
       const text = fmtCountdown(remaining);
-      // 텍스트(초 단위)가 바뀔 때만 setState → React 매 프레임 리렌더 방지
       if (text !== prevText) {
         prevText = text;
-        setCountdown({ text, ratio: remaining / iMs });
+        setCountdown({ text, ratio });
       }
     };
+
     tick();
-    // 250ms 폴링: 초 변경 감지에 충분히 자주, 리렌더는 초당 1회로 자연 제한
     const id = setInterval(tick, 250);
     return () => clearInterval(id);
   }, [interval_]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
   const cdColor = countdown.ratio > 0.3 ? "#e2e8f0" : countdown.ratio > 0.1 ? "#f59e0b" : "#f6465d";
 
   // ── 패널 크기 ─────────────────────────────────────────────────────────────
@@ -138,8 +187,7 @@ export function ChartArea({
   const { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawRSI, renderTick, resetDomain } =
     useChartRenderer({ candles, candlesRef, interval_, isDark, IW, IH, canvasRef, volCanvasRef, rsiCanvasRef, isLog, overlaysRef });
 
-  // onTickRef에 redrawCanvas 연결 — WebSocket 틱마다 React 상태 없이 캔버스 재드로우
-  onTickRef.current = redrawCanvas;
+  // onTickRef에 redrawCanvas 연결 — 하단에서 updateCrosshairOnTick와 함께 체이닝하여 설정됨
   // actionsRef에 resetDomain 노출 — App.jsx에서 interval 변경 시 호출
   if (actionsRef) actionsRef.current = {
     resetDomain,
@@ -163,9 +211,9 @@ export function ChartArea({
   const { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, updateCrosshair, hideCrosshair } = useCrosshair();
 
   // ── 차트 인터랙션 ─────────────────────────────────────────────────────────
-  const { dragRef, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onDoubleClick } =
+  const { dragRef, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onDoubleClick, updateCrosshairOnTick } =
     useChartInteraction({
-      candles, IW, IH, rsiH: effectiveRsiH, volH: effectiveVolH, updateCrosshair, hideCrosshair,
+      candles, candlesRef, IW, IH, rsiH: effectiveRsiH, volH: effectiveVolH, updateCrosshair, hideCrosshair,
       scalesRef,
       onLineDoubleClick: (id, type, x, y) => setOpacityPopup({ id, type, x, y }),
       xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,
@@ -189,6 +237,12 @@ export function ChartArea({
       drawables,
       overlaysRef,
     });
+
+  // onTickRef에 redrawCanvas 및 크로스헤어 업데이트 연결 — WebSocket 틱마다 React 상태 없이 갱신
+  onTickRef.current = () => {
+    redrawCanvas();
+    updateCrosshairOnTick();
+  };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const scales = useMemo(() => getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog), [renderTick, IW, IH, isLog]);

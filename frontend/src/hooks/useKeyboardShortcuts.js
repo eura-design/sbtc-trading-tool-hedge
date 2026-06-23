@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { getSelectedDrawable, clearAllSelections } from "../chart/drawables";
 
-const TF_KEYS   = ["tf5m", "tf15m", "tf1h", "tf4h", "tf1d", "tf1w"];
-const TF_VALUES = ["5m",   "15m",   "1h",   "4h",   "1d",   "1w"];
+const INTERVAL_VALUES = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
 
 export function useKeyboardShortcuts({
   shortcuts,
@@ -13,6 +12,7 @@ export function useKeyboardShortcuts({
   drawing, hasPending, locked,
   selectedBox,
   deleteBox,
+  interval_,
   onIntervalChange,
 }) {
   useEffect(() => {
@@ -61,13 +61,24 @@ export function useKeyboardShortcuts({
       }
 
       // 타임프레임 전환
-      for (let i = 0; i < TF_KEYS.length; i++) {
-        if (match(e, TF_KEYS[i])) { onIntervalChange(TF_VALUES[i]); return; }
+      if (match(e, "prevTF")) {
+        const idx = INTERVAL_VALUES.indexOf(interval_);
+        if (idx > 0) {
+          onIntervalChange(INTERVAL_VALUES[idx - 1]);
+        }
+        return;
+      }
+      if (match(e, "nextTF")) {
+        const idx = INTERVAL_VALUES.indexOf(interval_);
+        if (idx !== -1 && idx < INTERVAL_VALUES.length - 1) {
+          onIntervalChange(INTERVAL_VALUES[idx + 1]);
+        }
+        return;
       }
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [shortcuts, drawables, selectedBox, drawing, hasPending, locked, deleteBox, onIntervalChange,
+  }, [shortcuts, drawables, selectedBox, drawing, hasPending, locked, deleteBox, interval_, onIntervalChange,
       setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, setSelectedBox]);
 }

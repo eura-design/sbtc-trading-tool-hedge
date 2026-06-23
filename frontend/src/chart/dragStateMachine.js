@@ -97,15 +97,26 @@ export const DRAG_HANDLERS = {
     onMove({ pos, drag, scales, candles, IW, IH, setters }) {
       const { xScale, yScale } = scales;
       const v  = yScale.invert(Math.min(Math.max(pos.y, 0), IH));
-      const dy = v - drag.startEntry;
+      
+      let newTp, newSl;
+      if (setters.isLog) {
+        const ratio = (drag.startEntry > 0 && v > 0) ? v / drag.startEntry : 1;
+        newTp = drag.startTp * ratio;
+        newSl = drag.startSl * ratio;
+      } else {
+        const dy = v - drag.startEntry;
+        newTp = drag.startTp + dy;
+        newSl = drag.startSl + dy;
+      }
+
       const di = xScale.invert(Math.min(Math.max(pos.x, 0), IW))
                - xScale.invert(drag.startX);
       const dt = di * getCandleMs(candles);
       setters.setDrawing(p => ({
         ...p,
         entry:  v,
-        tp:     drag.startTp + dy,
-        sl:     drag.startSl + dy,
+        tp:     newTp,
+        sl:     newSl,
         tStart: drag.startTStart + dt,
         tEnd:   drag.startTEnd   + dt,
       }));

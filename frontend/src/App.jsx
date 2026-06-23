@@ -103,7 +103,7 @@ export default function App() {
   // ── 트렌드 라인 ───────────────────────────────────────────────────────────
   const trendLines = useTrendLines();
 
-  const { toasts, addToast, addLineAlert } = useToast();
+  const { toasts, addToast, addLineAlert, removeToast } = useToast();
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
   const { params: indicatorParams, setParam: setIndicatorParam, setEmaList, resetIndicator } = useIndicatorParams();
   const { divsByTF } = useAlertMonitor(notifSettings, addToast, indicatorParams.div, indicatorParams.rsi);
@@ -195,6 +195,7 @@ export default function App() {
     setSelectedBox,
     drawing, hasPending, locked: drawLocked, selectedBox,
     deleteBox,
+    interval_,
     onIntervalChange:  val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain(); },
   });
 
@@ -301,7 +302,7 @@ export default function App() {
         />
       </div>
 
-      <Toast toasts={toasts} />
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

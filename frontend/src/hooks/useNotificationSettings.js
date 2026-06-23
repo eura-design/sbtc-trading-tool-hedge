@@ -7,6 +7,7 @@ const DEFAULT = {
   "4h":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
   "1d":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
   "1w":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
+  "1M":  { rsiOB: false, rsiOS: false, div: false, hiddenDiv: false, close: false },
 };
 
 export function useNotificationSettings() {

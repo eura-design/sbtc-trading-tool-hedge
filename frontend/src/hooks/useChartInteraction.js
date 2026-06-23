@@ -33,6 +33,7 @@ export function useChartInteraction({
   // 도형 통합 인터페이스
   drawables,
   overlaysRef,
+  candlesRef,
 }) {
   const replacePendingOrder = useStore(s => s.replacePendingOrder);
   const updatePendingTpsl   = useStore(s => s.updatePendingTpsl);
@@ -42,6 +43,7 @@ export function useChartInteraction({
   const wheelRafRef       = useRef(null);
   const wheelSyncTimerRef = useRef(null);
   const moveRafRef        = useRef(null);
+  const lastMousePosRef   = useRef(null);
 
   const setCursor = useCallback((c) => {
     if (cursorRef.current === c) return;
@@ -143,8 +145,57 @@ export function useChartInteraction({
     }
   }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle]);
 
+  const refreshCrosshair = useCallback((clientX, clientY) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const pos  = { x: clientX - rect.left - M.left, y: clientY - rect.top - M.top };
+
+    const effectiveVolH = volH ?? 0;
+    const effectiveRsiH = rsiH ?? 0;
+    const containerH = M.top + IH + M.bottom
+      + (effectiveVolH > 0 ? VOL_GAP + effectiveVolH : 0)
+      + (effectiveRsiH > 0 ? RSI_GAP + effectiveRsiH : 0);
+    const rsiTopPos = effectiveRsiH > 0 ? containerH - effectiveRsiH - M.top : Infinity;
+    const rsiBotPos = rsiTopPos + effectiveRsiH;
+    const volTopPos = effectiveVolH > 0
+      ? containerH - (effectiveRsiH > 0 ? effectiveRsiH + VOL_GAP : 0) - effectiveVolH - M.top
+      : Infinity;
+    const volBotPos = volTopPos + effectiveVolH;
+    const scales = scalesRef?.current ?? getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog);
+    if (pos.x >= 0 && pos.x <= IW) {
+      if (pos.y >= 0 && pos.y <= IH) {
+        const price = scales ? scales.yScale.invert(pos.y) : null;
+        let bodyPct = null;
+        if (scales && candles.length > 0 && price != null) {
+          const rawIdx = scales.xScale.invert(pos.x);
+          const idx    = Math.max(0, Math.min(Math.round(rawIdx), candles.length - 1));
+          const actualCandles = candlesRef?.current || candles;
+          const candle = actualCandles[idx];
+          if (candle && candle.o !== 0) {
+            const withinX = Math.abs(rawIdx - idx) < 0.5;
+            const withinY = price >= candle.l && price <= candle.h;
+            if (withinX && withinY) {
+              const cPrice = idx === candles.length - 1 ? (useStore.getState().liveClose ?? candle.c) : candle.c;
+              bodyPct = (cPrice - candle.o) / candle.o * 100;
+            }
+          }
+        }
+        updateCrosshair?.({ x: pos.x, y: pos.y, inRsi: false, IW, IH, rsiH, volH, price, bodyPct });
+      } else if (effectiveVolH > 0 && pos.y >= volTopPos && pos.y <= volBotPos) {
+        updateCrosshair?.({ x: pos.x, y: pos.y, inRsi: false, IW, IH, rsiH, volH, price: null, bodyPct: null });
+      } else if (effectiveRsiH > 0 && pos.y >= rsiTopPos && pos.y <= rsiBotPos) {
+        updateCrosshair?.({ x: pos.x, y: pos.y - rsiTopPos, inRsi: true, IW, IH, rsiH, volH });
+      } else {
+        hideCrosshair?.();
+      }
+    } else {
+      hideCrosshair?.();
+    }
+  }, [candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, scalesRef, xDomainRef, yDomainRef, isLog]);
+
   const onMouseMove = useCallback(e => {
     const clientX = e.clientX, clientY = e.clientY;
+    lastMousePosRef.current = { clientX, clientY };
 
     if (moveRafRef.current !== null) cancelAnimationFrame(moveRafRef.current);
     moveRafRef.current = requestAnimationFrame(() => {
@@ -155,43 +206,9 @@ export function useChartInteraction({
       const pos  = { x: clientX - rect.left - M.left, y: clientY - rect.top - M.top };
       const drag = dragRef.current;
 
-      const effectiveVolH = volH ?? 0;
-      const effectiveRsiH = rsiH ?? 0;
-      const containerH = M.top + IH + M.bottom
-        + (effectiveVolH > 0 ? VOL_GAP + effectiveVolH : 0)
-        + (effectiveRsiH > 0 ? RSI_GAP + effectiveRsiH : 0);
-      const rsiTopPos = effectiveRsiH > 0 ? containerH - effectiveRsiH - M.top : Infinity;
-      const rsiBotPos = rsiTopPos + effectiveRsiH;
-      const volTopPos = effectiveVolH > 0
-        ? containerH - (effectiveRsiH > 0 ? effectiveRsiH + VOL_GAP : 0) - effectiveVolH - M.top
-        : Infinity;
-      const volBotPos = volTopPos + effectiveVolH;
+      refreshCrosshair(clientX, clientY);
+
       const scales = scalesRef?.current ?? getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog);
-      if (pos.x >= 0 && pos.x <= IW) {
-        if (pos.y >= 0 && pos.y <= IH) {
-          const price = scales ? scales.yScale.invert(pos.y) : null;
-          let bodyPct = null;
-          if (scales && candles.length > 0 && price != null) {
-            const rawIdx = scales.xScale.invert(pos.x);
-            const idx    = Math.max(0, Math.min(Math.round(rawIdx), candles.length - 1));
-            const candle = candles[idx];
-            if (candle && candle.o !== 0) {
-              const withinX = Math.abs(rawIdx - idx) < 0.5;
-              const withinY = price >= candle.l && price <= candle.h;
-              if (withinX && withinY) bodyPct = (candle.c - candle.o) / candle.o * 100;
-            }
-          }
-          updateCrosshair?.({ x: pos.x, y: pos.y, inRsi: false, IW, IH, rsiH, volH, price, bodyPct });
-        } else if (effectiveVolH > 0 && pos.y >= volTopPos && pos.y <= volBotPos) {
-          updateCrosshair?.({ x: pos.x, y: pos.y, inRsi: false, IW, IH, rsiH, volH, price: null, bodyPct: null });
-        } else if (effectiveRsiH > 0 && pos.y >= rsiTopPos && pos.y <= rsiBotPos) {
-          updateCrosshair?.({ x: pos.x, y: pos.y - rsiTopPos, inRsi: true, IW, IH, rsiH, volH });
-        } else {
-          hideCrosshair?.();
-        }
-      } else {
-        hideCrosshair?.();
-      }
 
       // 선 그리기 프리뷰
       if (lineMode && lineStart && scales) {
@@ -262,7 +279,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles]);
+  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, refreshCrosshair, isLog]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
@@ -331,5 +348,11 @@ export function useChartInteraction({
     }
   }, [isLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { dragRef, getSvgPos, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onDoubleClick };
+  const updateCrosshairOnTick = useCallback(() => {
+    if (lastMousePosRef.current) {
+      refreshCrosshair(lastMousePosRef.current.clientX, lastMousePosRef.current.clientY);
+    }
+  }, [refreshCrosshair]);
+
+  return { dragRef, getSvgPos, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onDoubleClick, updateCrosshairOnTick };
 }

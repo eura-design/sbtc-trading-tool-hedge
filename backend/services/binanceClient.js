@@ -107,7 +107,7 @@ async function placeTPSL({ closeSide, tp, sl }) {
   const slResult = await tryPlace("SL", {
     algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
     type: "STOP_MARKET", triggerPrice: roundPrice(sl),
-    closePosition: "true", workingType: "MARK_PRICE",
+    closePosition: "true", workingType: "CONTRACT_PRICE",
   });
   if (slResult && !slResult.error) {
     results.sl = slResult;
@@ -123,7 +123,7 @@ async function placeTPSL({ closeSide, tp, sl }) {
   const tpResult = await tryPlace("TP", {
     algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
     type: "TAKE_PROFIT_MARKET", triggerPrice: roundPrice(tp),
-    closePosition: "true", workingType: "MARK_PRICE",
+    closePosition: "true", workingType: "CONTRACT_PRICE",
   });
   if (tpResult && !tpResult.error) results.tp = tpResult;
   else results.failed.push({ type: "TP", error: tpResult?.error || "실패" });

@@ -42,61 +42,38 @@ function playNotifSound() {
 }
 
 export function useToast() {
-  const [toasts, setToasts]   = useState([]);
-  const intervalRefs          = useRef({}); // sticky toast id → intervalId
-  const timeoutRefs           = useRef({}); // 일반 toast id → timeoutId (evict 시 cancel)
+  const [toasts, setToasts] = useState([]);
+  const intervalRefs        = useRef({}); // sticky toast id → intervalId (소리 반복)
 
+  // 토스트 제거 — Toast 컴포넌트(자동 타이머) 또는 sticky 확인 버튼이 호출
   const removeToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
-    if (timeoutRefs.current[id]) {
-      clearTimeout(timeoutRefs.current[id]);
-      delete timeoutRefs.current[id];
-    }
     if (intervalRefs.current[id]) {
       clearInterval(intervalRefs.current[id]);
       delete intervalRefs.current[id];
     }
   }, []);
 
+  // 일반 알림 — 최대 3개 유지, 자동 제거는 Toast 컴포넌트가 담당
   const addToast = useCallback((message) => {
     const id = Date.now() + Math.random();
-    setToasts(prev => {
-      // slice(-2) + 신규 = 최대 3개. evict된 토스트의 타이머/인터벌 정리
-      const next = [...prev.slice(-2), { id, message, sticky: false }];
-      const keptIds = new Set(next.map(t => t.id));
-      for (const k of Object.keys(timeoutRefs.current)) {
-        if (!keptIds.has(Number(k)) && !keptIds.has(parseFloat(k))) {
-          clearTimeout(timeoutRefs.current[k]);
-          delete timeoutRefs.current[k];
-        }
-      }
-      return next;
-    });
-    timeoutRefs.current[id] = setTimeout(() => removeToast(id), 30000);
+    setToasts(prev => [...prev.slice(-2), { id, message, sticky: false }]);
     playNotifSound();
-  }, [removeToast]);
+  }, []);
 
   // 선 알림 전용: 확인 버튼 누를 때까지 소리 반복 + sticky
   const addLineAlert = useCallback((message, onConfirm) => {
     const id = Date.now() + Math.random();
-
-    const handleConfirm = () => {
-      removeToast(id);
-      onConfirm?.();
-    };
-
-    setToasts(prev => [...prev.slice(-2), { id, message, sticky: true, onConfirm: handleConfirm }]);
+    setToasts(prev => [...prev.slice(-2), { id, message, sticky: true, onConfirm }]);
     playNotifSound();
     intervalRefs.current[id] = setInterval(playNotifSound, 3000);
-  }, [removeToast]);
-
-  // 언마운트 시 모든 타이머/인터벌 정리 (HMR 또는 라우팅 전환 시 누수 방지)
-  useEffect(() => () => {
-    Object.values(intervalRefs.current).forEach(clearInterval);
-    Object.values(timeoutRefs.current).forEach(clearTimeout);
-    intervalRefs.current = {};
-    timeoutRefs.current = {};
   }, []);
 
-  return { toasts, addToast, addLineAlert };
+  // 언마운트 시 모든 인터벌 정리
+  useEffect(() => () => {
+    Object.values(intervalRefs.current).forEach(clearInterval);
+    intervalRefs.current = {};
+  }, []);
+
+  return { toasts, addToast, addLineAlert, removeToast };
 }

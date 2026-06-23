@@ -54,7 +54,7 @@ export const POLLING = {
   BALANCE_MS:    60_000,
   POSITION_MS:   30_000,
   TPSL_MS:       60_000,
-  SR_LEVELS_MS: 4 * 60 * 60_000,
+  SR_LEVELS_MS: 24 * 60 * 60_000,
 };
 
 // ── SVG/스타일 공통 색상 토큰 ────────────────────────────────────────────────
@@ -90,4 +90,5 @@ export const INTERVALS = [
   { label: "4시간", value: "4h" },
   { label: "1일",  value: "1d"  },
   { label: "1주",  value: "1w"  },
+  { label: "1월",  value: "1M"  },
 ];

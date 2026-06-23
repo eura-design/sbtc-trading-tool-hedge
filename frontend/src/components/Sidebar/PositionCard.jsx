@@ -71,6 +71,9 @@ export function PositionCard({
   const slPnl = slPrice
     ? posData.size * (isLong ? slPrice - posData.entryPrice : posData.entryPrice - slPrice)
     : null;
+  const realTimeUnrealized = lastPrice 
+    ? (isLong ? (lastPrice - posData.entryPrice) : (posData.entryPrice - lastPrice)) * posData.size
+    : posData.unrealizedPnl;
 
   const closeQty = parseFloat((posData.size * closePct / 100).toFixed(3));
   const splitTpCount = tpsl?.splitTps?.length ?? 0;
@@ -105,7 +108,7 @@ export function PositionCard({
         ["포지션 USD", fmtI(posData.size * posData.entryPrice),                                              "#94a3b8"],
         ["예상 손실",  slPnl !== null ? `${slPnl >= 0 ? "+" : ""}${fmt(slPnl)}` : "—",                      slPnl !== null && slPnl >= 0 ? "#0ecb81" : "#f6465d"],
         ["예상 수익",  tpPrice ? `+${fmt(posData.size * Math.abs(tpPrice - posData.entryPrice))}` : "—",    "#0ecb81"],
-        ["미실현",     `${posData.unrealizedPnl>=0?"+":""}${fmt(posData.unrealizedPnl)}`,                   posData.unrealizedPnl >= 0 ? "#0ecb81" : "#f6465d"],
+        ["미실현",     `${realTimeUnrealized >= 0 ? "+" : ""}${fmt(realTimeUnrealized)}`,                   realTimeUnrealized >= 0 ? "#0ecb81" : "#f6465d"],
       ].map(([l, v, c]) => (
         <div key={l} style={{ display:"flex", justifyContent:"space-between",
           padding:"3px 0", borderBottom:`1px solid ${theme.border}` }}>

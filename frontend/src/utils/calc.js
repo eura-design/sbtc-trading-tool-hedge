@@ -16,5 +16,6 @@ export function calcPosition(capital, riskPct, entry, sl, leverage = 1) {
   const actualRiskPct    = (qty * riskPerUnit / capital) * 100;
   const isLeverageCapped = cappedQty < idealQty * 0.999;
   const isMinCapped      = MIN_QTY > cappedQty; // MIN_QTY가 실제로 바인딩된 경우만
+  
   return { idealQty, actualQty: qty, idealRiskPct, actualRiskPct, isMinCapped, isLeverageCapped };
 }

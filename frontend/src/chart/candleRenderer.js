@@ -2,6 +2,7 @@ import * as d3 from "d3";
 import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
 import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderMarketStructure } from "./overlayRenderers";
+import { idxToTimestamp } from "../utils/coordUtils";
 
 export { renderVolumeCanvas } from "./volumeRenderer";
 export { renderRSICanvas }    from "./rsiRenderer";
@@ -12,9 +13,13 @@ const _dnMap = new Map();
 
 function fmtTime(t, interval_) {
   const d = t instanceof Date ? t : new Date(t);
-  return (interval_ === "1d" || interval_ === "1w")
-    ? d3.timeFormat("%m/%d")(d)
-    : d3.timeFormat("%d일 %H:%M")(d);
+  if (interval_ === "1M") {
+    return d3.timeFormat("%Y/%m")(d);
+  }
+  if (interval_ === "1d" || interval_ === "1w") {
+    return d3.timeFormat("%y/%m/%d")(d);
+  }
+  return d3.timeFormat("%d일 %H:%M")(d);
 }
 
 export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_, isDark, overlaysRef) {
@@ -143,9 +148,9 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   ctx.textAlign    = "center";
   ctx.textBaseline = "top";
   for (const tickIdx of xTicks) {
-    const ci = Math.max(0, Math.min(Math.round(tickIdx), candles.length - 1));
+    const ts = idxToTimestamp(tickIdx, candles);
     const x  = M.left + xScale(tickIdx);
-    ctx.fillText(fmtTime(candles[ci].t, interval_), x, M.top + IH + 6);
+    ctx.fillText(fmtTime(ts, interval_), x, M.top + IH + 6);
   }
 
   // ── Y 축 ──────────────────────────────────────────────────────────────────

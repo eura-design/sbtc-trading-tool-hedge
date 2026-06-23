@@ -11,12 +11,8 @@ export const DEFAULT_SHORTCUTS = {
   lock:         { key: "l",       label: "잠금 토글" },
   opacityDown:  { key: "[",       label: "투명도 감소" },
   opacityUp:    { key: "]",       label: "투명도 증가" },
-  tf5m:         { key: "1",       label: "5분봉" },
-  tf15m:        { key: "2",       label: "15분봉" },
-  tf1h:         { key: "3",       label: "1시간봉" },
-  tf4h:         { key: "4",       label: "4시간봉" },
-  tf1d:         { key: "5",       label: "1일봉" },
-  tf1w:         { key: "6",       label: "1주봉" },
+  prevTF:       { key: "ArrowLeft",  label: "이전 타임프레임" },
+  nextTF:       { key: "ArrowRight", label: "다음 타임프레임" },
 };
 
 function loadShortcuts() {

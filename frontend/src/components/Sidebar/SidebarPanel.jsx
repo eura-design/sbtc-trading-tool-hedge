@@ -62,11 +62,12 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   const [settingsOpen,  toggleSettings]  = useAccordion("accordion_settings");
 
   const handleLeverageChange = useCallback((val) => {
+    if (hasPending) return; // 대기 주문 있을 때 변경 차단
     if (hasPos && val < leverageMin) return; // 포지션 있을 때 감소 차단
     if (val === leverage) { setPendingLeverage(null); return; }
     setPendingLeverage(val);
     setLeverageErr(null);
-  }, [hasPos, leverageMin, leverage]);
+  }, [hasPending, hasPos, leverageMin, leverage]);
 
   const confirmLeverageChange = useCallback(async () => {
     if (!pendingLeverage) return;
@@ -90,8 +91,23 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
 
   const posCalc = useMemo(() => {
     if (!drawing || !balance) return null;
+    
+    if (drawing.orderId && position?.pending) {
+      const p = drawing.isLong ? position.pending.long : position.pending.short;
+      if (p && p.orderId === drawing.orderId) {
+        return {
+          actualQty: p.qty,
+          idealQty: p.qty,
+          idealRiskPct: 0,
+          actualRiskPct: 0,
+          isMinCapped: false,
+          isLeverageCapped: false,
+        };
+      }
+    }
+
     return calcPosition(balance.availableBalance ?? 0, riskPct / 100, drawing.entry, drawing.sl, leverage);
-  }, [balance, drawing, riskPct, leverage]);
+  }, [balance, drawing, riskPct, leverage, position?.pending]);
 
   return (
     <div style={{
@@ -184,12 +200,22 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           onChange={setRiskPct} format={v => `${v}%`}
           color={riskPct<=1?"#0ecb81":riskPct<=2?"#f0b90b":"#f6465d"} />
         <div style={{ height:"8px" }} />
-        <Slider label="레버리지"
-          value={pendingLeverage ?? leverage}
-          min={leverageMin} max={50} step={1}
-          onChange={handleLeverageChange} format={v => `${v}x`}
-          color={leverage<=10?"#0ecb81":leverage<=20?"#f0b90b":"#f6465d"} />
-        {hasPos && posLeverage !== null && !pendingLeverage && (
+        <div style={{ opacity: hasPending ? 0.45 : 1, pointerEvents: hasPending ? "none" : "auto" }}>
+          <Slider label="레버리지"
+            value={pendingLeverage ?? leverage}
+            min={leverageMin} max={50} step={1}
+            onChange={handleLeverageChange} format={v => `${v}x`}
+            color={leverage<=10?"#0ecb81":leverage<=20?"#f0b90b":"#f6465d"} />
+        </div>
+        {hasPending && !pendingLeverage && (
+          <div style={{
+            fontSize:10, color:"#f59e0b", marginTop:4, textAlign:"right",
+            display:"flex", alignItems:"center", justifyContent:"flex-end", gap:3,
+          }}>
+            🔒 대기 주문 체결 전까지 변경 불가
+          </div>
+        )}
+        {!hasPending && hasPos && posLeverage !== null && !pendingLeverage && (
           <div style={{ fontSize:10, color:theme.textFaint, marginTop:3, textAlign:"right" }}>
             {longLeverage !== null && shortLeverage !== null && longLeverage !== shortLeverage
               ? `L ${longLeverage}x / S ${shortLeverage}x — ${posLeverage}x 미만 불가`

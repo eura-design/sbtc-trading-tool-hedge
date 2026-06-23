@@ -10,8 +10,12 @@ export function useTpsl() {
 
   const fetch_ = useCallback(async () => {
     if (!hasPos) { setTpsl({ long: { tp: null, sl: null, splitTps: [] }, short: { tp: null, sl: null, splitTps: [] } }); return; }
+    if (useStore.getState().tpslSaving) return;
+
     try {
       const data = await api("GET", "/api/tpsl");
+      if (useStore.getState().tpslSaving) return;
+      
       setTpsl({
         long:  { tp: data.long?.tp  ?? null, sl: data.long?.sl  ?? null, splitTps: data.long?.splitTps  ?? [] },
         short: { tp: data.short?.tp ?? null, sl: data.short?.sl ?? null, splitTps: data.short?.splitTps ?? [] },
