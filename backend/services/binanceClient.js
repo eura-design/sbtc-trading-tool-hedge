@@ -80,22 +80,25 @@ function cancelOrder({ orderId, algoId, isAlgo }) {
     : binance("DELETE", "/fapi/v1/order",     { symbol: "BTCUSDT", orderId });
 }
 
-// TP/SL 등록 (SL 우선, exponential backoff, 부분 실패 허용)
-// SL이 실패하면 TP는 시도하지 않음 — SL 없는 포지션 노출 시간을 최소화하기 위함
+// TP/SL 등록 전 해당 방향의 기존 알고 TP/SL을 모두 취소
+// 이전 포지션의 찌꺼기 주문이 새 TP/SL 등록을 막는 -4130 에러 방지
 async function cancelExistingAlgoTPSL(positionSide) {
   try {
-    const { data: algoRaw } = await binance('GET', '/fapi/v1/openAlgoOrders', { symbol: 'BTCUSDT' });
+    const { data: algoRaw } = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" });
     const algo = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
-    const toCancel = algo.filter(o => ['TAKE_PROFIT_MARKET', 'STOP_MARKET'].includes(o.orderType) && o.positionSide === positionSide);
+    const toCancel = algo.filter(o =>
+      ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.orderType) && o.positionSide === positionSide
+    );
     await Promise.allSettled(toCancel.map(o => cancelOrder({ algoId: o.algoId, isAlgo: true })));
-    if (toCancel.length > 0) console.log('[TPSL] 기존 알고리즘 TP/SL 취소 완료 (' + positionSide + ')');
-  } catch(e) {
-    console.warn('[TPSL] 기존 알고리즘 TP/SL 조회/취소 실패:', e.message);
+    if (toCancel.length > 0) console.log(`[TPSL] 기존 알고리즘 TP/SL ${toCancel.length}건 취소 완료 (${positionSide})`);
+  } catch (e) {
+    console.warn("[TPSL] 기존 알고리즘 TP/SL 조회/취소 실패:", e.message);
   }
 }
+
+// TP/SL 등록 (SL 우선, exponential backoff, 부분 실패 허용)
+// SL이 실패하면 TP는 시도하지 않음 — SL 없는 포지션 노출 시간을 최소화하기 위함
 async function placeTPSL({ closeSide, tp, sl }) {
-  const positionSide = closeToPosition(closeSide);
-  await cancelExistingAlgoTPSL(positionSide);
 
   const results = { tp: null, sl: null, failed: [] };
   const RETRY = 5;
@@ -116,6 +119,7 @@ async function placeTPSL({ closeSide, tp, sl }) {
   }
 
   const positionSide = closeToPosition(closeSide);
+  await cancelExistingAlgoTPSL(positionSide);
 
   // 1) SL 먼저 등록 — 손절 안전판이 최우선
   const slResult = await tryPlace("SL", {
