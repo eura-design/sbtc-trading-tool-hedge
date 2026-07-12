@@ -379,4 +379,4 @@ function stop() {
   stopPolling();
 }
 
-module.exports = { startUserDataStream, stop };
+module.exports = { startUserDataStream, stop, onFilled };

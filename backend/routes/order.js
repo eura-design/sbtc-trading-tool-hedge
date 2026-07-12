@@ -4,6 +4,8 @@ const store   = require("../store/pendingOrders");
 const { validateOrder } = require("../middleware/validate");
 const { checkDailyLoss } = require("./dailyloss");
 const { sideToPosition } = require("../utils/side");
+const { onFilled } = require("../services/orderWatcher");
+
 const router  = express.Router();
 
 router.post("/", validateOrder, async (req, res) => {
@@ -74,11 +76,20 @@ router.post("/", validateOrder, async (req, res) => {
     } else {
       // LIMIT: User Data Stream이 체결을 감지하므로 store에만 등록
       store.set(orderId, orderInfo);
+
+      // 지정가 주문이 현재가를 초과해 즉시 체결된 경우 (박스를 현재가 위로 올린 경우)
+      // → UDS FILLED 이벤트가 store 등록 전에 이미 지나쳤을 수 있으므로 직접 처리
+      // → safePlaceTPSL의 placingTpsl Set이 UDS와 동시 호출 시 중복 방지
+      if (entryOrder.status === "FILLED") {
+        onFilled(orderId, entryOrder); // fire-and-forget
+      }
+
       res.json({
         success: true, type: "LIMIT",
         entry: { orderId, status: entryOrder.status },
         message: "지정가 주문 등록 완료 — 체결 시 TP/SL 자동 등록 (User Data Stream 감시중)",
       });
+
     }
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
