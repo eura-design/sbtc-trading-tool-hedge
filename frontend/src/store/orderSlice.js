@@ -98,9 +98,16 @@ export const createOrderSlice = (set, get) => ({
   },
 
   replacePendingOrder: async () => {
-    const { drawing, leverage, riskPct, balance, setDrawing, setOrderStatus, _refetchPos, _refetchBal } = get();
+    const { drawing, leverage, riskPct, balance, position, setDrawing, setOrderStatus, _refetchPos, _refetchBal } = get();
     if (!drawing?.orderId) return;
-    const capital = balance?.availableBalance ?? 0;
+
+    const sideKey = drawing.isLong ? "long" : "short";
+    const pendingOrder = position?.pending?.[sideKey];
+    const pendingMargin = (pendingOrder && pendingOrder.orderId === drawing.orderId)
+      ? (pendingOrder.qty * pendingOrder.price) / leverage
+      : 0;
+
+    const capital = (balance?.availableBalance ?? 0) + pendingMargin;
     const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage);
     if (!posCalc) return;
     setDrawing(prev => prev ? { ...prev, orderId: undefined } : prev);
