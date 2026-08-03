@@ -13,7 +13,7 @@ function renderVolumePanel(ctx, candles, xScale, IW, volH, isDark, volColorMode)
 
     // 구분선
     ctx.globalAlpha = 0.4;
-    ctx.strokeStyle = CANVAS_C.AXIS;
+    ctx.strokeStyle = isDark ? CANVAS_C.AXIS : "#cbd5e1";
     ctx.lineWidth   = 1;
     ctx.beginPath();
     ctx.moveTo(0, 0); ctx.lineTo(IW, 0);

@@ -4,8 +4,8 @@ import { MIN_QTY, QTY_STEP } from "../constants";
 const MAINT_MARGIN_RATE = 0.05;
 
 export function calcPosition(capital, riskPct, entry, sl, leverage = 1) {
-  const riskPerUnit = Math.abs(entry - sl);
-  if (riskPerUnit < 0.1 || capital <= 0) return null;
+  const riskPerUnit = Math.max(Math.abs(entry - sl), 1e-8);
+  if (capital <= 0) return null;
   const idealQty         = (capital * riskPct) / riskPerUnit;
   const usableCapital    = capital * (1 - MAINT_MARGIN_RATE); // 유지증거금 제외
   const maxQty           = (usableCapital * leverage) / entry; // 레버리지 한도

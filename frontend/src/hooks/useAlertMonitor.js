@@ -1,56 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { BN_PUBLIC, BN_WS } from "../constants";
+import { BN_PUBLIC, BN_WS, TF_MS } from "../constants";
 
-const ALL_TF      = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
-const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시간", "1d": "1일", "1w": "1주", "1M": "1월" };
-// 타임프레임별 봉 길이(초) — 알람 쿨다운 기준
-const TF_SECS     = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800, "1M": 30 * 24 * 3600 };
+const ALL_TF   = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
+const TF_LABEL = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시간", "1d": "1일", "1w": "1주", "1M": "1월" };
+// TF_MS(constants.js)를 쿨다운 기준으로 사용 — TF_SECS 제거
 
 // ── RSI 유틸 ──────────────────────────────────────────────────────────────────
-
-function buildRSIState(candles, period) {
-  if (candles.length < period + 1) return null;
-  const cl = candles.map(c => c.c);
-  let ag = 0, al = 0;
-  for (let i = 1; i <= period; i++) {
-    const d = cl[i] - cl[i - 1];
-    if (d > 0) ag += d; else al -= d;
-  }
-  ag /= period; al /= period;
-  for (let i = period + 1; i < cl.length; i++) {
-    const d = cl[i] - cl[i - 1];
-    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
-    al = (al * (period - 1) + Math.max(-d, 0)) / period;
-  }
-  return { ag, al, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) };
-}
-
-function tickRSI(state, prevClose, currClose, period) {
-  if (!state) return null;
-  const d  = currClose - prevClose;
-  const ag = (state.ag * (period - 1) + Math.max(d, 0)) / period;
-  const al = (state.al * (period - 1) + Math.max(-d, 0)) / period;
-  return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
-}
-
-function buildRSIArray(candles, period) {
-  if (candles.length < period + 1) return [];
-  const cl = candles.map(c => c.c);
-  let ag = 0, al = 0;
-  for (let i = 1; i <= period; i++) {
-    const d = cl[i] - cl[i - 1];
-    if (d > 0) ag += d; else al -= d;
-  }
-  ag /= period; al /= period;
-  const data = [{ t: candles[period].t, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) }];
-  for (let i = period + 1; i < cl.length; i++) {
-    const d = cl[i] - cl[i - 1];
-    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
-    al = (al * (period - 1) + Math.max(-d, 0)) / period;
-    data.push({ t: candles[i].t, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) });
-  }
-  return data;
-}
+import { buildRSIState, tickRSI, buildRSIArray } from "../utils/rsi";
 
 // ── 다이버전스 감지 ────────────────────────────────────────────────────────────
 
@@ -225,7 +181,7 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
         const osThr_     = rp_.oversold   ?? 30;
         const prevClose  = arr[arr.length - 2].c;
         const currRSI    = tickRSI(st.rsiState, prevClose, candle.c, period_);
-        const cooldownMs = (TF_SECS[tf] ?? 300) * 1000;
+        const cooldownMs = TF_MS[tf] ?? 300_000;
         const now        = Date.now();
         const candleTime = candle.t.getTime();
         if (currRSI !== null) {
