@@ -136,11 +136,14 @@ function step(st, candles, i) {
         if (st.lastPivotType === -1) { st.structLow = st.lastPointPrice; st.structLowBar = st.lastPointBar; }
         st.lastPivotType = 1;
 
+        // bias는 "실제 돌파"가 있을 때만 세운다 (2026-08-12 수정, Pine 원본도 동일하게 수정).
+        // 예전에는 structHigh가 NaN이라는 이유만으로 bias=1을 세웠고, 그래서
+        // 고점100 → 저점90 → 고점110 같은 단순 상승에서도 첫 CHoCH가 찍혔다.
+        // 하락 추세가 성립한 적이 없으므로 그건 BOS이지 CHoCH가 아니다.
+        // ※ Custom Structure Zigzag(deriveStructure.js)와 같은 규칙이다 — 한쪽만 되돌리지 말 것.
         let isChoch = false;
         if (!Number.isNaN(st.structHigh) && ph > st.structHigh) {
           if (st.bias === -1) isChoch = true;
-          st.bias = 1;
-        } else if (Number.isNaN(st.structHigh)) {
           st.bias = 1;
         }
 
@@ -160,12 +163,18 @@ function step(st, candles, i) {
       // 같은 방향(고점) 갱신 → 기존 지그재그 선 끝점만 연장
       if (st.curSeg) { st.curSeg.i2 = i; st.curSeg.p2 = ph; }
 
-      if (!st.chochInLeg && !Number.isNaN(st.structHigh) && ph > st.structHigh && st.bias === -1) {
-        st.bias = 1;
-        if (st.structHighBar >= 0) {
-          pushChoch(st, { dir: "bull", fromIdx: st.structHighBar, toIdx: i, price: st.structHigh });
+      // 돌파했으면 bias는 **항상** 갱신한다(= BOS). CHoCH 마크는 반대 추세였을 때만.
+      // ※ bias 갱신을 CHoCH 조건 안에 두면, bias=0 상태에서 이 연장 분기로 구조 고점을
+      //   돌파했을 때 추세가 영영 서지 않아 이후 진짜 전환도 CHoCH로 안 잡힌다.
+      //   (위 메인 분기와 동일한 구조로 맞춘 것 — 한쪽만 되돌리지 말 것)
+      if (!Number.isNaN(st.structHigh) && ph > st.structHigh) {
+        if (!st.chochInLeg && st.bias === -1) {
+          if (st.structHighBar >= 0) {
+            pushChoch(st, { dir: "bull", fromIdx: st.structHighBar, toIdx: i, price: st.structHigh });
+          }
+          st.chochInLeg = true;
         }
-        st.chochInLeg = true;
+        st.bias = 1;
       }
 
       st.lastPointPrice = ph;
@@ -180,11 +189,10 @@ function step(st, candles, i) {
         if (st.lastPivotType === 1) { st.structHigh = st.lastPointPrice; st.structHighBar = st.lastPointBar; }
         st.lastPivotType = -1;
 
+        // 고점 로직과 동일 — 실제 돌파가 있을 때만 bias를 세운다 (2026-08-12 수정)
         let isChoch = false;
         if (!Number.isNaN(st.structLow) && pl < st.structLow) {
           if (st.bias === 1) isChoch = true;
-          st.bias = -1;
-        } else if (Number.isNaN(st.structLow)) {
           st.bias = -1;
         }
 
@@ -203,12 +211,15 @@ function step(st, candles, i) {
     } else if (pl < st.lastPointPrice) {
       if (st.curSeg) { st.curSeg.i2 = i; st.curSeg.p2 = pl; }
 
-      if (!st.chochInLeg && !Number.isNaN(st.structLow) && pl < st.structLow && st.bias === 1) {
-        st.bias = -1;
-        if (st.structLowBar >= 0) {
-          pushChoch(st, { dir: "bear", fromIdx: st.structLowBar, toIdx: i, price: st.structLow });
+      // 고점 연장 분기와 동일 — 돌파하면 bias는 항상 갱신, CHoCH는 반대 추세였을 때만
+      if (!Number.isNaN(st.structLow) && pl < st.structLow) {
+        if (!st.chochInLeg && st.bias === 1) {
+          if (st.structLowBar >= 0) {
+            pushChoch(st, { dir: "bear", fromIdx: st.structLowBar, toIdx: i, price: st.structLow });
+          }
+          st.chochInLeg = true;
         }
-        st.chochInLeg = true;
+        st.bias = -1;
       }
 
       st.lastPointPrice = pl;

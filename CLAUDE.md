@@ -272,7 +272,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 
 | 결정 | 되돌리면 재발하는 문제 |
 |---|---|
-| CHoCH는 bias가 선 상태에서만 — 자동 ZZ식 완화 금지 | 상승 지속(BOS)에도 CHoCH 오탐 |
+| CHoCH는 실제 돌파로 bias가 선 상태에서만 (ZZ·Pine도 동일 규칙) | 상승 지속(BOS)에도 CHoCH 오탐. 셋 중 하나만 되돌리면 지표끼리 결과가 어긋남 |
 | 마크가 적게 뜬다고 규칙 완화 금지 | 사용자 기준은 "알고리즘대로면 OK", 빈도가 아님 |
 | BOS 표시 안 함 (제안 거절됨) | 화면이 복잡해짐 |
 | CHoCH 선 끝 = 선분 교차점(`crossT`), 캔들 조회 금지 | 가로선이 지그재그를 지나 오른쪽으로 삐져나옴 |
@@ -408,6 +408,9 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **FVG**: 3캔들 패턴으로 갭 검출, 중간값 50% 진입 시 소멸
 - **오더블록**: 스윙 감지 → BOS 탐지 → 직전 역방향 캔들을 OB로 등록, 미티게이션 시 소멸
 - **Structure Zigzag (ZZ)**: `기타/structure_zigzag.pine` 포팅 — 왼쪽 left_bars 봉만 보는 피벗(오른쪽 확인봉 없음),
+  ※ **bias 규칙은 Custom Structure Zigzag(deriveStructure.js)와 동일하게 통일됨 (2026-08-12)**
+    — 실제 돌파가 있을 때만 bias를 세우고, 돌파하면 CHoCH 여부와 무관하게 bias는 항상 갱신한다.
+    `기타/structure_zigzag.pine`도 같이 수정했으므로 **한쪽만 고치면 트레이딩뷰와 결과가 어긋난다.**
   꼬리(고가/저가) 기준 판정, Wilder ATR × atr_mult 미만 스윙은 노이즈로 제거,
   꼭짓점을 회색 지그재그로 연결 + 구조 고/저점 돌파 시 CHoCH 마크
   CHoCH 마크 스타일은 수동 구조(Structures.jsx)와 동일 (BULL_DARK/BEAR_DARK 실선 1.5px + 라벨)
