@@ -1,7 +1,7 @@
 import * as d3 from "d3";
 import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
-import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderMarketStructure, renderChoChoSignal } from "./overlayRenderers";
+import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderMarketStructure } from "./overlayRenderers";
 import { idxToTimestamp } from "../utils/coordUtils";
 
 export { renderVolumeCanvas } from "./volumeRenderer";
@@ -121,7 +121,6 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
     if (ov.showSR  && ov.srLevels?.length)  renderSRLines(ctx, ov.srLevels, yScale, IW, IH, isDark);
     if (ov.showEMA && ov.emaData?.length)   renderEMA(ctx, ov.emaData, xScale, yScale, IW, IH);
     if (ov.showMS  && ov.msData?.length)    renderMarketStructure(ctx, ov.msData, xScale, yScale, IW, IH);
-    if (ov.showChoCho && ov.chochoData?.length) renderChoChoSignal(ctx, ov.chochoData, xScale, yScale, IW, IH);
   }
 
   // ── X 축 ──────────────────────────────────────────────────────────────────

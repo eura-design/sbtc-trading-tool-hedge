@@ -14,7 +14,6 @@ import { useOrderFlow }              from "./hooks/useOrderFlow";
 import { useFVG }                    from "./hooks/useFVG";
 import { useOrderBlock }             from "./hooks/useOrderBlock";
 import { useMarketStructure }        from "./hooks/useMarketStructure";
-import { useChochBuySignal }         from "./hooks/useChochBuySignal";
 import { useRealtimeData }           from "./hooks/useRealtimeData";
 import { useToast }                  from "./hooks/useToast";
 import { useTrendLineAlert }         from "./hooks/useTrendLineAlert";
@@ -63,7 +62,6 @@ export default function App() {
   const showVol = indicators.vol !== false;
   const showEMA = indicators.ema !== false;
   const showMS  = indicators.ms  !== false;
-  const showChoCho = indicators.chocho !== false;
 
   // ── drawing ↔ pending order 동기화 ────────────────────────────────────────
   useEffect(() => {
@@ -130,7 +128,6 @@ export default function App() {
   const fvgData = useFVG(candles, indicatorParams.fvg);
   const obData  = useOrderBlock(candles, indicatorParams.ob);
   const msData  = useMarketStructure(candles, indicatorParams.ms);
-  const chochoData = useChochBuySignal(candles, indicatorParams.ms, indicatorParams.chocho);
   const { srLevels, srLoading, refreshSR } = useSRLevels();
 
   // divsByTF → 메인 차트 캔들 인덱스로 변환
@@ -258,10 +255,10 @@ export default function App() {
           candles={candles} candlesRef={candlesRef} candleLoading={candleLoading}
           onTickRef={onTickRef} interval_={interval_} isDark={isDark} isLog={isLog}
           rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData} srData={srLevels}
-          msData={msData} chochoData={chochoData}
+          msData={msData}
           showRsi={showRsi} showSR={showSR} showOB={showOB} showFVG={showFVG}
           showVol={showVol} showEMA={showEMA} showDiv={showDiv}
-          showMS={showMS} showChoCho={showChoCho}
+          showMS={showMS}
           indicatorParams={indicatorParams}
           divData={divData}
           current={current} setCurrent={setCurrent}
