@@ -345,7 +345,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), Divergence(peak_lb/scan), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/scan_from/max_choch/show_choch)
+- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), Divergence(peak_lb/scan), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/max_choch/show_choch)
 - ※ 새 지표 추가 시 프론트 `INDICATOR_DEFAULTS`와 백엔드 `indicatorParamsStore.DEFAULTS` **양쪽 모두**에 키 추가 필요 (백엔드 load()가 자기 DEFAULTS 키만 통과시킴)
 
 ### 알림 시스템
@@ -424,6 +424,11 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
     → 전체 재계산 시 진행 중 봉의 ATR이 커지며 노이즈 필터 임계값이 올라가 직전 틱의 CHoCH가
       탈락·소멸하는 문제를 이 구조로 차단 (원본 Pine은 이 케이스에서 마크가 사라짐)
   ※ 상태 초기화 조건: 캔들 배열 교체(TF 전환) / 파라미터 변경 / candles[0] 변경(버퍼 shift·재로드)
+  ※ **표시 범위 옵션 없음 — 로드된 캔들 전체를 잇는다** (2026-08-12 `scan_from` 제거).
+    "성능상 범위를 제한하는 게 낫다"며 되살리지 말 것 — 최초 1회만 전 구간을 훑고 이후는 증분이다
+  ※ CHoCH 개수는 `getZzChochTotal()`로 노출 — IndicatorMenu가 "검출된 CHoCH N개" 표시와
+    `max_choch` 슬라이더 상한(1~N)에 쓴다. ZZ 계산이 캔버스 렌더 경로에만 있어 React 상태로
+    올라오지 않으므로, 메뉴 여는 시점에 모듈 상태를 직접 읽는다(열려 있는 동안은 갱신 안 됨)
 - **RSI 다이버전스**: RSI 고점/저점과 가격 고점/저점 비교, 일반/히든 불·베어 4종 (App.jsx에서 useMemo로 계산, DivergenceLines로 렌더)
 - **RSI 패널**: Wilder's smoothing, 별도 캔버스, 드래그로 높이 조절 (useRsiResize)
 

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTheme } from "../ThemeContext";
 import { INDICATOR_DEFAULTS } from "../hooks/useIndicatorParams";
+import { getZzChochTotal } from "../chart/structureZigzag";
 
 export const INDICATORS = [
   { key: "vol", label: "Volume" },
@@ -48,8 +49,9 @@ const PARAMS_META = {
     { key: "use_filter", label: "노이즈 필터",    type: "toggle" },
     { key: "atr_mult",   label: "ATR 배수",       min: 0.1, max: 5.0,   step: 0.1, fmt: v => v.toFixed(1) + "×" },
     { key: "atr_period", label: "ATR 기간",       min: 5,   max: 50,    step: 1  },
-    { key: "scan_from",  label: "표시 범위",      min: 100, max: 1000,  step: 50 },
-    { key: "max_choch",  label: "CHoCH 최대 표시", min: 1,  max: 30,    step: 1  },
+    // 표시 범위(scan_from)는 제거 — 지그재그는 로드된 캔들 전체를 잇는다.
+    // max_choch의 상한은 실제 검출 개수로 SettingsPanel에서 덮어쓴다.
+    { key: "max_choch",  label: "CHoCH 표시 개수", min: 1,  max: 30,    step: 1  },
     { key: "show_choch", label: "CHoCH 표시",     type: "toggle" },
   ],
   div: [
@@ -100,7 +102,9 @@ function ParamSlider({ meta, value, onChange, theme }) {
       <input
         type="range"
         min={meta.min} max={meta.max} step={meta.step}
-        value={value}
+        // 저장값이 상한을 넘을 수 있다 (예: max_choch 상한이 실제 검출 개수로 좁혀진 경우).
+        // 핸들이 범위 밖으로 나가지 않도록 표시만 클램프한다 — 저장값은 그대로 둔다.
+        value={Math.min(Math.max(value, meta.min), meta.max)}
         onChange={e => {
           const raw = e.target.value;
           onChange(meta.step < 1 ? parseFloat(raw) : parseInt(raw, 10));
@@ -209,7 +213,14 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
   const [srStatus, setSrStatus] = useState(null); // null | 'ok' | 'err'
   const metas   = PARAMS_META[indKey] || [];
   const isSR    = indKey === "sr";
+  const isZZ    = indKey === "zz";
   const indParams = params[indKey] || {};
+
+  // ZZ: 현재 검출된 CHoCH 개수를 읽어 슬라이더 상한(1~N)으로 쓴다.
+  // 모듈 상태 직접 조회라 메뉴를 여는 시점의 값이며, 열려 있는 동안은 갱신되지 않는다.
+  const zzTotal = isZZ ? getZzChochTotal() : 0;
+  const resolveMeta = meta =>
+    (isZZ && meta.key === "max_choch") ? { ...meta, max: Math.max(1, zzTotal) } : meta;
 
   const handleRefresh = async () => {
     setSrStatus(null);
@@ -229,15 +240,34 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
       background: theme.bgCardAlt,
       borderTop: `1px solid ${theme.borderSec}`,
     }}>
-      {metas.map(meta => (
-        <ParamSlider
-          key={meta.key}
-          meta={meta}
-          value={indParams[meta.key] ?? INDICATOR_DEFAULTS[indKey][meta.key]}
-          onChange={val => setParam(indKey, meta.key, val)}
-          theme={theme}
-        />
-      ))}
+      {isZZ && (
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          marginBottom: 8, paddingBottom: 6,
+          borderBottom: `1px solid ${theme.borderSec}`,
+          fontSize: 11, color: theme.textSec,
+        }}>
+          <span>검출된 CHoCH</span>
+          <span style={{
+            color: zzTotal ? "#c084fc" : theme.textFaint, fontWeight: 700,
+            fontVariantNumeric: "tabular-nums",
+          }}>
+            {zzTotal}개
+          </span>
+        </div>
+      )}
+      {metas.map(meta => {
+        const m = resolveMeta(meta);
+        return (
+          <ParamSlider
+            key={m.key}
+            meta={m}
+            value={indParams[m.key] ?? INDICATOR_DEFAULTS[indKey][m.key]}
+            onChange={val => setParam(indKey, m.key, val)}
+            theme={theme}
+          />
+        );
+      })}
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         <button
           onClick={() => resetIndicator(indKey)}

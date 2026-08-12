@@ -36,7 +36,6 @@ function resolve(params) {
     use_filter: params.use_filter ?? true,
     atr_mult:   params.atr_mult   ?? 1.5,
     atr_period: params.atr_period ?? 14,
-    scan_from:  params.scan_from  ?? 500,
   };
 }
 
@@ -80,7 +79,9 @@ function initState(candles, params, firstT) {
   return {
     arr: candles, params, firstT, p,
     atr: wilderATR(candles, p.atr_period),
-    i: Math.max(p.left_bars, n - p.scan_from),   // 다음에 처리할 봉
+    // 로드된 캔들 전체를 잇는다 (표시 범위 옵션 없음 — 2026-08-12 사용자 요청으로 scan_from 제거).
+    // 최초 1회만 전 구간을 훑고 이후는 증분 처리라 비용은 무시할 수준.
+    i: p.left_bars,                              // 다음에 처리할 봉
 
     lastPivotType:  0,      // 1 = High, -1 = Low
     lastPointPrice: NaN,
@@ -229,6 +230,18 @@ function step(st, candles, i) {
 }
 
 let _st = null;
+
+/**
+ * 현재 누적된 CHoCH 총 개수 (max_choch 슬라이스 이전의 원본 개수).
+ *
+ * IndicatorMenu가 "검출 N개" 표시와 max_choch 슬라이더 상한에 쓴다.
+ * ZZ 계산이 캔버스 렌더 경로에서만 돌아 React 상태로 올라오지 않으므로,
+ * 메뉴가 열릴 때 이 함수로 모듈 상태를 직접 읽는다(메뉴 열려 있는 동안은 갱신 안 됨).
+ * ZZ가 꺼져 있으면 계산 자체가 안 돌아 0을 반환한다.
+ */
+export function getZzChochTotal() {
+  return _st?.chochs.length ?? 0;
+}
 
 export function computeStructureZigzag(candles, params = {}) {
   const n = candles.length;
