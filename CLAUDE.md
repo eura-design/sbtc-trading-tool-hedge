@@ -134,7 +134,7 @@ frontend/src/
 │   ├── ChartArea.jsx          ← 차트 전체 영역 조합 (hooks + ChartSvg + RSI/Volume 패널 + LineOpacityPopup)
 │   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원 모드 버튼,
 │   │                             로그 스케일 토글, 지표 메뉴, 알림 메뉴, 단축키 메뉴, 테마 토글
-│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/RSI Divergence/S·R/OB/FVG/EMA/ZZ)
+│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/RSI Divergence/S·R/OB/FVG/EMA/ZZ/Custom ZZ)
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
 │   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (5TF × RSI OB/OS/다이버전스/히든다이버전스/봉마감)
 │   ├── ShortcutMenu.jsx       ← 단축키 커스텀 설정 UI (녹음 모드로 각 action 키 재바인딩 + 초기화)
@@ -316,7 +316,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   자동 ZZ의 forward-only 누적 상태는 진행 중 봉 ATR 드리프트를 막으려던 것이라 여기선 불필요
 - **자동 ZZ와 판정이 다른 부분**: 자동 ZZ는 structHigh/Low가 NaN일 때 bias를 강제 세팅해서
   H→L→H(상승) 같은 단순 BOS에도 첫 CHoCH가 찍힌다. 수동 구조는 **실제 돌파가 있을 때만** bias를 세운다
-- **표시 토글**: IndicatorMenu `struct`("내 구조") — 자동 ZZ와 **독립**. 자동 연동은 의도적으로
+- **표시 토글**: IndicatorMenu `struct`("Custom Structure Zigzag") — 자동 ZZ와 **독립**. 자동 연동은 의도적으로
   넣지 않았다(둘을 나란히 비교하는 용도가 막히므로). OFF일 때는 렌더뿐 아니라
   `ChartArea.visibleStructures`가 히트 판정에서도 빼서, 안 보이는 구조가 클릭에 잡히지 않게 한다
 - **투명도**: 신규 구조 기본 0.5 (`STRUCT_DEFAULT_OPACITY`) — 지그재그는 배경처럼 깔리게.

@@ -11,7 +11,8 @@ export const INDICATORS = [
   { key: "fvg", label: "FVG" },
   { key: "zz",  label: "Structure Zigzag" },
   // 수동 구조 표시 토글 — 자동 ZZ와 독립. 파라미터 없음(PARAMS_META에 항목 없음)
-  { key: "struct", label: "내 구조" },
+  // ※ key는 "struct" 유지 — 바꾸면 localStorage("indicators")에 저장된 on/off가 초기화된다
+  { key: "struct", label: "Custom Structure Zigzag" },
   { key: "ema", label: "EMA" },
 ];
 
