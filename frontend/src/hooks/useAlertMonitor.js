@@ -6,50 +6,7 @@ const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시
 // TF_MS(constants.js)를 쿨다운 기준으로 사용 — TF_SECS 제거
 
 // ── RSI 유틸 ──────────────────────────────────────────────────────────────────
-
-function buildRSIState(candles, period) {
-  if (candles.length < period + 1) return null;
-  const cl = candles.map(c => c.c);
-  let ag = 0, al = 0;
-  for (let i = 1; i <= period; i++) {
-    const d = cl[i] - cl[i - 1];
-    if (d > 0) ag += d; else al -= d;
-  }
-  ag /= period; al /= period;
-  for (let i = period + 1; i < cl.length; i++) {
-    const d = cl[i] - cl[i - 1];
-    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
-    al = (al * (period - 1) + Math.max(-d, 0)) / period;
-  }
-  return { ag, al, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) };
-}
-
-function tickRSI(state, prevClose, currClose, period) {
-  if (!state) return null;
-  const d  = currClose - prevClose;
-  const ag = (state.ag * (period - 1) + Math.max(d, 0)) / period;
-  const al = (state.al * (period - 1) + Math.max(-d, 0)) / period;
-  return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
-}
-
-function buildRSIArray(candles, period) {
-  if (candles.length < period + 1) return [];
-  const cl = candles.map(c => c.c);
-  let ag = 0, al = 0;
-  for (let i = 1; i <= period; i++) {
-    const d = cl[i] - cl[i - 1];
-    if (d > 0) ag += d; else al -= d;
-  }
-  ag /= period; al /= period;
-  const data = [{ t: candles[period].t, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) }];
-  for (let i = period + 1; i < cl.length; i++) {
-    const d = cl[i] - cl[i - 1];
-    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
-    al = (al * (period - 1) + Math.max(-d, 0)) / period;
-    data.push({ t: candles[i].t, rsi: al === 0 ? 100 : 100 - 100 / (1 + ag / al) });
-  }
-  return data;
-}
+import { buildRSIState, tickRSI, buildRSIArray } from "../utils/rsi";
 
 // ── 다이버전스 감지 ────────────────────────────────────────────────────────────
 
