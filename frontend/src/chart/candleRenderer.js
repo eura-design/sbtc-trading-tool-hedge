@@ -123,7 +123,10 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
     if (ov.showEMA && ov.emaData?.length)   renderEMA(ctx, ov.emaData, xScale, yScale, IW, IH);
     // ZZ만 여기서 계산 — 진행 중 봉(candles 마지막 = candlesRef의 라이브 봉)까지 반영하기 위함
     if (ov.showZZ) {
-      renderStructureZigzag(ctx, computeStructureZigzag(candles, ov.zzParams ?? {}), xScale, yScale, IW, IH);
+      renderStructureZigzag(
+        ctx, computeStructureZigzag(candles, ov.zzParams ?? {}), xScale, yScale, IW, IH,
+        { selected: ov.zzSelected, opacity: ov.zzParams?.opacity },
+      );
     }
   }
 

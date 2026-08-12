@@ -28,6 +28,19 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     renderVolumeCanvas(volCanvasRef.current, candlesRef.current, scalesRef.current.xScale, IW, ov.volH, isDark, ov.volColorMode);
   }, [IW, isDark]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 틱 RAF에서 호출 — 진행 중 봉의 거래량 높이/색상(양봉↔음봉)을 실시간 반영
+  // 진행 중 봉이 화면 밖(과거 구간을 보는 중)이면 바뀌는 게 없으므로 건너뛴다
+  const redrawVolumeTick = useCallback(() => {
+    const ov = overlaysRef?.current ?? {};
+    if (!volCanvasRef?.current || !scalesRef.current || !ov.showVol || ov.volH <= 0) return;
+    const c = candlesRef.current;
+    if (!c.length) return;
+    const [d0, d1] = scalesRef.current.xScale.domain();
+    const lastIdx = c.length - 1;
+    if (lastIdx < d0 - 1 || lastIdx > d1 + 1) return;
+    renderVolumeCanvas(volCanvasRef.current, c, scalesRef.current.xScale, IW, ov.volH, isDark, ov.volColorMode);
+  }, [IW, isDark]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // RSI 캔버스만 재드로우 — pan/zoom 중 RSI가 즉시 따라오도록 (volume과 동일 패턴)
   const redrawRSI = useCallback(() => {
     const ov = overlaysRef?.current ?? {};
@@ -98,5 +111,5 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     scalesRef.current          = null;
   }, []);
 
-  return { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawRSI, resetDomain, renderTick };
+  return { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawVolumeTick, redrawRSI, resetDomain, renderTick };
 }

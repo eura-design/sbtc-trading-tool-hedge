@@ -11,6 +11,10 @@ export function useCrosshair() {
   const hLineRsiRef   = useRef(null);
   const priceTextRef  = useRef(null);
   const bodyPctRef    = useRef(null);
+  // 지그재그 레그(수동 구조 / 자동 ZZ) 위에 올렸을 때의 등락률.
+  // 크로스헤어와 같은 imperative 레이어에 둔다 — 마우스 이동마다 React 상태를
+  // 갱신하면 SVG 오버레이 전체가 리렌더된다.
+  const legPctRef     = useRef(null);
 
   const update = useCallback(({ x, y, inRsi, IW, IH, rsiH, volH, price, bodyPct }) => {
     const vLine     = vLineRef.current;
@@ -69,7 +73,24 @@ export function useCrosshair() {
       hLineMain.setAttribute("display", "none");
       priceText?.setAttribute("display", "none");
       bodyPctEl?.setAttribute("display", "none");
+      legPctRef.current?.setAttribute("display", "none");   // RSI 패널엔 지그재그가 없다
     }
+  }, []);
+
+  /**
+   * 지그재그 레그 등락률 — 커서 아래쪽에 작게. pct가 null이면 숨긴다.
+   * 가격 라벨(priceText)보다 한 줄 아래에 두어 겹치지 않게 한다.
+   */
+  const showLegPct = useCallback(({ x, y, pct }) => {
+    const el = legPctRef.current;
+    if (!el) return;
+    if (pct == null) { el.setAttribute("display", "none"); return; }
+    const sign = pct >= 0 ? "+" : "";
+    el.textContent = `${sign}${pct.toFixed(2)}%`;
+    el.setAttribute("fill", pct >= 0 ? "#0ecb81" : "#f6465d");
+    el.setAttribute("x", M.left + x + 8);
+    el.setAttribute("y", M.top  + y + 30);
+    el.setAttribute("display", "inline");
   }, []);
 
   const hide = useCallback(() => {
@@ -78,7 +99,11 @@ export function useCrosshair() {
     hLineRsiRef.current?.setAttribute("display", "none");
     priceTextRef.current?.setAttribute("display", "none");
     bodyPctRef.current?.setAttribute("display", "none");
+    legPctRef.current?.setAttribute("display", "none");
   }, []);
 
-  return { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, updateCrosshair: update, hideCrosshair: hide };
+  return {
+    vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, legPctRef,
+    updateCrosshair: update, hideCrosshair: hide, showLegPct,
+  };
 }

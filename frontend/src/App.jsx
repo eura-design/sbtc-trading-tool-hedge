@@ -3,6 +3,8 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useTheme }  from "./ThemeContext";
 import { useStore }  from "./store";
 import { INTERVALS } from "./constants";
+import { ZZ_ID }     from "./chart/drawables";
+import { installStructDebug } from "./chart/structDebug";
 
 import { useCandles }                from "./hooks/useCandles";
 import { useBalance }                from "./hooks/useBalance";
@@ -18,6 +20,7 @@ import { useOrderBlock }             from "./hooks/useOrderBlock";
 import { useRealtimeData }           from "./hooks/useRealtimeData";
 import { useToast }                  from "./hooks/useToast";
 import { useTrendLineAlert }         from "./hooks/useTrendLineAlert";
+import { useChochAlert }             from "./hooks/useChochAlert";
 import { usePositionCloseAlert }     from "./hooks/usePositionCloseAlert";
 import { useNotificationSettings }   from "./hooks/useNotificationSettings";
 import { useAlertMonitor }           from "./hooks/useAlertMonitor";
@@ -66,6 +69,9 @@ export default function App() {
   const showVol = indicators.vol !== false;
   const showEMA = indicators.ema !== false;
   const showZZ  = indicators.zz  !== false;
+  // 자동 ZZ 선택 상태 — 도형처럼 클릭하면 금색으로 강조되고 투명도 조절 대상이 된다.
+  // 저장하지 않는 순수 UI 상태라 App 로컬 (drawables의 "zz"가 이걸 id로 노출)
+  const [zzSelected, setZzSelected] = useState(false);
   // 수동 구조 — 자동 ZZ와 독립 토글 + 표시 타임프레임 필터(struct.tfs, 중복 선택 / 기본 1h).
   // 데이터는 여전히 전 TF 공유이고 "어느 TF에서 보여줄지"만 거르는 것이다.
   //  - structOn   : 지표 토글 자체. **그리기 가능 여부는 이것만 본다** —
@@ -112,6 +118,9 @@ export default function App() {
 
   useEffect(() => { if (!drawing) setSelectedBox(false); }, [drawing, setSelectedBox]);
 
+  // 콘솔에서 `__structDebug()` — 수동 구조의 CHoCH 판정 근거를 표로 출력
+  useEffect(() => { installStructDebug(); }, []);
+
 
   // ── 로컬 상태 ────────────────────────────────────────────────────────────
   const [isLog, setIsLog] = useState(() => localStorage.getItem("chart_isLog") === "true");
@@ -154,6 +163,16 @@ export default function App() {
   );
   usePositionCloseAlert(position, addLineAlert);
 
+  // CHoCH 발생 알림 — 자동 ZZ + 수동 구조. 둘 다 기본 ON,
+  // 자동 ZZ는 indicatorParams.zz.alert_choch / 수동 구조는 구조별 alertChoch로 끈다.
+  // sticky(addLineAlert)가 아니라 일반 토스트 — CHoCH는 "확인이 필요한 경보"가 아니라
+  // 지나가는 이벤트이고, 자주 뜨는 편이라 확인 버튼을 강제하면 화면을 막는다.
+  useChochAlert({
+    structures: structs.structures,
+    zzAlertOn:  showZZ && indicatorParams.zz?.alert_choch !== false,
+    onAlert:    addToast,
+  });
+
   // ── 보조지표 계산 ─────────────────────────────────────────────────────────
   const rsiData = useRSI(candles, indicatorParams.rsi);
   const emaData = useEMA(candles, indicatorParams.ema);
@@ -194,14 +213,40 @@ export default function App() {
       toggleLock:    trendLines.toggleCircleLock,
       setOpacity:    trendLines.setCircleOpacity,
     },
+    // 자동 ZZ — 도형이 아니라 지표지만, 선택(금색)·투명도·CHoCH 알림을 다른 도형과
+    // 똑같이 조작하려고 같은 인터페이스로 감쌌다 (chart/drawables.js의 "zz" 참고).
+    // 항목이 하나뿐이라 id는 상수 ZZ_ID, 삭제·잠금은 no-op.
+    zz: {
+      id: zzSelected ? ZZ_ID : null,
+      // 필드명은 수동 구조와 맞춘다 — 팝업/단축키가 종류별 분기 없이 읽는다
+      items: [{
+        id: ZZ_ID,
+        opacity:    indicatorParams.zz?.opacity ?? 1.0,
+        alertChoch: indicatorParams.zz?.alert_choch !== false,
+        showChoch:  indicatorParams.zz?.show_choch  !== false,
+        maxChoch:   indicatorParams.zz?.max_choch ?? null,   // null = 전체
+      }],
+      setSelectedId: (id) => setZzSelected(id != null),
+      delete:     () => {},   // 지표는 지울 대상이 아니다
+      toggleLock: () => {},   // 드래그로 움직이지 않으므로 잠금도 의미 없다
+      // 구조와 마찬가지로 toggleAlert = **CHoCH 발생 알림**(근접 알림이 아니다)
+      toggleAlert: () => setIndicatorParam("zz", "alert_choch", indicatorParams.zz?.alert_choch === false),
+      toggleChoch: () => setIndicatorParam("zz", "show_choch",  indicatorParams.zz?.show_choch  === false),
+      setOpacity:  (_id, opacity) => setIndicatorParam("zz", "opacity", opacity),
+      setMaxChoch: (_id, n) => setIndicatorParam("zz", "max_choch", n),
+    },
     structure: {
       id: structs.selectedStructId, items: structs.structures,
       setSelectedId: structs.setSelectedStructId,
-      // Delete 키 → 꼭짓점/선분이 선택돼 있으면 그것만, 아니면 구조 전체 삭제
+      // Delete 키 → 꼭짓점이 선택돼 있으면 그것만, 아니면 구조 전체 삭제
       delete:        structs.deleteStructSelection,
-      toggleAlert:   () => {},   // 구조는 근접 알림 대상이 아님 (chart/drawables.js 주석 참고)
+      // 구조는 근접 알림 대상이 아니다 — 🔔 자리를 **CHoCH 발생 알림**이 쓴다.
+      // 단축키 `a`도 같은 동작이 되도록 toggleAlert에 직접 연결한다
+      toggleAlert:   structs.toggleStructChochAlert,
       toggleLock:    structs.toggleStructLock,
       setOpacity:    structs.setStructOpacity,
+      toggleChoch:   structs.toggleStructChoch,   // CHoCH 마크 표시
+      setMaxChoch:   structs.setStructMaxChoch,   // CHoCH 표시 개수 (구조별)
     },
   }), [
     trendLines.selectedLineId, trendLines.lines, trendLines.setSelectedLineId,
@@ -212,6 +257,8 @@ export default function App() {
     trendLines.deleteCircle, trendLines.toggleCircleAlert, trendLines.toggleCircleLock, trendLines.setCircleOpacity,
     structs.selectedStructId, structs.structures, structs.setSelectedStructId,
     structs.deleteStructSelection, structs.toggleStructLock, structs.setStructOpacity,
+    structs.toggleStructChoch, structs.toggleStructChochAlert,
+    zzSelected, indicatorParams.zz, setIndicatorParam,
   ]);
 
   // ── 키보드 단축키 ─────────────────────────────────────────────────────────
@@ -300,7 +347,7 @@ export default function App() {
           rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData} srData={srLevels}
           showRsi={showRsi} showSR={showSR} showOB={showOB} showFVG={showFVG}
           showVol={showVol} showEMA={showEMA}
-          showZZ={showZZ} showStruct={showStruct}
+          showZZ={showZZ} showStruct={showStruct} zzSelected={zzSelected}
           indicatorParams={indicatorParams}
           current={current} setCurrent={setCurrent}
           actionsRef={chartActionsRef}

@@ -45,7 +45,7 @@ export function ChartArea({
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, srData: srLevels,
   // 지표 표시 여부
-  showRsi, showSR, showOB, showFVG, showVol, showEMA, showZZ, showStruct,
+  showRsi, showSR, showOB, showFVG, showVol, showEMA, showZZ, showStruct, zzSelected,
   // 지표 파라미터
   indicatorParams,
   // 드로잉 상태 (useTrendLines)
@@ -183,13 +183,13 @@ export function ChartArea({
   const overlaysRef = useRef({});
   overlaysRef.current = {
     fvgData, showFVG, obData, showOB, srLevels, showSR, emaData, showEMA,
-    showZZ, zzParams: indicatorParams.zz,   // ZZ는 candleRenderer가 라이브 캔들로 직접 계산
+    showZZ, zzParams: indicatorParams.zz, zzSelected,   // ZZ는 candleRenderer가 라이브 캔들로 직접 계산
     showVol, volH: effectiveVolH, volColorMode: indicatorParams.vol?.colorMode ?? "neutral",
     rsiData, showRsi, rsiH: effectiveRsiH, rsiParams: indicatorParams.rsi,
   };
 
   // ── 캔버스 렌더러 ──────────────────────────────────────────────────────────
-  const { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawRSI, renderTick, resetDomain } =
+  const { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawVolumeTick, redrawRSI, renderTick, resetDomain } =
     useChartRenderer({ candles, candlesRef, interval_, isDark, IW, IH, canvasRef, volCanvasRef, rsiCanvasRef, isLog, overlaysRef });
 
   // onTickRef에 redrawCanvas 연결 — 하단에서 updateCrosshairOnTick와 함께 체이닝하여 설정됨
@@ -203,7 +203,7 @@ export function ChartArea({
   // ── 오버레이 변경 시 캔버스 재렌더 ────────────────────────────────────────
   // candles.length 가드: 타임프레임 전환 중 candles=[] 상태에서 forceUpdate가 불려
   // scales=null이 되면 SVG 오버레이가 순간 사라지는 들썩임이 발생하므로 방지
-  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, showZZ, indicatorParams.zz]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, showZZ, indicatorParams.zz, zzSelected]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { redrawVolume(); }, [showVol, effectiveVolH, indicatorParams.vol?.colorMode]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (candles.length) redrawRSI(); }, [rsiData, showRsi, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -213,12 +213,14 @@ export function ChartArea({
   const splitTps = [...(tpsl?.long?.splitTps ?? []), ...(tpsl?.short?.splitTps ?? [])];
 
   // ── 크로스헤어 ────────────────────────────────────────────────────────────
-  const { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, updateCrosshair, hideCrosshair } = useCrosshair();
+  const { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, legPctRef,
+          updateCrosshair, hideCrosshair, showLegPct } = useCrosshair();
 
   // ── 차트 인터랙션 ─────────────────────────────────────────────────────────
   const { dragRef, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onDoubleClick, updateCrosshairOnTick } =
     useChartInteraction({
-      candles, candlesRef, IW, IH, rsiH: effectiveRsiH, volH: effectiveVolH, updateCrosshair, hideCrosshair,
+      candles, candlesRef, IW, IH, rsiH: effectiveRsiH, volH: effectiveVolH,
+      updateCrosshair, hideCrosshair, showLegPct, showZZ,
       scalesRef,
       onLineDoubleClick: (id, type, x, y) => setOpacityPopup({ id, type, x, y }),
       xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,
@@ -248,8 +250,10 @@ export function ChartArea({
     });
 
   // onTickRef에 redrawCanvas 및 크로스헤어 업데이트 연결 — WebSocket 틱마다 React 상태 없이 갱신
+  // redrawVolumeTick은 redrawCanvas 다음에 — scalesRef가 이번 틱 값으로 갱신된 뒤 써야 한다
   onTickRef.current = () => {
     redrawCanvas();
+    redrawVolumeTick();
     updateCrosshairOnTick();
   };
 
@@ -295,7 +299,7 @@ export function ChartArea({
         rsiH={effectiveRsiH} onDividerMouseDown={onDividerMouseDown}
         showVol={showVol} volH={effectiveVolH} onVolDividerMouseDown={onVolDividerMouseDown}
         vLineRef={vLineRef} hLineMainRef={hLineMainRef} hLineRsiRef={hLineRsiRef}
-        priceTextRef={priceTextRef} bodyPctRef={bodyPctRef}
+        priceTextRef={priceTextRef} bodyPctRef={bodyPctRef} legPctRef={legPctRef}
         hasPos={hasPos} hasLong={hasLong} hasShort={hasShort} position={position} tpsl={tpsl} dragTpsl={dragTpsl} tpslSaving={tpslSaving}
         scaleInOrders={position?.scaleInOrders} dragScaleIn={dragScaleIn}
         splitTps={splitTps} dragSplitTp={dragSplitTp}

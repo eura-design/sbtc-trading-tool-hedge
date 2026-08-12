@@ -10,7 +10,10 @@ export const STRUCT_DEFAULT_OPACITY = 0.5;
 /**
  * 수동 구조(Structure) 도형 스토어
  *
- * 데이터: { id, points: [{ t, p, type:"H"|"L" }], opacity, locked }
+ * 데이터: { id, points: [{ t, p, type:"H"|"L" }], opacity, locked, showChoch, alertChoch, maxChoch }
+ *   maxChoch: 표시할 CHoCH 개수(최신 N개). undefined = 제한 없음 (기본)
+ *   showChoch / alertChoch 모두 **undefined = ON** (기본값). 이미 저장된 구조가
+ *   새 필드 때문에 전부 꺼진 채로 뜨면 안 되므로 false만 OFF로 읽는다.
  *
  * ╔════════════════════════════════════════════════════════════════════════╗
  * ║ 사용자 확정 사양 — 임의 변경 금지 (2026-08-12 확정, 실사용 테스트 통과)    ║
@@ -37,10 +40,13 @@ export const STRUCT_DEFAULT_OPACITY = 0.5;
  * [S5] 흡수된 구조(mergeIds)는 finishStruct에서 반드시 제거한다.
  *      남기면 같은 꼭짓점이 두 벌이 되어 CHoCH가 겹쳐 그려진다.
  *
- * [S6] 부분 삭제는 **클릭으로 선택 → Delete**다. 예전의 "꼭짓점 Shift+클릭 즉시 삭제"로
- *      되돌리지 말 것 — 사용자가 명시적으로 바꾼 조작이다.
- *      선분 삭제는 구조를 쪼개지 않고 **끝점 하나를 지워 이어붙인다**(removeStructSegment).
- *      쪼개면 [S4]와 같은 이유로 경계 CHoCH가 유실된다.
+ * [S6] 부분 삭제는 **꼭짓점을 클릭해 선택 → Delete**다. 예전의 "꼭짓점 Shift+클릭
+ *      즉시 삭제"로 되돌리지 말 것 — 사용자가 명시적으로 바꾼 조작이다.
+ *
+ * [S7] **선분(몸통) 부분 선택·삭제는 없다** (2026-08-12 사용자 요청으로 제거).
+ *      "꼭짓점 제거만 있으면 된다" — 몸통을 클릭했을 때 선이 파랗게 물드는 게
+ *      거슬린다는 이유였다. removeStructSegment / structPart.kind==="segment" 경로를
+ *      되살리지 말 것. 지금 몸통 클릭은 구조 전체 선택, 더블클릭은 팝업이다.
  */
 export function useStructures() {
   const store = useDrawableStore("structures");
@@ -50,9 +56,10 @@ export function useStructures() {
   const [structPreview,    setStructPreview]    = useState(null);   // { t, p, type } — 커서 스냅 미리보기
   const [selectedStructId, setSelectedStructIdRaw] = useState(null);
 
-  // 선택된 구조 **안에서** 다시 고른 부분 — { kind: "point"|"segment", idx } | null
-  // 꼭짓점/선분을 클릭하면 여기 담기고, Delete가 구조 전체 대신 이것만 지운다.
+  // 선택된 구조 **안에서** 다시 고른 꼭짓점 — { kind: "point", idx } | null
+  // 꼭짓점을 클릭하면 여기 담기고, Delete가 구조 전체 대신 이것만 지운다.
   // (예전엔 꼭짓점 Shift+클릭 즉시 삭제였다 — 클릭 → Delete로 변경, 사용자 요청)
+  // kind가 "point" 하나뿐이어도 구조는 유지한다 — 판정부가 전부 kind로 분기한다 ([S7])
   const [structPart, setStructPart] = useState(null);
 
   const clearStructPart  = useCallback(() => setStructPart(null), []);
@@ -166,32 +173,50 @@ export function useStructures() {
     store.update(id, { points });
   }, [store]);
 
-  /**
-   * 선분 하나 삭제 — **이어붙이기 방식**(사용자 확정, 2026-08-12).
-   * segIdx는 findStructSegmentIdx가 주는 값 = 그 선분의 뒤쪽 꼭짓점 인덱스.
-   *
-   * 구조를 둘로 쪼개지 않고 끝점 하나를 지운다:
-   *  - 첫 선분(segIdx=1)이면 앞 끝점(0), 그 외에는 뒤 끝점을 제거
-   *  - 끝 선분은 그대로 잘려나가고, 가운데 선분은 양옆이 같은 타입이 되면서
-   *    normalizeStructurePoints가 더 극단적인 쪽만 남겨 두 레그가 하나로 합쳐진다
-   *
-   * 쪼개기(구조 2개로 분리)를 택하지 않은 이유: 경계에서 bias가 리셋돼 그 지점
-   * CHoCH가 유실된다 ([S4]와 같은 이유).
-   */
-  const removeStructSegment = useCallback((id, segIdx) => {
-    removeStructPoint(id, segIdx === 1 ? 0 : segIdx);
-  }, [removeStructPoint]);
-
   const deleteStruct = useCallback((id) => {
     store.remove(id); setSelectedStructIdRaw(null); setStructPart(null);
   }, [store]);
 
-  // Delete 키 처리 — 부분(꼭짓점/선분)이 선택돼 있으면 그것만, 아니면 구조 전체
+  // Delete 키 처리 — 꼭짓점이 선택돼 있으면 그것만, 아니면 구조 전체
   const deleteStructSelection = useCallback((id) => {
-    if (structPart?.kind === "point")        removeStructPoint(id, structPart.idx);
-    else if (structPart?.kind === "segment") removeStructSegment(id, structPart.idx);
-    else                                     deleteStruct(id);
-  }, [structPart, removeStructPoint, removeStructSegment, deleteStruct]);
+    if (structPart?.kind === "point") removeStructPoint(id, structPart.idx);
+    else                              deleteStruct(id);
+  }, [structPart, removeStructPoint, deleteStruct]);
+
+  /**
+   * 이 구조의 CHoCH 마크 표시 on/off (더블클릭 팝업에서 조작).
+   *
+   * 구조를 여러 개 그려두면 마크가 뒤엉키므로 "보고 싶은 구조만" 켜기 위한 것.
+   * **CHoCH 마크를 끄는 곳은 이것 하나뿐이다** — 지표 메뉴에 있던 전체 스위치
+   * (struct.show_choch)는 2026-08-12 제거됐다 (Structures.jsx [R6]).
+   *
+   * 기본값은 ON이므로 저장 필드는 undefined = ON으로 읽는다
+   * (이미 저장돼 있는 기존 구조가 전부 꺼진 채로 뜨지 않게).
+   */
+  const toggleStructChoch = useCallback((id) => {
+    store.update(id, item => ({ showChoch: item.showChoch === false }));
+  }, [store]);
+
+  /**
+   * 이 구조에 CHoCH가 발생하면 알림을 띄울지 (더블클릭 팝업, 기본 ON).
+   *
+   * 표시(showChoch)와 **독립**이다 — 화면은 깔끔하게 두고 알림만 받는 조합이
+   * 성립해야 한다. 알림 대상은 진행 중 레그에서 나온 CHoCH뿐이라
+   * 꼭짓점을 편집한다고 울리지는 않는다 (structRenderState.js 주석 참고).
+   */
+  const toggleStructChochAlert = useCallback((id) => {
+    store.update(id, item => ({ alertChoch: item.alertChoch === false }));
+  }, [store]);
+
+  /**
+   * 이 구조에서 표시할 CHoCH 개수(최신 N개). null = 제한 없음(전체).
+   *
+   * **구조마다 따로** 두는 이유는 Structures.jsx [R6] 참고 — 전역 값 하나로 두면
+   * 낮춰놓은 걸 잊고 "CHoCH가 안 뜬다"고 오해하게 된다. 기본값도 제한 없음이다.
+   */
+  const setStructMaxChoch = useCallback((id, n) => {
+    store.update(id, { maxChoch: n > 0 ? n : undefined });
+  }, [store]);
 
   return {
     structures: store.items,
@@ -201,9 +226,10 @@ export function useStructures() {
     selectedStructId, setSelectedStructId,
     structPart, selectStructPart, clearStructPart,
     cancelStructDraw, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-    moveStructPoint, normalizeStruct, removeStructPoint, removeStructSegment,
+    moveStructPoint, normalizeStruct, removeStructPoint,
     deleteStruct, deleteStructSelection,
-    setStructOpacity: store.setOpacity,
-    toggleStructLock: store.toggleLock,
+    setStructOpacity:  store.setOpacity,
+    toggleStructLock:  store.toggleLock,
+    toggleStructChoch, toggleStructChochAlert, setStructMaxChoch,
   };
 }

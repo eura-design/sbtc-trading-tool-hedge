@@ -1,6 +1,12 @@
 import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
 
+// [V1] 이 렌더는 틱마다 호출된다 (useChartRenderer.redrawVolumeTick).
+//      진행 중 봉의 거래량 높이와 양봉/음봉 색이 실시간으로 따라와야 한다는 사용자 확정 사양.
+//      "성능상 틱에서 빼는 게 낫다"며 되돌리지 말 것 — 되돌리면 마지막 봉의 거래량이
+//      봉 마감 때까지 멈춰 있고, 종가가 시가를 넘나들어도 바 색이 그대로 남는다.
+//      (헛일 방지는 호출부에서: 진행 중 봉이 x 도메인 밖이면 아예 호출하지 않는다)
+
 // 모듈 레벨 Map 재사용 — 호출마다 new Map() 생성 방지 (GC 압박 제거)
 const _volMap = new Map();
 

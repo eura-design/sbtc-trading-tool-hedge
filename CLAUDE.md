@@ -92,6 +92,8 @@ frontend/src/
 │   │                             + 봉 마감 알림 + 히스테리시스 쿨다운 적용
 │   ├── useToast.js            ← 토스트 알림 — addToast(30초 자동닫힘) / addLineAlert(sticky, 3초 소리 반복)
 │   ├── useTrendLineAlert.js   ← 추세선/채널/원 근접 알림 (0.2% 이내, 히스테리시스 0.3%)
+│   ├── useChochAlert.js       ← CHoCH 발생 알림 (자동 ZZ + 수동 구조 공용, 기본 ON)
+│   │                             liveClose 구독 → 틱마다 모듈 상태 비교 (첫 관측·재계산은 무음)
 │   ├── usePositionCloseAlert.js ← 포지션 종료 감지 → sticky 알림 (롱/숏 각각 독립 추적)
 │   ├── useNotificationSettings.js ← 타임프레임별 알림 설정 (RSI OB/OS, 봉마감) localStorage 동기화
 │   ├── useTrendLines.js       ← 트렌드 라인 + 채널 + 원 상태 (내부적으로 useDrawableStore 3개 사용)
@@ -106,6 +108,7 @@ frontend/src/
 │   ├── useChartInteraction.js ← 마우스/휠 이벤트 핸들러 (cursorRules + hitDetection 활용)
 │   │                             채널/원 그리기 및 드래그 포함, d3 의존성 없음
 │   ├── useCrosshair.js        ← 크로스헤어 (SVG DOM 직접 조작, 메인+RSI 패널 연동)
+│   │                             showLegPct(legPctRef) — 지그재그 레그 hover 등락률 라벨도 여기서 담당
 │   ├── useRsiResize.js        ← RSI 패널 높이 드래그 조절 (localStorage 저장, 50~300px)
 │   ├── useVolResize.js        ← 거래량 패널 높이 드래그 조절 (localStorage 저장, 40~200px)
 │   └── useHealth.js           ← 서버 헬스 체크
@@ -120,10 +123,20 @@ frontend/src/
 │   │                             forward-only 누적 상태(모듈 레벨 _st) — 기록은 추가만, 제거 없음
 │   ├── deriveStructure.js     ← deriveStructure() / normalizeStructurePoints() — 수동 구조용 순수 함수
 │   │                             꼭짓점 배열 → 세그먼트 + CHoCH. 누적 상태 없이 매번 전체 재계산
+│   │                             3번째 인자 trace에 배열을 넘기면 꼭짓점별 판정 근거를 담는다
+│   ├── structDebug.js         ← 콘솔 진단 `__structDebug()` — "왜 CHoCH가 안 뜨나"를 표로 출력
+│   │                             판정 근거는 deriveStructure의 trace를 그대로 쓴다 (로직 복제 금지)
+│   ├── structRenderState.js   ← 수동 구조 렌더가 남기는 모듈 상태 — Structures.jsx가 기록, 외부가 읽음
+│   │                             set/getStructChochCounts·Count (구조별 검출 CHoCH 개수
+│   │                               → 팝업의 CHoCH 개수 슬라이더 상한. 합계(Total)는 2026-08-12 제거)
+│   │                             set/getStructLiveSegment (진행 중 레그 → 레그 등락률 hover)
+│   │                             set/getStructLiveChochs (진행 중 레그의 CHoCH → useChochAlert)
+│   │                             ZZ의 getZzChochTotal/getZzSegments와 같은 이유(candlesRef 필요)로 모듈 상태
 │   ├── volumeRenderer.js      ← renderVolumeCanvas (모듈 레벨 _volMap 재사용)
 │   ├── rsiRenderer.js         ← renderRSICanvas
 │   ├── cursorRules.js         ← CURSOR_RULES 배열, getCursor(ctx) — 커서 결정 로직
 │   ├── hitDetection.js        ← buildHitChain, findHitChannel, findHitCircle, snapToOHLC, lineXY, channelXYs
+│   │                             findHoveredLegPct — 지그재그 레그 hover 등락률 (수동 구조 + 자동 ZZ 공용)
 │   ├── scales.js              ← getScales(), tsToIdx() — xScale/yScale 생성 + 타임스탬프→인덱스 변환
 │   └── dragStateMachine.js    ← DRAG_HANDLERS 테이블
 │                                 박스: draw/pan/entry/tp/sl/pos_tp/pos_sl/scale_in/split_tp
@@ -136,7 +149,10 @@ frontend/src/
 │   │                             로그 스케일 토글, 지표 메뉴, 알림 메뉴, 단축키 메뉴, 테마 토글
 │   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/S·R/OB/FVG/EMA/ZZ/Custom ZZ)
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
-│   │                             StructTfPanel: Custom ZZ 표시 타임프레임 다중 선택 (struct.tfs, 기본 1h)
+│   │                             StructTfPanel: Custom ZZ 표시 타임프레임 다중 선택 (struct.tfs, 기본 1h) **전용**
+│   │                               ※ CHoCH 관련은 여기 없다 — 표시 on/off·개수·검출 개수 전부
+│   │                                 각 구조/ZZ의 더블클릭 팝업에 있다 (2026-08-12 중복 제거)
+│   │                               ※ ZZ 패널에만 "검출된 CHoCH N개"가 남아 있다 (지표 하나 = 리스트 하나)
 │   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (7TF × RSI OB/OS/봉마감)
 │   ├── ShortcutMenu.jsx       ← 단축키 커스텀 설정 UI (녹음 모드로 각 action 키 재바인딩 + 초기화)
 │   ├── Toast.jsx              ← 토스트 알림 컴포넌트 (일반: 금색, sticky: 빨강 + 확인 버튼)
@@ -152,7 +168,11 @@ frontend/src/
 │   │   ├── Circles.jsx            ← 원 SVG (채우기+테두리, 알림 아이콘, 선택 핸들)
 │   │   ├── Structures.jsx         ← 수동 구조 SVG (지그재그 폴리라인 + CHoCH 마크 + 꼭짓점 핸들)
 │   │   │                             liveClose를 자체 구독 — ChartArea가 구독하면 틱마다 전체 리렌더
-│   │   └── LineOpacityPopup.jsx   ← 트렌드라인/채널/원 투명도(0.25~1.0)·잠금·알림 설정 팝업
+│   │   └── LineOpacityPopup.jsx   ← 더블클릭 팝업 — 헤더(이름+%+🔔🔒) / 투명도 슬라이더 / 옵션 영역
+│   │                                 🔔 의미만 다름: 선·채널·원 = 근접 알림 / 구조·ZZ = CHoCH 발생 알림
+│   │                                 구조·ZZ는 슬라이더 아래에 `CHoCH 표시 [ON/OFF]` + `CHoCH 개수` 슬라이더
+│   │                                 개수는 **그 구조(또는 ZZ)에만** 적용 — 전역 설정이 아니다
+│   │                                 **자동 ZZ와 수동 구조는 이름("구조")·구성 동일** (잠금 유무만 다름)
 │   │                                  ※ FVG/OB/SR/EMA는 SVG가 아닌 `overlayRenderers.js`로 캔버스 렌더
 │   │                                  ※ Volume/RSI 패널은 `volumeRenderer.js`/`rsiRenderer.js` (캔버스) 사용
 │   └── Sidebar/
@@ -251,12 +271,31 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **원 모드**: 원 (2클릭: 중심→반지름)
 - **구조 모드**: 수동 시장 구조 (기본 `s`) — 클릭 반복으로 고/저점 찍기, 우클릭·더블클릭 확정
 - `Escape`: 그리기 취소 / 선택 해제
-- `Delete`: 선택된 도형 삭제 (수동 구조는 꼭짓점/선분을 클릭해 뒀으면 **그 부분만** 삭제)
+- `Delete`: 선택된 도형 삭제 (수동 구조는 꼭짓점을 클릭해 뒀으면 **그 꼭짓점만** 삭제)
 - `a`: 선택된 도형 알람 토글
 - `l`: 선택된 도형 잠금 토글
 - `[` / `]`: 선택된 도형 투명도 ±0.25 조절 (0.25~1.0)
 - 숫자키 `1`~`6`: 타임프레임 전환 (5m/15m/1h/4h/1d/1w)
 - ※ 모든 단축키는 **ShortcutMenu에서 커스텀 가능** (localStorage `keyboard_shortcuts`)
+
+### 자동 ZZ를 도형처럼 다루기 (2026-08-12 추가)
+- 자동 Structure Zigzag는 **지표**지만, 사용자가 "커스텀과 똑같이" 조작하길 원해
+  `drawables`에 가짜 drawable `"zz"`로 감쌌다 (`chart/drawables.js`의 `DRAWABLE_KINDS`·`ZZ_ID`)
+  - 항목이 하나뿐이라 id는 상수 `ZZ_ID`, `items`는 원소 1개 배열
+  - `delete`/`toggleLock`은 **no-op** — 지표는 지우거나 잠글 대상이 아니다
+  - `toggleAlert` = **CHoCH 발생 알림**(근접 알림이 아님). 수동 구조도 동일하게 맞춰서
+    단축키 `a`가 두 지표 모두 CHoCH 알림을 토글한다
+  - 필드명을 수동 구조와 통일(`alertChoch`/`showChoch`/`opacity`) → 팝업·단축키가 분기 없이 읽는다
+- **클릭 = 선택(금색 `#f0b90b`, 1.5px)**, 수동 구조와 같은 색·굵기.
+  선택 상태는 저장하지 않는 App 로컬 state(`zzSelected`) — 렌더는 `overlaysRef`로 전달
+- **투명도**: `indicatorParams.zz.opacity` (서버 영속화, 기본 1.0).
+  최종 알파는 수동 구조와 같은 `0.8 × opacity`. `[` `]` 단축키도 그대로 동작
+  - ※ CHoCH 마크는 투명도를 따르지 않는다 — 항상 100% (수동 구조 `[R1]`과 동일)
+- ⚠ **선택하면서 팬 드래그도 함께 건다** (`hitDetection.js` 체인 5). 다른 도형은 선택이
+  팬을 막지만, 자동 지그재그는 차트 전 구간을 가로질러서 그러면 차트를 못 끄는 지점이
+  화면 곳곳에 생긴다. **클릭만 하면 선택, 끌면 팬** — 이 예외를 없애지 말 것
+- 히트 판정 우선순위는 맨 뒤 (채널 > 원 > 선 > 수동 구조 > 자동 ZZ) —
+  넓게 깔린 지그재그가 다른 도형 클릭을 삼키면 안 된다
 
 ### 도형 공통 속성 (트렌드라인/채널/원)
 - `opacity`: 0.25~1.0 (0.25 단위)
@@ -276,7 +315,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 | CHoCH는 실제 돌파로 bias가 선 상태에서만 (ZZ·Pine도 동일 규칙) | 상승 지속(BOS)에도 CHoCH 오탐. 셋 중 하나만 되돌리면 지표끼리 결과가 어긋남 |
 | 마크가 적게 뜬다고 규칙 완화 금지 | 사용자 기준은 "알고리즘대로면 OK", 빈도가 아님 |
 | BOS 표시 안 함 (제안 거절됨) | 화면이 복잡해짐 |
-| CHoCH 선 끝 = 선분 교차점(`crossT`), 캔들 조회 금지 | 가로선이 지그재그를 지나 오른쪽으로 삐져나옴 |
+| CHoCH 선 끝 = 선분 교차점(`crossT`), 캔들 조회 금지 | 가로선이 지그재그를 지나 오른쪽으로 삐져나옴 (자동 ZZ도 `crossIdx`로 동일하게 통일 — 2026-08-12) |
 | 라이브 판정 = 꼬리 기준 + 구간 극값(래치) | 종가 기준이면 꼬리 돌파를 놓치고, 되돌아올 때 마크가 사라짐 |
 | `deriveStructure`에 `candlesRef.current` 전달 | React candles는 봉마감 때만 갱신 → 라이브가 조용히 죽음 |
 | 라이브 레그는 가장 최근 구조 1개만 | 과거 구조가 화면 끝까지 점선을 뻗음 |
@@ -287,12 +326,16 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 | 표시 TF 필터(`struct.tfs`)는 **표시 전용**, 기본 1h (2026-08-12 사용자 요청) | 저장까지 TF로 나누면 위 항목과 충돌 |
 | 선분 중간 꼭짓점 삽입 없음 | 교대 구조상 동작 불가 — "빠진 기능"이 아님 |
 | 끝점 클릭 = 연장/흡수로 항상 하나의 구조 | 쪼개지면 경계 CHoCH 유실 |
-| 부분 삭제는 클릭 → `Delete` (Shift+클릭 즉시 삭제 아님) | 사용자가 명시적으로 바꾼 조작 |
-| 선분 삭제 = 이어붙이기(끝점 하나 제거), 쪼개기 아님 | 쪼개면 경계 CHoCH 유실 (위와 같은 이유) |
+| 부분 삭제는 꼭짓점 클릭 → `Delete` (Shift+클릭 즉시 삭제 아님) | 사용자가 명시적으로 바꾼 조작 |
+| **선분(몸통) 부분 선택·삭제 없음** (2026-08-12 제거) | 몸통 클릭 시 선이 파랗게 물드는 게 거슬린다고 명시적으로 제거 요청 |
+| 구조별 CHoCH 토글은 더블클릭 팝업에 (2026-08-12 요청) | 구조를 여러 개 그리면 마크가 뒤엉킴 — "보고 싶은 것만" |
 
 ### 수동 구조 (Structure) — 손으로 그리고 CHoCH는 자동
 - **목적**: 자동 ZZ가 못 잡는 구조를 직접 지정. 자동 ZZ와 **공존**하며 `structureZigzag.js`는 건드리지 않는다.
-- **데이터**: `{ id, points: [{ t, p, type:"H"|"L" }], opacity, locked }` — localStorage `"structures"`
+- **데이터**: `{ id, points: [{ t, p, type:"H"|"L" }], opacity, locked, showChoch, alertChoch, maxChoch }`
+  — localStorage `"structures"`
+  (`showChoch`/`alertChoch`는 undefined = ON, `maxChoch`는 undefined = 제한 없음 —
+   기존 저장 구조가 새 필드 때문에 꺼지거나 잘린 채로 뜨지 않게)
 - **전 TF 공유**: storageKey에 타임프레임이 없고 좌표가 timestamp라 1h에서 그린 구조가 5m/1d에도 뜬다
   (트렌드라인/채널/원과 동일 — `tsToIdx`가 TF별 bar index를 다시 계산)
 - **표시 TF 필터**: `indicatorParams.struct.tfs` (중복 선택, 기본 `["1h"]`) — IndicatorMenu ⚙ → StructTfPanel
@@ -319,18 +362,19 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   - 첫 점(과거 방향) 연장은 draft를 역순 seed — 타입 교대·프리뷰 기준점을 맞추기 위함.
     최종 순서는 `normalizeStructurePoints`가 시간순으로 정렬하므로 draft 순서는 무관
   - 이어 그리는 중에는 원본을 렌더에서 숨기고 draft가 대신 그린다 (CHoCH 포함)
-- **편집** (선택 상태에서): 꼭짓점 드래그 이동 / **부분 선택 후 `Delete`로 부분 삭제**
-  - 구조를 한 번 클릭해 선택 → 그 안의 **꼭짓점 또는 선분을 클릭**하면 `structPart`에 담긴다
-    (`{ kind:"point"|"segment", idx }`, `useStructures`)
-  - **색으로 구분**: 구조 전체 선택 = 금색(`#f0b90b`) / 부분 선택 = 파랑(`PALETTE.info` `#60a5fa`).
+- **편집** (선택 상태에서): 꼭짓점 드래그 이동 / **꼭짓점 선택 후 `Delete`로 그 점만 삭제**
+  - 구조를 한 번 클릭해 선택 → 그 안의 **꼭짓점을 클릭**하면 `structPart`에 담긴다
+    (`{ kind:"point", idx }`, `useStructures`)
+  - **색으로 구분**: 구조 전체 선택 = 금색(`#f0b90b`) / 꼭짓점 선택 = 파랑(`PALETTE.info` `#60a5fa`).
     "지금 Delete를 누르면 무엇이 지워지는가"가 색으로 보여야 한다는 사용자 요구사항
-  - **같은 부분을 다시 클릭하면 부분 선택 해제** → 구조 전체 선택으로 복귀.
-    이 토글이 없으면 부분을 고른 뒤 구조 전체 삭제로 돌아갈 방법이 없다
-  - `Delete`: `structPart`가 있으면 **그 부분만**, 없으면 구조 전체 삭제
+  - **같은 꼭짓점을 다시 클릭하면 선택 해제** → 구조 전체 선택으로 복귀.
+    이 토글이 없으면 꼭짓점을 고른 뒤 구조 전체 삭제로 돌아갈 방법이 없다
+  - `Delete`: `structPart`가 있으면 **그 꼭짓점만**, 없으면 구조 전체 삭제
     (`deleteStructSelection` — `drawables.structure.delete`에 연결)
-  - **선분 삭제는 "이어붙이기"** (2026-08-12 사용자 확정): 구조를 쪼개지 않고 끝점 하나를 지운다.
-    첫 선분이면 앞 끝점, 그 외에는 뒤 끝점 → 끝 선분은 잘려나가고 가운데는 양옆 레그가 합쳐진다.
-    **쪼개기(구조 2개로 분리)를 택하지 않은 이유는 [S4]와 같다 — 경계에서 bias가 리셋돼 CHoCH 유실**
+  - **선분(몸통) 부분 선택·삭제는 없다** (2026-08-12 사용자 요청으로 제거 — `[S7]`/`[R7]`).
+    몸통 클릭 시 선이 파랗게 물드는 게 거슬린다는 이유. 지금 **몸통 클릭 = 구조 전체 선택,
+    몸통 더블클릭 = 팝업**이다. `removeStructSegment` / `structPart.kind==="segment"` 경로를
+    되살리지 말 것
   - 삭제로 고점–고점이 인접하면 `normalizeStructurePoints`가 더 극단적인 쪽만 남겨 교대 불변식 유지
     → "그 스윙을 없앤다"가 되어 의미가 성립
   - 꼭짓점이 2개 미만이 되면 구조 자체를 삭제
@@ -341,6 +385,26 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   - **선분 중간 삽입은 없다(의도적)**: 고/저 교대 구조라 H–L 사이에 넣는 점은 어느 타입이든
     양옆 중 하나와 겹치고, normalize가 병합해버려 아무 일도 안 일어난다.
     점을 늘리는 경로는 아래 이어 그리기 하나로 통일
+- **CHoCH 표시 제어** (2026-08-12)
+  - **구조별 on/off**: `structures[].showChoch` — 더블클릭 팝업의 `CHoCH 표시` (undefined = ON)
+  - **구조별 개수**: `structures[].maxChoch` — 더블클릭 팝업의 `CHoCH 개수` 슬라이더.
+    **undefined = 제한 없음(전체)**, 슬라이더를 끝까지 올리면 다시 전체로 저장된다
+    (숫자로 고정하면 구조를 편집해 CHoCH가 늘었을 때 새 마크가 조용히 잘린다)
+  - ⚠ **지표 전체 스위치 `struct.show_choch`는 제거됨** (2026-08-12 사용자 요청).
+    켜고 끄는 곳은 **구조별 팝업 하나뿐**이다. 되살리지 말 것 — 구조별 토글과 AND로 걸리는
+    별개 값이라 OFF로 저장해 두면 구조별 ON이 먹지 않는데, 그 사실이 구조 팝업 어디에도
+    드러나지 않는다. (프론트·백엔드 DEFAULTS에서도 키를 뺐다)
+  - ⚠ **개수를 전역 값 하나로 두지 말 것** (`struct.max_choch`는 제거됨). 두 번 문제가 됐다:
+    ① 전 구조를 합쳐 최신 N개로 자르던 시절 — 과거 구간에 그린 구조의 마크가 최신 구조에
+       밀려 통째로 사라짐 ② 전역 숫자만 있던 시절 — 낮춰둔 걸 잊고 "CHoCH가 안 뜬다"고 오해
+    → 그래서 **값도 구조가 들고, 기본은 제한 없음**이다 (Structures.jsx `[R6]`)
+  - 슬라이더 상한은 그 구조의 실제 검출 개수 — `getStructChochCount(id)` (구조별 Map)
+  - draft(이어 그리는 중)의 CHoCH는 제한 없이 전부 보인다
+  - `showChoch` OFF는 **CHoCH 마크만** 끈다 — 지그재그 선·꼭짓점은 그대로 보인다
+  - 검출 개수는 `chart/structRenderState.js`의 모듈 상태에 Structures 렌더가 기록 →
+    팝업의 슬라이더 상한(1~N)에 사용 (`getStructChochCount(id)`).
+    ZZ와 같은 이유로 모듈 상태다 — 라이브 레그 CHoCH까지 세려면 `candlesRef`가 필요해
+    React 상태(useMemo)로는 값이 어긋난다. 팝업 여는 시점 스냅샷이며 열려 있는 동안은 갱신 안 됨
 - **CHoCH 자동 계산**: `deriveStructure(points)`가 매번 전체를 다시 뽑는 순수 함수
   → **꼭짓점을 옮기면 그 이후 CHoCH가 사라지거나 새로 생긴다. 의도된 동작이다.**
   자동 ZZ의 forward-only 누적 상태는 진행 중 봉 ATR 드리프트를 막으려던 것이라 여기선 불필요
@@ -374,19 +438,54 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
     가로선이 지그재그를 지나 오른쪽으로 삐져나온다 (하락 레그에 잦아 bear 쪽에 몰려 보임)
   - 선분 교차점은 정의상 두 꼭짓점 사이에 들어가므로 어떤 데이터·TF에서도 삐져나오지 않는다
 - **스타일**: 자동 ZZ와 동일 (지그재그 `#888888` / CHoCH `#0ecb81`·`#f6465d` 1.5px + 라벨), 렌더만 SVG
-- **알림 없음**: `useTrendLineAlert`은 선/채널/원만 대상 → `drawables.structure.toggleAlert`는 no-op,
-  LineOpacityPopup에서도 알림 버튼을 숨김
+- **근접 알림 없음**: `useTrendLineAlert`은 선/채널/원만 대상. 대신 `drawables.structure.toggleAlert`가
+  **CHoCH 발생 알림**(`useChochAlert`)에 연결돼 있어 🔔 아이콘과 단축키 `a`가 그대로 동작한다.
+  CHoCH 마크 표시(`showChoch`)는 슬라이더 아래 `CHoCH 표시 [ON/OFF]` 행 — 자동 ZZ와 같은 UI다
+  (👁 아이콘으로 바꿨다가 "무슨 표시인지 모르겠다"는 이유로 사용자가 되돌렸다 — 되살리지 말 것)
+
+### 지그재그 레그 등락률 hover (2026-08-12 추가)
+- 지그재그 선 위에 마우스를 올리면 그 레그의 **등락률(%)** 이 커서 아래 작게 뜬다 (상승 초록 / 하락 빨강)
+- **수동 구조와 자동 ZZ 공용** — `hitDetection.js::findHoveredLegPct`가 둘을 같은 규칙으로 훑는다
+  - 좌표계만 다름: 수동 구조는 timestamp(`tsToIdx` 변환), 자동 ZZ는 이미 bar index
+  - 겹치면 수동 구조가 이긴다 (사용자가 직접 그린 쪽이 의도가 분명)
+  - **진행 중 레그도 포함** — 수동 구조는 `getStructLiveSegment()`(점선), ZZ는 마지막 세그먼트(curSeg)
+- **React 상태를 쓰지 않는다** — 크로스헤어와 같은 imperative SVG 레이어(`legPctRef`).
+  마우스 이동마다 상태를 갱신하면 SVG 오버레이 전체가 리렌더된다
+- 표시 조건: 드래그·그리기 모드가 아니고 커서가 메인 패널(0 ≤ y ≤ IH) 안일 때.
+  히트 반경은 클릭(8)보다 좁은 **6** — hover는 잘못 걸리면 라벨이 깜빡여 거슬린다
+- 자동 ZZ 세그먼트는 수천 개까지 누적되므로 `distToSeg` 전에 x 범위로 먼저 거른다
+- 지표가 꺼져 있으면 대상에서 빠진다 (`showZZ` / `visibleStructures`)
 
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/max_choch/show_choch), struct(tfs — 수동 구조 표시 TF)
+- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
+- ※ `zz`의 **show_choch·max_choch·alert_choch·opacity는 전부 ZZ 선 더블클릭 팝업**에서 조작한다
+  (PARAMS_META.zz에 없음). `show_choch`는 예전에 IndicatorMenu에도 있었지만 **같은 값을 가리키는
+  중복이라 2026-08-12 제거**했다 — 되살리지 말 것
+- ※ `struct.max_choch`는 **없다** — 수동 구조의 표시 개수는 구조마다 localStorage에 있다(`st.maxChoch`)
 - ※ 새 지표 추가 시 프론트 `INDICATOR_DEFAULTS`와 백엔드 `indicatorParamsStore.DEFAULTS` **양쪽 모두**에 키 추가 필요 (백엔드 load()가 자기 DEFAULTS 키만 통과시킴)
 
 ### 알림 시스템
 - **토스트 종류**: 일반(금색 테두리, 30초 자동닫힘) / sticky(빨강 테두리, 확인 버튼 필수)
 - **포지션 종료 알림**: 롱/숏 포지션 각각 독립 감지 → 해당 사이드 종료 시 sticky 알림
 - **추세선/채널/원 근접 알림**: 0.2% 이내 진입 → sticky, 0.3% 이상 이탈 시 해제 (히스테리시스)
+- **CHoCH 발생 알림** (`useChochAlert`, 2026-08-12 추가) — 자동 ZZ + 수동 구조 공용, **기본 ON**
+  - **설정 위치는 지그재그 선 더블클릭 팝업의 🔔 아이콘**(사용자 지정) + 단축키 `a`.
+    자동 ZZ는 `indicatorParams.zz.alert_choch`(지표 단위), 수동 구조는 `structures[].alertChoch`(구조별).
+    둘 다 undefined = ON
+  - 일반 토스트(`addToast`) — sticky가 아니다. CHoCH는 확인이 필요한 경보가 아니라 지나가는
+    이벤트고 자주 뜨므로, 확인 버튼을 강제하면 화면을 막는다
+  - **대상은 진행 중 레그에서 나온 CHoCH뿐**. 확정분까지 보면 `deriveStructure`가 순수 함수라
+    꼭짓점을 옮길 때마다 과거 CHoCH가 재계산돼 편집 중에 알림이 터진다
+  - 오알림 방지 2중 장치 — ① 첫 관측은 무조건 무음(기준선만): 페이지 로드 시 과거 전 구간
+    CHoCH가 한꺼번에 계산된다 ② 자동 ZZ는 **세대(gen) 비교**: TF 전환·파라미터 변경으로
+    누적 상태를 버리고 재계산하면 gen이 증가 → 무음으로 기준선만 갱신
+    (개수 비교로는 안 된다 — MAX_CHOCHS 초과 시 shift로 길이가 그대로일 수 있음)
+  - 판정 신호: ZZ는 `getZzChochSignal()` `{ gen, last }`(last.seq는 초기화돼도 증가),
+    수동 구조는 `getStructLiveChochs()` `[{ structId, dir, price }]`
+  - **표시 옵션과 독립** — CHoCH를 화면에서 숨겨도 알림은 살아 있다(의도적)
+  - 지표가 꺼져 있거나 구조 표시 TF가 아니면 계산 자체가 안 돌아 알림도 없다
 - **RSI 알람** (`useAlertMonitor`): 7개 타임프레임(5m/15m/1h/4h/1d/1w/1M) 독립 WebSocket 감시
   - RSI 과매수(≥70) / 과매도(≤30) — 쿨다운(봉 길이 기준) + 히스테리시스(65/35 복귀 시 해제)
   - 봉 마감: 타임프레임별 개별 설정
@@ -402,7 +501,9 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 
 ### 캔버스 분리 렌더링
 - **메인 캔버스** (`canvasRef`): 캔들 + 오버레이 (FVG/OB/SR/EMA) — 틱마다 RAF로 재드로우
-- **거래량 캔버스** (`volCanvasRef`): 거래량 바 — 틱 업데이트에서 제외, pan/zoom/마감 시만 갱신
+- **거래량 캔버스** (`volCanvasRef`): 거래량 바 — 틱마다 `redrawVolumeTick`으로 갱신
+  (진행 중 봉의 거래량 높이 + 양봉/음봉 색상이 실시간 반영돼야 함 — 2026-08-12 사용자 요청)
+  진행 중 봉이 x 도메인 밖이면 스킵 (과거 구간을 보는 중에는 바뀔 게 없음)
 - **RSI 캔버스** (`rsiCanvasRef`): RSI 선 — pan/zoom 시 즉시 갱신, 틱 업데이트에서 제외
 - pan 중 `overlaysRef._panning = true` 플래그로 FVG/OB/SR/EMA 렌더 스킵 → 성능 최적화
 - `canvasUtils.js`: `initCanvas`(DPR 대응), `withClip`(클리핑), `getVisibleRange`(가시 범위) 공통 헬퍼
@@ -440,6 +541,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 
 ### 보조지표 (프론트엔드 계산, 백엔드 불필요)
 - **Volume**: 거래량 캔버스 (가시 범위 maxVol 정규화, useVolResize로 높이 조절)
+  - 바 색상 `vol.colorMode`: `neutral`(단색) / `candle`(양봉·음봉 색). 실시간 색 전환은 `candle`에서만 보인다
 - **EMA**: 다중 EMA (id/period/color/enabled 속성, useMemo 캐시로 무한루프 방지)
 - **FVG**: 3캔들 패턴으로 갭 검출, 중간값 50% 진입 시 소멸
 - **오더블록**: 스윙 감지 → BOS 탐지 → 직전 역방향 캔들을 OB로 등록, 미티게이션 시 소멸
@@ -449,7 +551,18 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
     `기타/structure_zigzag.pine`도 같이 수정했으므로 **한쪽만 고치면 트레이딩뷰와 결과가 어긋난다.**
   꼬리(고가/저가) 기준 판정, Wilder ATR × atr_mult 미만 스윙은 노이즈로 제거,
   꼭짓점을 회색 지그재그로 연결 + 구조 고/저점 돌파 시 CHoCH 마크
-  CHoCH 마크 스타일은 수동 구조(Structures.jsx)와 동일 (BULL_DARK/BEAR_DARK 실선 1.5px + 라벨)
+  ※ **CHoCH 마크는 수동 구조(Structures.jsx의 ChochMarks)와 픽셀 단위로 같은 규칙** (2026-08-12 통일):
+    - **가로선 끝 = 레그 선분과 레벨의 교차점**(`crossIdx`, 소수 bar index). 피벗 봉에서 끊으면
+      화면의 직선 지그재그와 어긋나 **가로선이 오른쪽으로 삐져나온다**(사용자 지적으로 수정)
+    - **진행 중 레그(curSeg)에서 나온 CHoCH = 점선, 확정분 = 실선.** 다음 피벗으로 레그가
+      확정되면 curSeg가 교체돼 자동으로 실선이 된다 (수동 구조의 `ev.live`와 같은 의미)
+    - 끝점·실선/점선은 **저장하지 않고 `computeStructureZigzag`가 매번 파생한다** — 진행 중
+      레그는 끝점이 계속 연장되므로 교차점도 같이 움직여야 한다. 누적 기록(`_st.chochs`)은
+      건드리지 않으므로 forward-only 원칙은 그대로다
+    - 화면 밖 판정 / 최소 폭 2px / 불투명도 1도 동일. 한쪽만 바꾸지 말 것
+    - `기타/structure_zigzag.pine`도 같이 수정했다 (교차점 + 점선→실선 전환)
+  ※ 지그재그 선 자체는 ZZ·수동 구조가 다르다 — ZZ의 마지막 세그먼트는 실제 피벗 구간이라
+    실선이고, 수동 구조의 진행 중 레그는 "마지막 꼭짓점 → 현재가" 투영이라 점선이다
   ※ 구 Market Structure(MS) 지표는 ZZ가 대체하여 제거됨 (2026-08-12)
   ※ **다른 지표와 달리 훅이 아니라 `chart/structureZigzag.js`의 순수 함수** — 원본 Pine처럼 진행 중 봉에서
     실시간 판정하려면 틱 RAF가 도는 캔버스 렌더 경로에서 candlesRef로 계산해야 하기 때문
@@ -465,6 +578,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   ※ CHoCH 개수는 `getZzChochTotal()`로 노출 — IndicatorMenu가 "검출된 CHoCH N개" 표시와
     `max_choch` 슬라이더 상한(1~N)에 쓴다. ZZ 계산이 캔버스 렌더 경로에만 있어 React 상태로
     올라오지 않으므로, 메뉴 여는 시점에 모듈 상태를 직접 읽는다(열려 있는 동안은 갱신 안 됨)
+  ※ 세그먼트는 `getZzSegments()`로 노출 (bar index 좌표) — 레그 등락률 hover가 히트 판정에 쓴다
 - **RSI 패널**: Wilder's smoothing, 별도 캔버스, 드래그로 높이 조절 (useRsiResize)
   ※ RSI 다이버전스 지표는 제거됨 (2026-08-12) — 지표/알림/파라미터(`div`)/`DivergenceLines.jsx`/
     `utils/rsi.js::buildRSIArray` 전부 삭제. RSI 패널에는 더 이상 SVG 오버레이가 없다

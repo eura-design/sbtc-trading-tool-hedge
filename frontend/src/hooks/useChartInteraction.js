@@ -5,10 +5,13 @@ import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
 import { getCursor } from "../chart/cursorRules";
-import { buildHitChain, findHitChannel, findHitCircle, findHitStructure, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
+import { buildHitChain, findHitChannel, findHitCircle, findHitStructure, findHitZzLeg, findHoveredLegPct, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
+import { getZzSegments } from "../chart/structureZigzag";
+import { getStructLiveSegment } from "../chart/structRenderState";
+import { ZZ_ID } from "../chart/drawables";
 
 export function useChartInteraction({
-  candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, onLineDoubleClick,
+  candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, showLegPct, onLineDoubleClick,
   scalesRef,
   xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,
   drawing, setDrawing, setCurrent, drawMode, setDrawMode, locked,
@@ -35,6 +38,8 @@ export function useChartInteraction({
   structures, selectedStructId, setSelectedStructId,
   addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
   moveStructPoint, normalizeStruct, structPart, selectStructPart, clearStructPart,
+  // 레그 등락률 hover 표시 — 자동 ZZ는 모듈 상태에서 읽으므로 on/off 여부만 받는다
+  showZZ = false,
   // 도형 통합 인터페이스
   drawables,
   overlaysRef,
@@ -143,6 +148,7 @@ export function useChartInteraction({
       addCircle, moveCircle,
       structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
       structures, selectedStructId, structPart, selectStructPart,
+      showZZ, zzSegments: showZZ ? getZzSegments() : null,
     });
 
     for (const step of chain) {
@@ -150,7 +156,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart]);
+  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, showZZ]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -264,6 +270,22 @@ export function useChartInteraction({
         }
       }
 
+      // 지그재그 레그 등락률 — 드래그·그리기 중에는 방해되므로 끈다.
+      // 커서 위치만 쓰는 imperative 라벨이라 React 상태를 건드리지 않는다.
+      if (scales && !drag && !structMode && !drawMode && pos.y >= 0 && pos.y <= IH) {
+        showLegPct?.({
+          x: pos.x, y: pos.y,
+          pct: findHoveredLegPct({
+            px: pos.x, py: pos.y,
+            structures, liveSegment: getStructLiveSegment(),
+            zzSegments: showZZ ? getZzSegments() : null,
+            xScale: scales.xScale, yScale: scales.yScale, candles,
+          }),
+        });
+      } else {
+        showLegPct?.({ pct: null });
+      }
+
       // 드래그 없음 → 커서 결정
       if (!drag) {
         if (scales) {
@@ -297,7 +319,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog]);
+  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
@@ -344,7 +366,13 @@ export function useChartInteraction({
 
     const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
     if (hitSt) { onLineDoubleClick?.(hitSt.id, "structure", e.clientX, e.clientY); return; }
-  }, [candles, lines, channels, circles, structures, structMode, finishStruct, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // 자동 ZZ 지그재그 — 도형이 아니라 지표라 항목이 하나뿐이고 id는 상수 ZZ_ID.
+    // 수동 구조 뒤에 둬서, 겹칠 때는 직접 그린 쪽이 이긴다.
+    if (showZZ && findHitZzLeg(pos.x, pos.y, getZzSegments(), xScale, yScale)) {
+      onLineDoubleClick?.(ZZ_ID, "zz", e.clientX, e.clientY);
+    }
+  }, [candles, lines, channels, circles, structures, structMode, finishStruct, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMouseLeave = useCallback(() => {
     dragRef.current = null;

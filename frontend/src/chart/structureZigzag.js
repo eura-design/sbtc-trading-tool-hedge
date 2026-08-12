@@ -76,6 +76,10 @@ function atrAt(st, candles, i, period) {
 function initState(candles, params, firstT) {
   const p = resolve(params);
   const n = candles.length;
+  // 초기화 = 과거 전 구간을 다시 훑어 CHoCH를 무더기로 재생산한다는 뜻.
+  // 알림 쪽이 이걸 "새 발생"으로 오해하지 않도록 세대 번호를 올린다
+  // (TF 전환·파라미터 변경 직후 알림이 터지는 것을 막는 유일한 신호다).
+  _gen++;
   return {
     arr: candles, params, firstT, p,
     atr: wilderATR(candles, p.atr_period),
@@ -97,12 +101,33 @@ function initState(candles, params, firstT) {
   };
 }
 
+/**
+ * CHoCH 가로선을 어디서 끊을지 — **레그 선분과 레벨의 교차점**(bar index, 소수 허용).
+ * `deriveStructure.js`의 crossT와 같은 규칙이다. 한쪽만 바꾸면 두 지표가 어긋난다.
+ *
+ * ── 왜 "실제로 뚫은 봉(i)"이 아닌가 (2026-08-12 수정) ─────────────────────
+ * 화면에 그려진 건 캔들이 아니라 꼭짓점을 이은 직선 지그재그다. 둘은 어긋난다.
+ * 고점 110 → 저점 85 레그에서 레벨이 90이면 직선은 80% 지점에서 90을 지나지만,
+ * 실제 가격은 90 위에서 뭉개다 레그 끝에서야 깨는 경우가 흔하다. 피벗 봉으로 끊으면
+ * 그 차이만큼 **가로선이 지그재그를 지나 오른쪽으로 삐져나온다**(사용자 지적).
+ * 선분 교차점은 정의상 두 꼭짓점 사이에 들어가므로 어떤 데이터·TF에서도 안 삐져나온다.
+ */
+function crossIdx(i1, p1, i2, p2, level) {
+  const dp = p2 - p1;
+  if (dp === 0) return i2;
+  const a = Math.min(1, Math.max(0, (level - p1) / dp));
+  return i1 + a * (i2 - i1);
+}
+
 function pushSegment(st, seg) {
   st.segments.push(seg);
   if (st.segments.length > MAX_SEGMENTS) st.segments.shift();
 }
 
 function pushChoch(st, ev) {
+  // seq는 상태가 초기화돼도 계속 증가하는 전역 일련번호 — 알림(useChochAlert)이
+  // "이번에 새로 찍힌 것"을 판별하는 데 쓴다. 배열 인덱스는 shift 때문에 못 쓴다.
+  ev.seq = ++_seq;
   st.chochs.push(ev);
   if (st.chochs.length > MAX_CHOCHS) st.chochs.shift();
 }
@@ -153,7 +178,9 @@ function step(st, candles, i) {
           pushSegment(st, st.curSeg);
         }
         if (isChoch && st.structHighBar >= 0) {
-          pushChoch(st, { dir: "bull", fromIdx: st.structHighBar, toIdx: i, price: st.structHigh });
+          // seg = 이 CHoCH가 속한 레그. 끝점이 계속 연장되므로 가로선 끝(toIdx)과
+          // 실선/점선 여부는 저장하지 않고 computeStructureZigzag가 매번 파생한다.
+          pushChoch(st, { dir: "bull", fromIdx: st.structHighBar, price: st.structHigh, seg: st.curSeg });
         }
 
         st.chochInLeg     = isChoch;
@@ -171,7 +198,7 @@ function step(st, candles, i) {
       if (!Number.isNaN(st.structHigh) && ph > st.structHigh) {
         if (!st.chochInLeg && st.bias === -1) {
           if (st.structHighBar >= 0) {
-            pushChoch(st, { dir: "bull", fromIdx: st.structHighBar, toIdx: i, price: st.structHigh });
+            pushChoch(st, { dir: "bull", fromIdx: st.structHighBar, price: st.structHigh, seg: st.curSeg });
           }
           st.chochInLeg = true;
         }
@@ -202,7 +229,7 @@ function step(st, candles, i) {
           pushSegment(st, st.curSeg);
         }
         if (isChoch && st.structLowBar >= 0) {
-          pushChoch(st, { dir: "bear", fromIdx: st.structLowBar, toIdx: i, price: st.structLow });
+          pushChoch(st, { dir: "bear", fromIdx: st.structLowBar, price: st.structLow, seg: st.curSeg });
         }
 
         st.chochInLeg     = isChoch;
@@ -216,7 +243,7 @@ function step(st, candles, i) {
       if (!Number.isNaN(st.structLow) && pl < st.structLow) {
         if (!st.chochInLeg && st.bias === 1) {
           if (st.structLowBar >= 0) {
-            pushChoch(st, { dir: "bear", fromIdx: st.structLowBar, toIdx: i, price: st.structLow });
+            pushChoch(st, { dir: "bear", fromIdx: st.structLowBar, price: st.structLow, seg: st.curSeg });
           }
           st.chochInLeg = true;
         }
@@ -229,18 +256,47 @@ function step(st, candles, i) {
   }
 }
 
-let _st = null;
+let _st  = null;
+let _gen = 0;   // 상태 초기화 세대 (TF 전환·파라미터 변경 시 증가)
+let _seq = 0;   // CHoCH 누적 일련번호 (초기화돼도 계속 증가)
 
 /**
  * 현재 누적된 CHoCH 총 개수 (max_choch 슬라이스 이전의 원본 개수).
  *
- * IndicatorMenu가 "검출 N개" 표시와 max_choch 슬라이더 상한에 쓴다.
+ * IndicatorMenu의 "검출 N개" 표시와, 더블클릭 팝업의 CHoCH 개수 슬라이더 상한(1~N).
  * ZZ 계산이 캔버스 렌더 경로에서만 돌아 React 상태로 올라오지 않으므로,
  * 메뉴가 열릴 때 이 함수로 모듈 상태를 직접 읽는다(메뉴 열려 있는 동안은 갱신 안 됨).
  * ZZ가 꺼져 있으면 계산 자체가 안 돌아 0을 반환한다.
  */
 export function getZzChochTotal() {
   return _st?.chochs.length ?? 0;
+}
+
+/**
+ * 현재 누적된 지그재그 세그먼트 `[{ i1, p1, i2, p2 }]` (좌표는 **bar index**).
+ *
+ * 레그 등락률 hover 표시(hitDetection.findHoveredLegPct)가 히트 판정에 쓴다.
+ * ZZ는 캔버스 렌더 경로에만 있어 React로 올라오지 않으므로 모듈 상태를 직접 읽는다.
+ * 마지막 세그먼트는 진행 중인 레그(curSeg)라 매 틱 끝점이 연장된다.
+ * ZZ가 꺼져 있으면 계산 자체가 안 돌아 빈 배열이다.
+ */
+export function getZzSegments() {
+  return _st?.segments ?? [];
+}
+
+/**
+ * CHoCH 알림용 신호 — `{ gen, last }`.
+ *   gen  : 상태 초기화 세대. 값이 바뀌었으면 과거 구간을 재계산한 것이므로
+ *          알림 쪽은 **소리 없이 기준선만 다시 잡아야 한다**.
+ *   last : 마지막 CHoCH `{ seq, dir, price, ... }` | null.
+ *          같은 gen 안에서 seq가 커졌으면 그게 방금 발생한 CHoCH다.
+ *
+ * 개수(getZzChochTotal) 비교로는 안 된다 — MAX_CHOCHS를 넘으면 shift로
+ * 앞이 잘려나가 길이가 그대로여도 새 CHoCH가 찍힐 수 있다.
+ */
+export function getZzChochSignal() {
+  const arr = _st?.chochs;
+  return { gen: _gen, last: arr?.length ? arr[arr.length - 1] : null };
 }
 
 export function computeStructureZigzag(candles, params = {}) {
@@ -262,9 +318,25 @@ export function computeStructureZigzag(candles, params = {}) {
   _st.i = n - 1;
 
   const show_choch = params.show_choch ?? true;
-  const max_choch  = params.max_choch  ?? 10;
+  if (!show_choch) return { segments: _st.segments, chochs: [] };
+  // null/미설정 = 제한 없음. slice(-Infinity)는 배열 전체를 준다.
+  // 기본을 숫자로 두면 낮춰둔 걸 잊고 "CHoCH가 안 뜬다"고 오해한다 (Structures.jsx [R6])
+  const max_choch = params.max_choch > 0 ? params.max_choch : Infinity;
+
+  // 가로선 끝(toIdx)과 실선/점선은 **저장하지 않고 매번 파생한다** — 진행 중 레그는
+  // 끝점이 계속 연장되므로 교차점도 같이 움직여야 지그재그 밖으로 안 삐져나온다.
+  // 누적 기록(_st.chochs)은 손대지 않으므로 forward-only 원칙은 그대로다.
   return {
     segments: _st.segments,
-    chochs:   show_choch ? _st.chochs.slice(-max_choch) : [],
+    chochs: _st.chochs.slice(-max_choch).map(ev => ({
+      dir:   ev.dir,
+      price: ev.price,
+      fromIdx: ev.fromIdx,
+      toIdx: ev.seg ? crossIdx(ev.seg.i1, ev.seg.p1, ev.seg.i2, ev.seg.p2, ev.price) : ev.fromIdx,
+      // 아직 연장 중인 레그(curSeg)에서 나온 CHoCH = 진행 중 → 점선.
+      // 다음 피벗으로 레그가 확정되면 curSeg가 교체돼 자동으로 실선이 된다.
+      // (수동 구조의 ev.live와 같은 의미 — Structures.jsx [R5])
+      live:  ev.seg != null && ev.seg === _st.curSeg,
+    })),
   };
 }

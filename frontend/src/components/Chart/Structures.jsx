@@ -3,6 +3,7 @@ import { CANVAS_C, PALETTE } from "../../constants";
 import { useStore } from "../../store";
 import { tsToIdx } from "../../chart/scales";
 import { deriveStructure, normalizeStructurePoints } from "../../chart/deriveStructure";
+import { setStructChochCounts, setStructLiveSegment, setStructLiveChochs } from "../../chart/structRenderState";
 
 // 수동 구조 SVG 렌더 — 지그재그 + CHoCH 마크 + 꼭짓점 핸들
 //
@@ -28,12 +29,27 @@ import { deriveStructure, normalizeStructurePoints } from "../../chart/deriveStr
 //
 // [R5] 라이브에서 나온 CHoCH는 점선, 확정분은 실선. 이 구분을 없애지 말 것.
 //
+// [R6] CHoCH 표시 개수 제한은 **구조마다 각각**이고, 값도 구조가 들고 있다(st.maxChoch,
+//      더블클릭 팝업에서 설정). 전역 설정 하나로 두지 말 것 — 두 번 문제가 됐다:
+//        ① 전 구조를 합쳐 최신 N개로 자르던 시절: 과거 구간에 그린 구조의 마크가
+//           최신 구조에 밀려 통째로 사라짐 (그 구조만 봐도 안 보임)
+//        ② 전역 숫자만 있던 시절: 값을 낮춰둔 걸 잊고 "CHoCH가 안 뜬다"고 오해
+//      **기본값은 제한 없음(undefined = 전체).** 기본을 숫자로 두면 ②가 되풀이된다.
+//      화면 정리는 구조별 토글(showChoch)이 담당한다 — 같은 팝업에 나란히 있다.
+//      지표 전체 토글(struct.show_choch)도 2026-08-12 제거했다. 구조별 토글과 AND로
+//      걸리는 별개 값이라, OFF로 저장해 두면 구조별 ON이 먹지 않는데 그 사실이
+//      구조 팝업 어디에도 드러나지 않았다. 켜고 끄는 곳은 팝업 하나로 족하다.
+//
+// [R7] **선분(몸통) 부분 선택은 없다** (2026-08-12 사용자 요청으로 제거).
+//      몸통을 클릭했을 때 선이 파랗게 물드는 게 거슬린다는 이유였다.
+//      파란색은 이제 꼭짓점 부분 선택 전용이다. 선분 강조 레이어를 되살리지 말 것.
+//
 // 자동 ZZ(overlayRenderers.js::renderStructureZigzag)와 픽셀 단위로 같은 스타일
 const ZZ_COLOR   = CANVAS_C.NEUTRAL;      // #888888
 const BULL_COLOR = CANVAS_C.BULL_DARK;    // #0ecb81
 const BEAR_COLOR = CANVAS_C.BEAR_DARK;    // #f6465d
 const SEL_COLOR  = "#f0b90b";           // 구조 전체 선택 = 금색
-// 구조 안에서 다시 고른 꼭짓점/선분 = 파랑. 금색과 확실히 구분돼야
+// 구조 안에서 다시 고른 꼭짓점 = 파랑. 금색과 확실히 구분돼야
 // "지금 Delete를 누르면 이것만 지워진다"가 한눈에 보인다 (사용자 요구사항)
 const PART_COLOR = PALETTE.info;        // #60a5fa
 
@@ -106,24 +122,74 @@ export const Structures = memo(function Structures({
     return cands.reduce((a, b) => (b.t > a.t ? b : a)).id;
   })();
 
+  // ── CHoCH 파생 + 표시 개수 제한 ([R6]) ─────────────────────────────────────
+  // 개수를 세려면 구조별 렌더 안에서 계산할 수 없다 — 먼저 전부 파생해 합친다.
+  // draft에 들어온 구조(연장 원본 / 흡수된 구조)는 draft가 대신 그리므로 제외.
+  const visible = (structures ?? []).filter(
+    st => st.points?.length && !inDraft(structDraft, st.id));
+
+  const derived = new Map();
+  for (const st of visible) {
+    derived.set(st.id, deriveStructure(st.points, st.id === liveOwnerId ? liveCandles : null));
+  }
+  // 이어 그리기 중에도 CHoCH가 계속 보이도록 draft에서도 파생한다.
+  // draft는 과거 방향 연장 시 역순일 수 있어 normalize로 시간순을 맞춘 뒤 넘긴다.
+  const draftDerived = structDraft?.points?.length >= 2
+    ? deriveStructure(
+        normalizeStructurePoints(structDraft.points),
+        liveOwnerId === DRAFT_ID ? liveCandles : null,
+      )
+    : null;
+
+  // 구조별 CHoCH 표시 토글(더블클릭 팝업)이 꺼진 구조는 제외. 기본은 ON이라 undefined = ON
+  // (기존에 저장된 구조가 전부 꺼진 채로 뜨지 않게).
+  const chochOn = st => st.showChoch !== false;
+  // 슬라이스 **전** 개수를 구조별로 남긴다 — 팝업의 "CHoCH 개수" 슬라이더 상한(1~N)
+  setStructChochCounts(new Map(visible.map(st => [st.id, derived.get(st.id).chochs.length])));
+
+  // 진행 중 레그(점선)를 hover 등락률 표시가 쓸 수 있게 남긴다.
+  // 구조를 통틀어 하나뿐이므로([R3]) 여기서 한 번만 기록하면 된다.
+  setStructLiveSegment(
+    (liveOwnerId === DRAFT_ID
+      ? draftDerived?.liveSegment
+      : derived.get(liveOwnerId)?.liveSegment) ?? null,
+  );
+
+  // 알림(useChochAlert)용 — 진행 중 레그에서 나온 CHoCH만. 확정분을 넣으면
+  // 꼭짓점을 옮길 때마다 과거 CHoCH가 재계산돼 알림이 터진다(structRenderState 주석).
+  // draft는 제외 — 그리는 도중에 울리면 방해만 된다.
+  setStructLiveChochs(
+    visible.flatMap(st =>
+      derived.get(st.id).chochs
+        .filter(ev => ev.live)
+        .map(ev => ({ structId: st.id, dir: ev.dir, price: ev.price }))),
+  );
+
+  // 표시 개수 제한 — **구조마다 각각, 그 구조의 팝업에서 설정한 값** ([R6]).
+  // chochs는 deriveStructure가 시간순으로 push하므로 slice(-N)이 곧 최신 N개다.
+  // st.maxChoch가 없으면 제한 없음(전체) — 기본값을 숫자로 두면 "왜 안 보이지"가 반복된다.
+  // 지표 전체 스위치(struct.show_choch)는 없앴다 — 켜고 끄는 건 구조별 팝업 하나뿐이다.
+  // 전역 값을 다시 두면 OFF로 저장된 걸 잊고 "구조별로 켰는데 왜 안 뜨지"가 된다.
+  const shown = (list, st) => {
+    if (st && !chochOn(st)) return [];
+    const n = st?.maxChoch;
+    return n > 0 ? list.slice(-n) : list;
+  };
+
   return (
     <g style={{ pointerEvents: "none" }}>
-      {(structures ?? []).map(st => {
-        if (!st.points?.length) return null;
-        // draft에 들어온 구조(연장 원본 / 흡수된 구조)는 draft가 대신 그린다
-        if (inDraft(structDraft, st.id)) return null;
+      {visible.map(st => {
         const selected = st.id === selectedStructId;
         const opacity  = selected ? 0.95 : (st.opacity ?? 1.0);
         const color    = selected ? SEL_COLOR : ZZ_COLOR;
 
         // segments는 아래 polyline이 points로 직접 그리므로 여기선 chochs/liveSegment만 사용
-        const { chochs, liveSegment } =
-          deriveStructure(st.points, st.id === liveOwnerId ? liveCandles : null);
+        const { chochs, liveSegment } = derived.get(st.id);
         const pts = st.points.map(pt => toXY(pt.t, pt.p));
 
-        // 선택된 구조 안에서 다시 고른 꼭짓점/선분 (Delete로 이것만 지워진다)
-        const partPt  = selected && structPart?.kind === "point"   ? structPart.idx : -1;
-        const partSeg = selected && structPart?.kind === "segment" ? structPart.idx : -1;
+        // 선택된 구조 안에서 다시 고른 꼭짓점 (Delete로 이것만 지워진다).
+        // 선분 부분 선택은 없다 — [R7] 참고.
+        const partPt = selected && structPart?.kind === "point" ? structPart.idx : -1;
 
         return (
           <g key={st.id}>
@@ -135,13 +201,6 @@ export const Structures = memo(function Structures({
               opacity={0.8 * opacity}
             />
 
-            {/* 선택된 선분 강조 — Delete 대상이 어디인지 보이게 파랑으로 덧그린다 */}
-            {partSeg > 0 && pts[partSeg] && (
-              <line x1={pts[partSeg - 1].x} y1={pts[partSeg - 1].y}
-                x2={pts[partSeg].x} y2={pts[partSeg].y}
-                stroke={PART_COLOR} strokeWidth={4} opacity={0.95} strokeLinecap="round" />
-            )}
-
             {/* 진행 중 레그 — 마지막 꼭짓점에서 현재가까지 */}
             {liveSegment && (() => {
               const a = toXY(liveSegment.t1, liveSegment.p1);
@@ -151,7 +210,7 @@ export const Structures = memo(function Structures({
                 strokeDasharray="4,3" />;
             })()}
 
-            <ChochMarks chochs={chochs} candles={candles}
+            <ChochMarks chochs={shown(chochs, st)} candles={candles}
               xScale={xScale} yScale={yScale} IW={IW} />
 
             {/* 꼭짓점 — 선택 시 드래그 핸들, 평소엔 위치 표시용 점.
@@ -174,21 +233,13 @@ export const Structures = memo(function Structures({
         const pts = structDraft.points.map(pt => toXY(pt.t, pt.p));
         const prev = pts[pts.length - 1];
         const nextXY = structPreview ? toXY(structPreview.t, structPreview.p) : null;
-        // 이어 그리기 중에도 CHoCH가 계속 보이도록 draft에서도 파생한다.
-        // draft는 과거 방향 연장 시 역순일 수 있어 normalize로 시간순을 맞춘 뒤 넘긴다.
-        const draftChochs = structDraft.points.length >= 2
-          ? deriveStructure(
-              normalizeStructurePoints(structDraft.points),
-              liveOwnerId === DRAFT_ID ? liveCandles : null,
-            ).chochs
-          : [];
         return (
           <g>
             {pts.length >= 2 && (
               <polyline points={pts.map(q => `${q.x},${q.y}`).join(" ")}
                 fill="none" stroke={ZZ_COLOR} strokeWidth={1} opacity={0.8} />
             )}
-            <ChochMarks chochs={draftChochs} candles={candles}
+            <ChochMarks chochs={shown(draftDerived?.chochs ?? [])} candles={candles}
               xScale={xScale} yScale={yScale} IW={IW} />
             {nextXY && (
               <line x1={prev.x} y1={prev.y} x2={nextXY.x} y2={nextXY.y}

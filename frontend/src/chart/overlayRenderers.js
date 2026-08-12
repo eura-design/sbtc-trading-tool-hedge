@@ -146,19 +146,31 @@ export function renderEMA(ctx, emaDataList, xScale, yScale, IW, IH) {
 }
 
 // ── Structure Zigzag (지그재그 + CHoCH) ──────────────────────────────────────
-export function renderStructureZigzag(ctx, zzData, xScale, yScale, IW, IH) {
+// 선택 강조색 — 수동 구조(Structures.jsx의 SEL_COLOR)와 같은 금색
+const ZZ_SEL_COLOR = "#f0b90b";
+
+/**
+ * @param opts { selected, opacity } — 지그재그 선의 색·굵기·투명도.
+ *   수동 구조와 같은 규칙: 선택 시 금색 1.5px·투명도 0.95, 평소 회색 1px·설정 투명도.
+ *   최종 알파는 둘 다 `0.8 * opacity` (지그재그는 배경처럼 깔린다).
+ *   ※ CHoCH 마크는 투명도를 따르지 않는다 — 항상 100% (수동 구조 [R1]과 동일)
+ */
+export function renderStructureZigzag(ctx, zzData, xScale, yScale, IW, IH, opts = {}) {
   const segments = zzData?.segments;
   const chochs   = zzData?.chochs;
   if (!segments?.length && !chochs?.length) return;
+
+  const selected = !!opts.selected;
+  const opacity  = selected ? 0.95 : (opts.opacity ?? 1.0);
 
   withClip(ctx, M.left, M.top, IW, IH, () => {
     const [iMin, iMax] = xScale.domain();
 
     // 지그재그 선 (한 번의 path로 배치 스트로크)
     if (segments?.length) {
-      ctx.strokeStyle = CANVAS_C.NEUTRAL;
-      ctx.lineWidth   = 1;
-      ctx.globalAlpha = 0.8;
+      ctx.strokeStyle = selected ? ZZ_SEL_COLOR : CANVAS_C.NEUTRAL;
+      ctx.lineWidth   = selected ? 1.5 : 1;
+      ctx.globalAlpha = 0.8 * opacity;
       ctx.setLineDash([]);
       ctx.beginPath();
       for (const s of segments) {
@@ -175,28 +187,32 @@ export function renderStructureZigzag(ctx, zzData, xScale, yScale, IW, IH) {
       ctx.textAlign    = "center";
       ctx.textBaseline = "alphabetic";
 
+      // ※ 수동 구조(Structures.jsx의 ChochMarks)와 **픽셀 단위로 같은 규칙**이다.
+      //   화면 밖 판정 / 최소 폭 2px / 불투명도 1 / 진행 중이면 점선 — 한쪽만 바꾸지 말 것.
       for (const ev of chochs) {
-        if (ev.toIdx < iMin - 1 || ev.fromIdx > iMax + 1) continue;
-        const x0 = Math.max(0,  xScale(ev.fromIdx));
-        const x1 = Math.min(IW, xScale(ev.toIdx));
+        const rawX0 = xScale(ev.fromIdx);
+        const rawX1 = xScale(ev.toIdx);
+        if (rawX1 < 0 || rawX0 > IW) continue;             // 화면 밖
+        const x0 = Math.max(0, rawX0);
+        // 돌파 지점이 레벨 시작점과 같은 화면 위치면 선이 사라지므로 최소 폭 확보
+        const x1 = Math.max(Math.min(IW, rawX1), x0 + 2);
         const y  = yScale(ev.price);
-        if (x1 <= x0) continue;
 
-        // 방향색 + 실선 1.5px (수동 구조 Structures.jsx의 CHoCH 마크와 같은 스타일)
         const isBull = ev.dir === "bull";
         const color  = isBull ? CANVAS_C.BULL_DARK : CANVAS_C.BEAR_DARK;
 
         ctx.strokeStyle = color;
         ctx.lineWidth   = 1.5;
-        ctx.globalAlpha = 0.8;
-        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        // 진행 중 레그에서 나온 CHoCH는 확정분과 구분되게 점선
+        ctx.setLineDash(ev.live ? [5, 3] : []);
         ctx.beginPath();
         ctx.moveTo(x0, y);
         ctx.lineTo(x1, y);
         ctx.stroke();
+        ctx.setLineDash([]);
 
-        ctx.globalAlpha = 1;
-        ctx.fillStyle   = color;
+        ctx.fillStyle = color;
         ctx.fillText("CHoCH", (x0 + x1) / 2, isBull ? y - 4 : y + 12);
       }
     }

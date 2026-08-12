@@ -119,8 +119,10 @@ function crossT(t1, p1, t2, p2, level) {
  *                **candlesRef.current를 넘겨야 한다** — React candles state는 봉마감
  *                때만 갱신되므로 진행 중 봉의 고가/저가가 낡아 있다 (useCandles.js:29-38).
  *                생략하면 라이브 레그 없이 확정 꼭짓점만으로 계산한다.
+ * @param trace   배열을 넘기면 꼭짓점마다 판정 근거를 담는다 (chart/structDebug.js 전용).
+ *                판정 로직을 복제하면 실제 동작과 어긋난 설명을 하게 되므로 여기서 직접 기록한다.
  */
-export function deriveStructure(points, candles = null) {
+export function deriveStructure(points, candles = null, trace = null) {
   if (!points || points.length < 2) return EMPTY_STRUCTURE;
 
   const segments = [];
@@ -139,14 +141,21 @@ export function deriveStructure(points, candles = null) {
   let structLow  = null, structLowT  = null;   // 직전 확정 스윙 저점 (하향 돌파 감시 대상)
   let bias = 0;                                // 1 = 상승, -1 = 하락, 0 = 미확정
 
+  const BIAS_LABEL = { 1: "상승", [-1]: "하락", 0: "미정" };
+
   for (let k = 1; k < points.length; k++) {
     const prev = points[k - 1], cur = points[k];
+    const biasBefore = bias;
+    let level = null, broke = false, fired = false;
 
     if (cur.type === "H") {
       // 고점에 도달 = 직전 저점이 구조 저점으로 확정됨
       if (prev.type === "L") { structLow = prev.p; structLowT = prev.t; }
+      level = structHigh;
       if (structHigh !== null && cur.p > structHigh) {
+        broke = true;
         if (bias === -1) {
+          fired = true;
           chochs.push({
             dir: "bull", fromT: structHighT, price: structHigh,
             toT: crossT(prev.t, prev.p, cur.t, cur.p, structHigh),
@@ -156,8 +165,11 @@ export function deriveStructure(points, candles = null) {
       }
     } else {
       if (prev.type === "H") { structHigh = prev.p; structHighT = prev.t; }
+      level = structLow;
       if (structLow !== null && cur.p < structLow) {
+        broke = true;
         if (bias === 1) {
+          fired = true;
           chochs.push({
             dir: "bear", fromT: structLowT, price: structLow,
             toT: crossT(prev.t, prev.p, cur.t, cur.p, structLow),
@@ -165,6 +177,20 @@ export function deriveStructure(points, candles = null) {
         }
         bias = -1;
       }
+    }
+
+    if (trace) {
+      const need = cur.type === "H" ? -1 : 1;   // 전환이 되려면 서 있어야 할 반대 추세
+      trace.push({
+        "#": k,
+        꼭짓점: `${cur.type} ${cur.p}`,
+        "감시 레벨": level ?? "—",
+        "직전 추세": BIAS_LABEL[biasBefore],
+        판정: fired ? "CHoCH ✔"
+          : level === null ? "비교할 구조 레벨이 아직 없음"
+          : !broke         ? "레벨 미돌파"
+          : `돌파했지만 직전 추세가 ${BIAS_LABEL[need]}이 아니라 ${BIAS_LABEL[biasBefore]} → BOS(추세 지속)`,
+      });
     }
   }
 

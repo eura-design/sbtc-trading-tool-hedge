@@ -11,9 +11,9 @@ export const INDICATORS = [
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
   { key: "zz",  label: "Structure Zigzag" },
-  // 수동 구조 표시 토글 — 자동 ZZ와 독립. 파라미터 없음(PARAMS_META에 항목 없음)
+  // 수동 구조 표시 토글 — 자동 ZZ와 독립
   // ※ key는 "struct" 유지 — 바꾸면 localStorage("indicators")에 저장된 on/off가 초기화된다
-  // ⚙ 설정은 표시 타임프레임 선택(StructTfPanel) — 슬라이더 파라미터는 없다
+  // ⚙ 설정은 전용 패널(StructTfPanel): 표시 타임프레임 + CHoCH 표시 개수/on-off
   { key: "struct", label: "Custom Structure Zigzag" },
   { key: "ema", label: "EMA" },
 ];
@@ -51,9 +51,9 @@ const PARAMS_META = {
     { key: "atr_mult",   label: "ATR 배수",       min: 0.1, max: 5.0,   step: 0.1, fmt: v => v.toFixed(1) + "×" },
     { key: "atr_period", label: "ATR 기간",       min: 5,   max: 50,    step: 1  },
     // 표시 범위(scan_from)는 제거 — 지그재그는 로드된 캔들 전체를 잇는다.
-    // max_choch의 상한은 실제 검출 개수로 SettingsPanel에서 덮어쓴다.
-    { key: "max_choch",  label: "CHoCH 표시 개수", min: 1,  max: 30,    step: 1  },
-    { key: "show_choch", label: "CHoCH 표시",     type: "toggle" },
+    // CHoCH 관련(show_choch 표시 on/off, max_choch 개수)은 여기 없다 —
+    // 전부 **ZZ 선 더블클릭 팝업**에 있다 (2026-08-12 사용자 요청으로 메뉴 쪽 중복 제거).
+    // show_choch는 팝업과 **같은 값**(zz.show_choch)을 가리켜 두 곳에 둘 이유가 없었다.
   ],
   sr: [
     { key: "kde_range",       label: "분석 범위(%)",  min: 5,    max: 40,   step: 1,    fmt: v => v + "%" },
@@ -64,6 +64,36 @@ const PARAMS_META = {
     { key: "top_n",           label: "표시 레벨수",   min: 3,    max: 15,   step: 1   },
   ],
 };
+
+// 수동 구조(struct)는 이 메뉴에 **표시 타임프레임(tfs)만** 둔다 (StructTfPanel).
+// CHoCH 관련은 전부 각 구조의 더블클릭 팝업에 있다 — 표시 on/off(showChoch),
+// 개수(maxChoch), 검출 개수 모두 **구조별**이라 메뉴에 둘 자리가 없다 (Structures.jsx [R6]).
+//
+// ⚠ 지표 전체 CHoCH 스위치(`struct.show_choch`)는 **없앴다** (2026-08-12 사용자 요청).
+//   되살리면 안 되는 이유: 팝업의 구조별 토글과 AND로 걸리는 별개 값이라,
+//   전체 스위치를 OFF로 저장해 둔 채 UI만 사라지면 구조별 ON이 아무 효과가 없고
+//   되돌릴 방법도 없다. 화면 정리는 구조별 토글 하나로 충분하다.
+
+// "검출된 CHoCH N개" — 자동 ZZ 전용(지표 하나가 리스트 하나라 합계가 곧 그 값).
+// 렌더 경로의 모듈 상태를 직접 읽는 것이라 메뉴를 여는 시점의 스냅샷이다.
+function ChochCountRow({ total, theme }) {
+  return (
+    <div style={{
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      marginBottom: 8, paddingBottom: 6,
+      borderBottom: `1px solid ${theme.borderSec}`,
+      fontSize: 11, color: theme.textSec,
+    }}>
+      <span>검출된 CHoCH</span>
+      <span style={{
+        color: total ? "#c084fc" : theme.textFaint, fontWeight: 700,
+        fontVariantNumeric: "tabular-nums",
+      }}>
+        {total}개
+      </span>
+    </div>
+  );
+}
 
 function ParamSlider({ meta, value, onChange, theme }) {
   if (meta.type === "toggle") {
@@ -181,11 +211,16 @@ function EmaSettingsPanel({ emaList, setEmaList, resetIndicator, theme }) {
   );
 }
 
-// 수동 구조를 표시할 타임프레임 선택 (중복 선택, 기본 1h)
-// 구조 데이터 자체는 전 TF 공유이고 여기서는 "어느 TF에서 보여줄지"만 거른다.
-// 선택 안 된 TF에서는 지표 OFF와 동일 — 렌더·히트 판정·그리기 전부 막힌다.
-function StructTfPanel({ tfs, setParam, resetIndicator, theme }) {
-  const list = Array.isArray(tfs) ? tfs : [];
+// 수동 구조 설정 패널 — 표시 타임프레임 **전용**
+//
+// 표시 TF: 중복 선택, 기본 1h. 구조 데이터 자체는 전 TF 공유이고 여기서는
+// "어느 TF에서 보여줄지"만 거른다. 선택 안 된 TF에서는 렌더·히트 판정이 막힌다
+// (단, 지표 토글과 달리 그리기 버튼은 죽이지 않는다 — 구조 모드로 들어가면 TF가 자동 추가됨).
+//
+// CHoCH는 여기 없다 — 표시 on/off·개수·검출 개수 전부 구조별이라 각 구조의
+// 더블클릭 팝업에서 조작한다 (Structures.jsx [R6]). 위 STRUCT 주석 참고.
+function StructTfPanel({ structParams, setParam, resetIndicator, theme }) {
+  const list = Array.isArray(structParams?.tfs) ? structParams.tfs : [];
   const toggle = (val) => {
     const next = list.includes(val) ? list.filter(v => v !== val) : [...list, val];
     // INTERVALS 순서로 정렬해 저장 — 클릭 순서에 따라 표시가 뒤섞이지 않게
@@ -215,6 +250,7 @@ function StructTfPanel({ tfs, setParam, resetIndicator, theme }) {
           선택된 타임프레임이 없어 구조가 어디에도 표시되지 않고 그리기도 막힙니다.
         </div>
       )}
+
       <button
         onClick={() => resetIndicator("struct")}
         style={{
@@ -258,11 +294,9 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
   const isZZ    = indKey === "zz";
   const indParams = params[indKey] || {};
 
-  // ZZ: 현재 검출된 CHoCH 개수를 읽어 슬라이더 상한(1~N)으로 쓴다.
-  // 모듈 상태 직접 조회라 메뉴를 여는 시점의 값이며, 열려 있는 동안은 갱신되지 않는다.
+  // ZZ: 검출된 CHoCH 개수 표시용 (모듈 상태 직접 조회 — 메뉴를 여는 시점의 값).
+  // 표시 개수 제한(max_choch)은 여기 없다 — ZZ 선 더블클릭 팝업으로 옮겼다.
   const zzTotal = isZZ ? getZzChochTotal() : 0;
-  const resolveMeta = meta =>
-    (isZZ && meta.key === "max_choch") ? { ...meta, max: Math.max(1, zzTotal) } : meta;
 
   const handleRefresh = async () => {
     setSrStatus(null);
@@ -282,34 +316,16 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
       background: theme.bgCardAlt,
       borderTop: `1px solid ${theme.borderSec}`,
     }}>
-      {isZZ && (
-        <div style={{
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          marginBottom: 8, paddingBottom: 6,
-          borderBottom: `1px solid ${theme.borderSec}`,
-          fontSize: 11, color: theme.textSec,
-        }}>
-          <span>검출된 CHoCH</span>
-          <span style={{
-            color: zzTotal ? "#c084fc" : theme.textFaint, fontWeight: 700,
-            fontVariantNumeric: "tabular-nums",
-          }}>
-            {zzTotal}개
-          </span>
-        </div>
-      )}
-      {metas.map(meta => {
-        const m = resolveMeta(meta);
-        return (
-          <ParamSlider
-            key={m.key}
-            meta={m}
-            value={indParams[m.key] ?? INDICATOR_DEFAULTS[indKey][m.key]}
-            onChange={val => setParam(indKey, m.key, val)}
-            theme={theme}
-          />
-        );
-      })}
+      {isZZ && <ChochCountRow total={zzTotal} theme={theme} />}
+      {metas.map(m => (
+        <ParamSlider
+          key={m.key}
+          meta={m}
+          value={indParams[m.key] ?? INDICATOR_DEFAULTS[indKey][m.key]}
+          onChange={val => setParam(indKey, m.key, val)}
+          theme={theme}
+        />
+      ))}
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         <button
           onClick={() => resetIndicator(indKey)}
@@ -457,7 +473,7 @@ export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaLi
                       />
                     : ind.key === "struct"
                     ? <StructTfPanel
-                        tfs={params.struct?.tfs ?? INDICATOR_DEFAULTS.struct.tfs}
+                        structParams={params.struct ?? INDICATOR_DEFAULTS.struct}
                         setParam={setParam}
                         resetIndicator={resetIndicator}
                         theme={theme}

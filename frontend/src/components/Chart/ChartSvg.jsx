@@ -15,7 +15,7 @@ export function ChartSvg({
   scales, candles, candlesRef,
   showRsi, rsiH, onDividerMouseDown,
   showVol, volH, onVolDividerMouseDown,
-  vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef,
+  vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, legPctRef,
   hasPos, hasLong, hasShort, position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp,
   lines, selectedLineId, lineStart, linePreview, isLog,
   drawing, current, locked, selectedBox,
@@ -84,6 +84,14 @@ export function ChartSvg({
         />
         <text ref={bodyPctRef} display="none" x={0} y={0}
           fontSize={13} fontWeight={600}
+          fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
+          fill="#0ecb81"
+          stroke={isDark ? "#0d1117" : "#f9fafb"}
+          strokeWidth={3} paintOrder="stroke"
+        />
+        {/* 지그재그 레그 등락률 — 캔들 등락률(bodyPct)보다 작게, 한 줄 아래 */}
+        <text ref={legPctRef} display="none" x={0} y={0}
+          fontSize={11} fontWeight={700}
           fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
           fill="#0ecb81"
           stroke={isDark ? "#0d1117" : "#f9fafb"}

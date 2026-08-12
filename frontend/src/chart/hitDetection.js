@@ -2,7 +2,7 @@ import { HIT } from "../constants";
 import { distToSeg, findHitLine } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
-import { clearAllSelections, selectDrawable } from "./drawables";
+import { clearAllSelections, selectDrawable, ZZ_ID } from "./drawables";
 
 // 채널 두 선의 픽셀 좌표 계산
 export function channelXYs(ch, candles, xScale, yScale, _isLog = false) {
@@ -128,6 +128,60 @@ export function findStructSegmentIdx(st, px, py, xScale, yScale, candles, thresh
   return -1;
 }
 
+/**
+ * 자동 ZZ 지그재그 레그 히트 → 그 세그먼트 `{ i1, p1, i2, p2 }` (없으면 null).
+ * 좌표가 bar index라 수동 구조와 달리 tsToIdx 변환이 필요 없다.
+ *
+ * 누적 세그먼트가 수천 개까지 가므로 distToSeg 전에 x 범위로 먼저 거른다.
+ */
+export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
+  for (const sg of segments ?? []) {
+    const ax = xScale(sg.i1), bx = xScale(sg.i2);
+    if (Math.max(ax, bx) < px - threshold || Math.min(ax, bx) > px + threshold) continue;
+    if (distToSeg(px, py, ax, yScale(sg.p1), bx, yScale(sg.p2)) < threshold) return sg;
+  }
+  return null;
+}
+
+/**
+ * 지그재그 레그 위에 마우스를 올렸을 때 보여줄 등락률(%) — 없으면 null.
+ *
+ * 수동 구조와 자동 ZZ를 **같은 규칙**으로 훑는다. 좌표계만 다르다:
+ *   - 수동 구조: 꼭짓점이 timestamp → tsToIdx로 bar index 변환 (structureXYs)
+ *   - 자동 ZZ:   세그먼트가 이미 bar index (getZzSegments)
+ * 두 지표가 겹쳐 있으면 먼저 잡히는 쪽(수동 구조)이 이긴다 — 사용자가 직접 그린
+ * 구조가 자동 검출보다 의도가 분명하므로.
+ *
+ * 진행 중 레그(수동 구조의 점선 / ZZ의 마지막 세그먼트)도 포함한다. "지금 이 레그가
+ * 몇 % 왔나"가 확정 레그보다 오히려 자주 보고 싶은 값이다.
+ *
+ * threshold는 클릭 판정(8)보다 좁은 6 — hover는 잘못 걸리면 라벨이 깜빡여서 거슬린다.
+ */
+export function findHoveredLegPct({
+  px, py, structures, liveSegment, zzSegments, xScale, yScale, candles, threshold = 6,
+}) {
+  const pct = (p1, p2) => (p1 ? ((p2 - p1) / p1) * 100 : null);
+
+  for (const st of structures ?? []) {
+    const xy = structureXYs(st, candles, xScale, yScale);
+    for (let k = 1; k < xy.length; k++) {
+      if (distToSeg(px, py, xy[k - 1].x, xy[k - 1].y, xy[k].x, xy[k].y) < threshold) {
+        return pct(st.points[k - 1].p, st.points[k].p);
+      }
+    }
+  }
+
+  if (liveSegment) {
+    const { t1, p1, t2, p2 } = liveSegment;
+    const ax = xScale(tsToIdx(t1, candles)), ay = yScale(p1);
+    const bx = xScale(tsToIdx(t2, candles)), by = yScale(p2);
+    if (distToSeg(px, py, ax, ay, bx, by) < threshold) return pct(p1, p2);
+  }
+
+  const zz = findHitZzLeg(px, py, zzSegments, xScale, yScale, threshold);
+  return zz ? pct(zz.p1, zz.p2) : null;
+}
+
 // ── onMouseDown 히트 테스트 체인 ──────────────────────────────────────────────
 export function buildHitChain(ctx) {
   const {
@@ -152,6 +206,8 @@ export function buildHitChain(ctx) {
     // 수동 구조
     structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
     structures, selectedStructId, structPart, selectStructPart,
+    // 자동 ZZ — 도형이 아니라 지표라 선택만 한다 (드래그/삭제 없음)
+    showZZ, zzSegments,
   } = ctx;
 
   // 다음에 찍을 꼭짓점 타입 — 직전 점의 반대 (첫 점은 커서 위치로 판정)
@@ -323,15 +379,20 @@ export function buildHitChain(ctx) {
         return false;
       },
     },
-    // 4.65 선택된 구조 편집 — 꼭짓점 드래그 + 꼭짓점/선분 부분 선택
+    // 4.65 선택된 구조 편집 — 꼭짓점 드래그 + 꼭짓점 부분 선택
     //      구조는 폴리라인이 x<60(TP/SL 핸들 영역)을 자주 지나므로 포지션 핸들 뒤에 둔다
     //
-    //      클릭한 꼭짓점/선분은 structPart에 담기고 **Delete로 그것만 삭제**된다
+    //      클릭한 꼭짓점은 structPart에 담기고 **Delete로 그것만 삭제**된다
     //      (예전엔 꼭짓점 Shift+클릭 즉시 삭제 — 사용자 요청으로 클릭 → Delete로 변경).
     //      삭제 의미: 꼭짓점을 지우면 양옆이 같은 타입이 되면서 normalize가 병합해
-    //      "그 스윙을 없앤다"가 된다. 선분도 같은 원리(이어붙이기)로 지운다.
+    //      "그 스윙을 없앤다"가 된다.
     //
-    //      ※ 선분 중간에 점 하나를 끼우는 기능은 없다. 지그재그는 고/저가 교대라서
+    //      ※ **선분(몸통) 부분 선택은 없다** (2026-08-12 사용자 요청으로 제거).
+    //        "꼭짓점 제거만 있으면 된다"며 선분이 파랗게 물드는 동작을 걷어냈다.
+    //        여기서 false를 반환하면 아래 4.9 구조 선택이 받아 구조 전체 선택으로
+    //        떨어지고, 더블클릭은 그대로 팝업(투명도/잠금/CHoCH)으로 간다.
+    //
+    //      ※ 선분 중간에 점 하나를 끼우는 기능도 없다. 지그재그는 고/저가 교대라서
     //        H–L 사이에 넣는 점은 어느 타입이든 양옆 중 하나와 겹치고,
     //        normalizeStructurePoints가 병합해버려 결과적으로 아무 일도 안 일어난다.
     //        점을 늘리려면 끝점을 클릭해 이어 그리면 된다.
@@ -341,27 +402,18 @@ export function buildHitChain(ctx) {
         const st = (structures ?? []).find(s => s.id === selectedStructId);
         if (!st || st.locked) return false;
 
-        // 같은 부분을 다시 누르면 선택 해제 = 구조 전체 선택 상태로 복귀.
-        // 이게 있어야 부분을 고른 뒤에도 **구조 전체 삭제**로 돌아갈 수 있다.
-        const isSame = (kind, idx) => structPart?.kind === kind && structPart?.idx === idx;
-
         const ptIdx = findHitStructPointIdx(st, pos.x, pos.y, xScale, yScale, candles);
-        if (ptIdx !== -1) {
-          selectStructPart?.(isSame("point", ptIdx) ? null : { kind: "point", idx: ptIdx });
-          dragRef.current = {
-            type: "struct_point", structId: selectedStructId,
-            ptIdx, ptType: st.points[ptIdx].type,
-          };
-          return true;
-        }
+        if (ptIdx === -1) return false;
 
-        // 몸통 클릭 = 그 선분 선택 (팬으로 넘어가지 않도록 true)
-        const segIdx = findStructSegmentIdx(st, pos.x, pos.y, xScale, yScale, candles);
-        if (segIdx !== -1) {
-          selectStructPart?.(isSame("segment", segIdx) ? null : { kind: "segment", idx: segIdx });
-          return true;
-        }
-        return false;
+        // 같은 꼭짓점을 다시 누르면 선택 해제 = 구조 전체 선택 상태로 복귀.
+        // 이게 있어야 꼭짓점을 고른 뒤에도 **구조 전체 삭제**로 돌아갈 수 있다.
+        const isSame = structPart?.kind === "point" && structPart?.idx === ptIdx;
+        selectStructPart?.(isSame ? null : { kind: "point", idx: ptIdx });
+        dragRef.current = {
+          type: "struct_point", structId: selectedStructId,
+          ptIdx, ptType: st.points[ptIdx].type,
+        };
+        return true;
       },
     },
     // 4.7 선택된 채널 드래그 처리
@@ -431,6 +483,18 @@ export function buildHitChain(ctx) {
         // 구조는 여러 봉에 걸친 폴리라인이라 클릭을 많이 삼키므로 맨 뒤에서 판정
         const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
         if (hitSt) { selectDrawable(drawables, "structure", hitSt.id); setSelectedBox(false); return true; }
+        // 자동 ZZ는 그보다 더 넓게 깔리므로 마지막. 선택되면 금색 + 투명도 조절 대상이 된다.
+        //
+        // ※ 다른 도형과 달리 **선택하면서 팬 드래그도 함께 건다.** 자동 지그재그는
+        //   차트 전 구간을 가로질러서, 선택이 팬을 막으면 차트를 끌 수 없는 지점이
+        //   화면 곳곳에 생긴다. 사용자가 그린 도형(몇 개 안 됨)과는 사정이 다르다.
+        //   → 클릭만 하면 선택, 끌면 팬.
+        if (showZZ && findHitZzLeg(pos.x, pos.y, zzSegments, xScale, yScale)) {
+          selectDrawable(drawables, "zz", ZZ_ID);
+          setSelectedBox(false);
+          dragRef.current = { type: "pan", startX: pos.x, xDom0: [...xDomainRef.current] };
+          return true;
+        }
         clearAllSelections(drawables);
         return false;
       },

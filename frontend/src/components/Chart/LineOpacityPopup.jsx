@@ -1,28 +1,138 @@
 import { useEffect, useRef } from "react";
 import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
+import { getStructChochCount } from "../../chart/structRenderState";
+import { getZzChochTotal } from "../../chart/structureZigzag";
 
-const KIND_LABEL = { line: "선", channel: "채널", circle: "원", structure: "구조" };
-// 근접 알림(useTrendLineAlert)은 선/채널/원만 대상 — 구조는 알림 버튼을 숨긴다
-const ALERT_KINDS = new Set(["line", "channel", "circle"]);
+// 자동 ZZ와 수동 구조는 **같은 이름("구조")** 을 쓴다 (2026-08-12 사용자 요청).
+// 사용자에게는 둘 다 "구조"이고, 어느 쪽을 더블클릭했는지는 이미 알고 있다.
+// "ZZ 투명도"처럼 이름이 갈리면 같은 팝업인데 다른 기능처럼 보인다.
+const KIND_LABEL = {
+  line: "선", channel: "채널", circle: "원",
+  structure: "구조", zz: "구조",
+};
 
+// 근접 알림(useTrendLineAlert)은 선/채널/원만 대상.
+// 구조·ZZ의 🔔은 같은 자리·같은 아이콘이지만 **CHoCH 발생 알림**이다 (useChochAlert).
+const PROXIMITY_ALERT_KINDS = new Set(["line", "channel", "circle"]);
+// CHoCH를 갖는 종류 — 🔔(발생 알림) + 아래 CHoCH 표시 영역
+const CHOCH_KINDS = new Set(["structure", "zz"]);
+// 드래그로 움직일 수 있는 것만 잠금이 의미 있다. ZZ는 지표라 제외
+const LOCK_KINDS = new Set(["line", "channel", "circle", "structure"]);
+
+// 헤더의 아이콘 토글 — 모든 종류가 같은 자리·같은 크기를 쓰도록 한 곳에서 그린다
+function IconToggle({ icon, on, onClick, title, theme, onColor = PALETTE.warn }) {
+  return (
+    <button onClick={onClick} title={title} style={{
+      background: "none", border: "none", cursor: "pointer", padding: 0,
+      fontSize: "14px", lineHeight: 1,
+      opacity: on ? 1 : 0.35,
+      color: on ? onColor : theme.textMuted,
+    }}>
+      {icon}
+    </button>
+  );
+}
+
+// 슬라이더 아래 영역 — 아이콘으로 뭉뚱그리지 않고 라벨 + ON/OFF로 명시한다
+// (👁 아이콘 방식은 "무슨 표시인지 모르겠다"는 이유로 사용자가 되돌렸다. 되살리지 말 것)
+function ToggleRow({ label, on, onClick, title, theme }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: "6px",
+      marginTop: "10px", paddingTop: "8px",
+      borderTop: `1px solid ${theme.borderSec}`,
+    }}>
+      <span style={{ fontSize: "12px", color: theme.textMuted, flex: 1 }}>{label}</span>
+      <button onClick={onClick} title={title} style={{
+        padding: "2px 10px", borderRadius: "3px", cursor: "pointer",
+        fontSize: "11px", fontFamily: "inherit", fontWeight: on ? 700 : 400,
+        background: on ? PALETTE.accent : "transparent",
+        border: `1px solid ${on ? PALETTE.accent : theme.borderSec}`,
+        color: on ? "#000" : theme.textMuted,
+        transition: "all 0.15s",
+      }}>
+        {on ? "ON" : "OFF"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * CHoCH 표시 개수 — 최신 N개. 오른쪽 끝까지 올리면 "전체"(제한 없음)로 저장한다.
+ *
+ * 숫자를 고정 저장하지 않고 "전체"를 따로 두는 이유: 상한(detected)은 구조를 편집하면
+ * 늘어난다. 그때 저장값이 옛 상한에 묶여 있으면 새로 생긴 CHoCH가 조용히 잘려나가
+ * "왜 안 뜨지"가 된다 (실제로 겪은 문제 — Structures.jsx [R6]).
+ */
+function CountRow({ value, detected, onChange, theme }) {
+  const hi   = Math.max(1, detected);
+  const all  = value == null || value >= hi;
+  const cur  = all ? hi : Math.max(1, value);
+  return (
+    // 레이아웃은 위 투명도 컨트롤과 같다 — 라벨+값 한 줄, 슬라이더는 그 아래 전폭.
+    // ※ 슬라이더를 라벨과 같은 줄에 flex:1로 두지 말 것: input[type=range]는
+    //   브라우저 기본 최소 너비(Chrome ~129px)가 있어 flex로 줄어들지 않고
+    //   팝업 밖으로 삐져나온다. min-width:0으로 억지로 줄이면 조작 폭이 너무 좁다.
+    <div style={{ marginTop: "8px" }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: "4px",
+      }}>
+        <span style={{ fontSize: "12px", color: theme.textMuted }}>CHoCH 개수</span>
+        <span style={{
+          fontSize: "12px", fontVariantNumeric: "tabular-nums",
+          color: all ? theme.textMuted : PALETTE.accent, fontWeight: all ? 400 : 700,
+        }}>
+          {detected === 0 ? "없음" : all ? `전체 ${hi}` : `${cur} / ${hi}`}
+        </span>
+      </div>
+      <input
+        type="range" min={1} max={hi} step={1} value={cur}
+        disabled={detected === 0}
+        onChange={e => {
+          const n = parseInt(e.target.value, 10);
+          onChange(n >= hi ? null : n);      // 끝까지 올리면 제한 해제
+        }}
+        style={{
+          width: "100%", accentColor: PALETTE.accent,
+          cursor: detected ? "pointer" : "default",
+          opacity: detected ? 1 : 0.4,
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * 차트 도형 더블클릭 팝업 — 투명도 슬라이더 + 헤더 아이콘 토글.
+ *
+ * ── UI 통일 규칙 (2026-08-12 사용자 요청) ──────────────────────────────────
+ * 헤더 = 이름 + % + 아이콘, 그 아래 슬라이더, 그 아래 옵션 영역. 종류가 달라도 배치가 같다.
+ *   🔔 알림 — 선/채널/원은 근접 알림, 구조/ZZ는 CHoCH 발생 알림 (추세선과 같은 자리·아이콘)
+ *   🔒 잠금 — 드래그 가능한 도형만. 자동 ZZ는 움직일 대상이 아니라 없다(죽은 버튼을 두지 않음)
+ *   CHoCH 표시 — **아이콘이 아니라 슬라이더 아래 라벨+ON/OFF 행**.
+ *     👁 아이콘으로 바꿨다가 "무슨 표시인지 모르겠다"는 이유로 사용자가 되돌렸다. 되살리지 말 것
+ *
+ * **자동 ZZ와 수동 구조는 이름도 "구조"로 같고, 팝업 구성도 같다**(잠금 유무만 다름).
+ * 사용자에게는 둘 다 "구조"다 — 이름이 갈리면 같은 팝업인데 다른 기능처럼 보인다.
+ *
+ * kind "zz"(자동 Structure Zigzag)는 도형이 아니라 지표라 항목이 하나뿐이고
+ * (drawables의 가짜 drawable, id는 ZZ_ID) 삭제·잠금이 no-op이다.
+ */
 export function LineOpacityPopup({ popup, drawables, onClose }) {
   const { theme } = useTheme();
   const ref  = useRef(null);
-  const kind = popup.type; // "line" | "channel" | "circle" | "structure"
+  const kind = popup.type;
   const d    = drawables[kind];
   const item = d?.items?.find(x => x.id === popup.id) ?? null;
 
-  // 대상 도형이 사라지면(Delete 키 등) popup 자동 닫기
+  // 대상이 사라지면(Delete 키 등) popup 자동 닫기
   useEffect(() => {
     if (!item) onClose();
   }, [item, onClose]);
 
-  const opacity = item?.opacity ?? 1.0;
-  const locked  = item?.locked  ?? false;
-  const alert   = item?.alert   ?? false;
-
-  // 외부 클릭 시 닫기
+  // 외부 클릭 / ESC 로 닫기
   useEffect(() => {
     const onDown = e => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
     const onKey  = e => { if (e.key === "Escape") onClose(); };
@@ -34,8 +144,23 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
     };
   }, [onClose]);
 
-  // 팝업이 화면 밖으로 나가지 않도록 위치 조정
-  const W = 160, H = 80;
+  const opacity = item?.opacity ?? 1.0;
+  const locked  = item?.locked  ?? false;
+  // 알림/표시는 기본 ON이라 undefined는 ON으로 읽는다 — 기존에 저장된 항목이
+  // 새 필드 때문에 전부 꺼진 채로 뜨면 안 된다.
+  // (근접 알림만 반대: 명시적으로 켜는 기능이라 기본 OFF)
+  const isChoch = CHOCH_KINDS.has(kind);
+  const alert   = isChoch ? item?.alertChoch !== false : (item?.alert ?? false);
+  const showMk  = item?.showChoch !== false;
+  // 개수 슬라이더 상한 — 렌더 경로의 모듈 상태를 직접 읽는다(팝업을 여는 시점의 스냅샷).
+  // 수동 구조는 구조별, 자동 ZZ는 지표 전체가 리스트 하나다.
+  const chochCount = !isChoch ? 0
+    : kind === "zz" ? getZzChochTotal() : getStructChochCount(popup.id);
+
+  // 팝업이 화면 밖으로 나가지 않도록 위치 조정.
+  // 슬라이더가 브라우저 기본 최소 너비(~129px)를 갖고 좌우 여백 24px가 빠지므로
+  // 폭은 넉넉히 잡는다. 높이는 구조/ZZ일 때 CHoCH 두 블록만큼 더 크다.
+  const W = 210, H = isChoch ? 172 : 80;
   const x = Math.min(popup.x, window.innerWidth  - W - 8);
   const y = Math.min(popup.y, window.innerHeight - H - 8);
 
@@ -56,23 +181,24 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
           <span style={{ fontSize: "12px", color: PALETTE.accent, fontWeight: "700" }}>
             {Math.round(opacity * 100)}%
           </span>
-          {ALERT_KINDS.has(kind) && (
-            <button onClick={() => d.toggleAlert(popup.id)}
-              title={alert ? "알림 ON — 클릭하여 OFF" : "알림 OFF — 클릭하여 ON"} style={{
-              background: "none", border: "none", cursor: "pointer", padding: 0,
-              fontSize: "14px", lineHeight: 1, opacity: alert ? 1 : 0.35,
-              color: alert ? PALETTE.warn : theme.textMuted,
-            }}>
-              🔔
-            </button>
+
+          {/* 🔔 알림 — 선/채널/원은 근접, 구조/ZZ는 CHoCH 발생 */}
+          {(PROXIMITY_ALERT_KINDS.has(kind) || isChoch) && (
+            <IconToggle icon="🔔" on={alert}
+              onClick={() => d.toggleAlert?.(popup.id)}
+              title={isChoch
+                ? (alert ? "CHoCH 발생 알림 ON — 클릭하여 OFF" : "CHoCH 발생 알림 OFF — 클릭하여 ON")
+                : (alert ? "근접 알림 ON — 클릭하여 OFF"       : "근접 알림 OFF — 클릭하여 ON")}
+              theme={theme} />
           )}
-          <button onClick={() => d.toggleLock(popup.id)} style={{
-            background: "none", border: "none", cursor: "pointer", padding: 0,
-            fontSize: "14px", lineHeight: 1, opacity: locked ? 1 : 0.4,
-            color: locked ? PALETTE.warn : theme.textMuted,
-          }}>
-            {locked ? "🔒" : "🔓"}
-          </button>
+
+          {/* 🔒 잠금 */}
+          {LOCK_KINDS.has(kind) && (
+            <IconToggle icon={locked ? "🔒" : "🔓"} on={locked}
+              onClick={() => d.toggleLock(popup.id)}
+              title={locked ? "잠김 — 클릭하여 해제" : "잠금 해제됨 — 클릭하여 잠금"}
+              theme={theme} />
+          )}
         </div>
       </div>
       <input
@@ -81,6 +207,25 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
         onChange={e => d.setOpacity(popup.id, Math.max(0.25, parseFloat(e.target.value)))}
         style={{ width: "100%", accentColor: PALETTE.accent, cursor: "pointer" }}
       />
+
+      {/* CHoCH 옵션 — 자동 ZZ·수동 구조 모두 같은 자리, 같은 모양.
+          개수는 **이 구조(또는 ZZ)에만** 적용된다 — 전역 설정이 아니다 */}
+      {isChoch && (
+        <>
+          <ToggleRow
+            label="CHoCH 표시" on={showMk}
+            onClick={() => d.toggleChoch?.(popup.id)}
+            title={showMk ? "CHoCH 마크 표시 중 — 클릭하여 숨김"
+                          : "CHoCH 마크 숨김 — 클릭하여 표시"}
+            theme={theme}
+          />
+          <CountRow
+            value={item?.maxChoch ?? null} detected={chochCount}
+            onChange={n => d.setMaxChoch?.(popup.id, n)}
+            theme={theme}
+          />
+        </>
+      )}
     </div>
   );
 }
