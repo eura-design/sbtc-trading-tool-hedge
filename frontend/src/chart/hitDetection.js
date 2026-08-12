@@ -151,8 +151,7 @@ export function buildHitChain(ctx) {
     addCircle, moveCircle,
     // 수동 구조
     structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
-    structures, selectedStructId, removeStructPoint,
-    shiftKey,
+    structures, selectedStructId, structPart, selectStructPart,
   } = ctx;
 
   // 다음에 찍을 꼭짓점 타입 — 직전 점의 반대 (첫 점은 커서 위치로 판정)
@@ -324,8 +323,13 @@ export function buildHitChain(ctx) {
         return false;
       },
     },
-    // 4.65 선택된 구조 편집 — 꼭짓점 드래그 / Shift+클릭 삭제
+    // 4.65 선택된 구조 편집 — 꼭짓점 드래그 + 꼭짓점/선분 부분 선택
     //      구조는 폴리라인이 x<60(TP/SL 핸들 영역)을 자주 지나므로 포지션 핸들 뒤에 둔다
+    //
+    //      클릭한 꼭짓점/선분은 structPart에 담기고 **Delete로 그것만 삭제**된다
+    //      (예전엔 꼭짓점 Shift+클릭 즉시 삭제 — 사용자 요청으로 클릭 → Delete로 변경).
+    //      삭제 의미: 꼭짓점을 지우면 양옆이 같은 타입이 되면서 normalize가 병합해
+    //      "그 스윙을 없앤다"가 된다. 선분도 같은 원리(이어붙이기)로 지운다.
     //
     //      ※ 선분 중간에 점 하나를 끼우는 기능은 없다. 지그재그는 고/저가 교대라서
     //        H–L 사이에 넣는 점은 어느 타입이든 양옆 중 하나와 겹치고,
@@ -337,11 +341,13 @@ export function buildHitChain(ctx) {
         const st = (structures ?? []).find(s => s.id === selectedStructId);
         if (!st || st.locked) return false;
 
+        // 같은 부분을 다시 누르면 선택 해제 = 구조 전체 선택 상태로 복귀.
+        // 이게 있어야 부분을 고른 뒤에도 **구조 전체 삭제**로 돌아갈 수 있다.
+        const isSame = (kind, idx) => structPart?.kind === kind && structPart?.idx === idx;
+
         const ptIdx = findHitStructPointIdx(st, pos.x, pos.y, xScale, yScale, candles);
         if (ptIdx !== -1) {
-          // 삭제는 교대 구조에서도 의미가 성립한다 — 양옆이 같은 타입이 되면
-          // 병합돼서 "그 스윙을 없앤다"가 된다
-          if (shiftKey) { removeStructPoint(selectedStructId, ptIdx); return true; }
+          selectStructPart?.(isSame("point", ptIdx) ? null : { kind: "point", idx: ptIdx });
           dragRef.current = {
             type: "struct_point", structId: selectedStructId,
             ptIdx, ptType: st.points[ptIdx].type,
@@ -349,8 +355,13 @@ export function buildHitChain(ctx) {
           return true;
         }
 
-        // 몸통 클릭 = 선택 유지 (팬으로 넘어가지 않도록)
-        return findStructSegmentIdx(st, pos.x, pos.y, xScale, yScale, candles) !== -1;
+        // 몸통 클릭 = 그 선분 선택 (팬으로 넘어가지 않도록 true)
+        const segIdx = findStructSegmentIdx(st, pos.x, pos.y, xScale, yScale, candles);
+        if (segIdx !== -1) {
+          selectStructPart?.(isSame("segment", segIdx) ? null : { kind: "segment", idx: segIdx });
+          return true;
+        }
+        return false;
       },
     },
     // 4.7 선택된 채널 드래그 처리

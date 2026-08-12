@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { CANVAS_C } from "../../constants";
+import { CANVAS_C, PALETTE } from "../../constants";
 import { useStore } from "../../store";
 import { tsToIdx } from "../../chart/scales";
 import { deriveStructure, normalizeStructurePoints } from "../../chart/deriveStructure";
@@ -32,7 +32,10 @@ import { deriveStructure, normalizeStructurePoints } from "../../chart/deriveStr
 const ZZ_COLOR   = CANVAS_C.NEUTRAL;      // #888888
 const BULL_COLOR = CANVAS_C.BULL_DARK;    // #0ecb81
 const BEAR_COLOR = CANVAS_C.BEAR_DARK;    // #f6465d
-const SEL_COLOR  = "#f0b90b";
+const SEL_COLOR  = "#f0b90b";           // 구조 전체 선택 = 금색
+// 구조 안에서 다시 고른 꼭짓점/선분 = 파랑. 금색과 확실히 구분돼야
+// "지금 Delete를 누르면 이것만 지워진다"가 한눈에 보인다 (사용자 요구사항)
+const PART_COLOR = PALETTE.info;        // #60a5fa
 
 const CHOCH_FONT = "700 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
 
@@ -71,7 +74,7 @@ function ChochMarks({ chochs, candles, xScale, yScale, IW }) {
 }
 
 export const Structures = memo(function Structures({
-  structures, selectedStructId, structDraft, structPreview,
+  structures, selectedStructId, structPart, structDraft, structPreview,
   scales, candles, candlesRef, IW,
 }) {
   // 리렌더 트리거용 구독 — 값 자체는 안 쓴다.
@@ -118,6 +121,10 @@ export const Structures = memo(function Structures({
           deriveStructure(st.points, st.id === liveOwnerId ? liveCandles : null);
         const pts = st.points.map(pt => toXY(pt.t, pt.p));
 
+        // 선택된 구조 안에서 다시 고른 꼭짓점/선분 (Delete로 이것만 지워진다)
+        const partPt  = selected && structPart?.kind === "point"   ? structPart.idx : -1;
+        const partSeg = selected && structPart?.kind === "segment" ? structPart.idx : -1;
+
         return (
           <g key={st.id}>
             {/* 지그재그 선 */}
@@ -127,6 +134,13 @@ export const Structures = memo(function Structures({
               strokeWidth={selected ? 1.5 : 1}
               opacity={0.8 * opacity}
             />
+
+            {/* 선택된 선분 강조 — Delete 대상이 어디인지 보이게 파랑으로 덧그린다 */}
+            {partSeg > 0 && pts[partSeg] && (
+              <line x1={pts[partSeg - 1].x} y1={pts[partSeg - 1].y}
+                x2={pts[partSeg].x} y2={pts[partSeg].y}
+                stroke={PART_COLOR} strokeWidth={4} opacity={0.95} strokeLinecap="round" />
+            )}
 
             {/* 진행 중 레그 — 마지막 꼭짓점에서 현재가까지 */}
             {liveSegment && (() => {
@@ -140,13 +154,17 @@ export const Structures = memo(function Structures({
             <ChochMarks chochs={chochs} candles={candles}
               xScale={xScale} yScale={yScale} IW={IW} />
 
-            {/* 꼭짓점 — 선택 시 드래그 핸들, 평소엔 위치 표시용 점 */}
-            {pts.map((q, k) => (
-              <circle key={k} cx={q.x} cy={q.y}
-                r={selected ? 5 : 2}
-                fill={selected ? SEL_COLOR : ZZ_COLOR}
-                opacity={selected ? 0.9 : 0.7 * opacity} />
-            ))}
+            {/* 꼭짓점 — 선택 시 드래그 핸들, 평소엔 위치 표시용 점.
+                다시 클릭해 고른 꼭짓점만 파랑 (Delete 대상) */}
+            {pts.map((q, k) => {
+              const isPart = k === partPt;
+              return (
+                <circle key={k} cx={q.x} cy={q.y}
+                  r={isPart ? 6 : (selected ? 5 : 2)}
+                  fill={isPart ? PART_COLOR : (selected ? SEL_COLOR : ZZ_COLOR)}
+                  opacity={isPart ? 1 : (selected ? 0.9 : 0.7 * opacity)} />
+              );
+            })}
           </g>
         );
       })}

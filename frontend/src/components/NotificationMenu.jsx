@@ -5,8 +5,6 @@ const TFS  = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
 const ROWS = [
   { key: "rsiOB",     label: "RSI 과매수" },
   { key: "rsiOS",     label: "RSI 과매도" },
-  { key: "div",       label: "다이버전스" },
-  { key: "hiddenDiv", label: "히든 다이버전스" },
   { key: "close",     label: "봉 마감" },
 ];
 

@@ -2,17 +2,18 @@ import { useState, useRef, useEffect } from "react";
 import { useTheme } from "../ThemeContext";
 import { INDICATOR_DEFAULTS } from "../hooks/useIndicatorParams";
 import { getZzChochTotal } from "../chart/structureZigzag";
+import { INTERVALS } from "../constants";
 
 export const INDICATORS = [
   { key: "vol", label: "Volume" },
   { key: "rsi", label: "RSI" },
-  { key: "div", label: "RSI Divergence" },
   { key: "sr",  label: "S/R Levels" },
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
   { key: "zz",  label: "Structure Zigzag" },
   // 수동 구조 표시 토글 — 자동 ZZ와 독립. 파라미터 없음(PARAMS_META에 항목 없음)
   // ※ key는 "struct" 유지 — 바꾸면 localStorage("indicators")에 저장된 on/off가 초기화된다
+  // ⚙ 설정은 표시 타임프레임 선택(StructTfPanel) — 슬라이더 파라미터는 없다
   { key: "struct", label: "Custom Structure Zigzag" },
   { key: "ema", label: "EMA" },
 ];
@@ -53,11 +54,6 @@ const PARAMS_META = {
     // max_choch의 상한은 실제 검출 개수로 SettingsPanel에서 덮어쓴다.
     { key: "max_choch",  label: "CHoCH 표시 개수", min: 1,  max: 30,    step: 1  },
     { key: "show_choch", label: "CHoCH 표시",     type: "toggle" },
-  ],
-  div: [
-    { key: "peak_lb",      label: "피크 감지(봉)", min: 2,  max: 15,  step: 1  },
-    { key: "scan_candles", label: "스캔 범위(봉)", min: 50, max: 500, step: 10 },
-    { key: "max_show",     label: "최대 표시",     min: 1,  max: 20,  step: 1  },
   ],
   sr: [
     { key: "kde_range",       label: "분석 범위(%)",  min: 5,    max: 40,   step: 1,    fmt: v => v + "%" },
@@ -181,6 +177,52 @@ function EmaSettingsPanel({ emaList, setEmaList, resetIndicator, theme }) {
           }}
         >+ 추가</button>
       </div>
+    </div>
+  );
+}
+
+// 수동 구조를 표시할 타임프레임 선택 (중복 선택, 기본 1h)
+// 구조 데이터 자체는 전 TF 공유이고 여기서는 "어느 TF에서 보여줄지"만 거른다.
+// 선택 안 된 TF에서는 지표 OFF와 동일 — 렌더·히트 판정·그리기 전부 막힌다.
+function StructTfPanel({ tfs, setParam, resetIndicator, theme }) {
+  const list = Array.isArray(tfs) ? tfs : [];
+  const toggle = (val) => {
+    const next = list.includes(val) ? list.filter(v => v !== val) : [...list, val];
+    // INTERVALS 순서로 정렬해 저장 — 클릭 순서에 따라 표시가 뒤섞이지 않게
+    setParam("struct", "tfs", INTERVALS.filter(i => next.includes(i.value)).map(i => i.value));
+  };
+
+  return (
+    <div style={{ padding: "10px 12px", background: theme.bgCardAlt, borderTop: `1px solid ${theme.borderSec}` }}>
+      <div style={{ fontSize: 11, color: theme.textSec, marginBottom: 6 }}>표시 타임프레임</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
+        {INTERVALS.map(iv => {
+          const on = list.includes(iv.value);
+          return (
+            <button key={iv.value} onClick={() => toggle(iv.value)} style={{
+              padding: "4px 0", borderRadius: 4, cursor: "pointer",
+              fontSize: 11, fontFamily: "inherit", fontWeight: on ? 700 : 400,
+              background: on ? "#c084fc" : "transparent",
+              border: `1px solid ${on ? "#c084fc" : theme.borderSec}`,
+              color: on ? "#000" : theme.textMuted,
+              transition: "all 0.15s",
+            }}>{iv.label}</button>
+          );
+        })}
+      </div>
+      {list.length === 0 && (
+        <div style={{ fontSize: 10, color: "#f6465d", marginTop: 6, lineHeight: 1.4 }}>
+          선택된 타임프레임이 없어 구조가 어디에도 표시되지 않고 그리기도 막힙니다.
+        </div>
+      )}
+      <button
+        onClick={() => resetIndicator("struct")}
+        style={{
+          width: "100%", marginTop: 8, padding: "4px 0", borderRadius: 4,
+          border: `1px solid ${theme.borderSec}`, background: "transparent",
+          color: theme.textMuted, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+        }}
+      >초기화</button>
     </div>
   );
 }
@@ -410,6 +452,13 @@ export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaLi
                     ? <EmaSettingsPanel
                         emaList={params.ema ?? []}
                         setEmaList={setEmaList}
+                        resetIndicator={resetIndicator}
+                        theme={theme}
+                      />
+                    : ind.key === "struct"
+                    ? <StructTfPanel
+                        tfs={params.struct?.tfs ?? INDICATOR_DEFAULTS.struct.tfs}
+                        setParam={setParam}
                         resetIndicator={resetIndicator}
                         theme={theme}
                       />

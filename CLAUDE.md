@@ -89,11 +89,11 @@ frontend/src/
 │   ├── useOrderBlock.js       ← 오더블록 검출 (BOS 기반 스윙 탐지, 최근 500캔들)
 │   ├── useEMA.js              ← 다중 EMA 계산 (id/period/color/enabled 속성, useMemo 캐시)
 │   ├── useAlertMonitor.js     ← 타임프레임별 RSI 알람 (5m/15m/1h/4h/1d WebSocket 감시)
-│   │                             + 다이버전스 봉 마감 시 감지 + 히스테리시스 쿨다운 적용
+│   │                             + 봉 마감 알림 + 히스테리시스 쿨다운 적용
 │   ├── useToast.js            ← 토스트 알림 — addToast(30초 자동닫힘) / addLineAlert(sticky, 3초 소리 반복)
 │   ├── useTrendLineAlert.js   ← 추세선/채널/원 근접 알림 (0.2% 이내, 히스테리시스 0.3%)
 │   ├── usePositionCloseAlert.js ← 포지션 종료 감지 → sticky 알림 (롱/숏 각각 독립 추적)
-│   ├── useNotificationSettings.js ← 타임프레임별 알림 설정 (RSI OB/OS, 다이버전스, 봉마감) localStorage 동기화
+│   ├── useNotificationSettings.js ← 타임프레임별 알림 설정 (RSI OB/OS, 봉마감) localStorage 동기화
 │   ├── useTrendLines.js       ← 트렌드 라인 + 채널 + 원 상태 (내부적으로 useDrawableStore 3개 사용)
 │   ├── useDrawableStore.js    ← 제네릭 도형 스토어 (localStorage 영속화, 공통 필드 id/opacity/locked/alert)
 │   ├── useStructures.js       ← 수동 구조 도형 스토어 (useDrawableStore("structures")) + 그리기/편집 액션
@@ -134,16 +134,17 @@ frontend/src/
 │   ├── ChartArea.jsx          ← 차트 전체 영역 조합 (hooks + ChartSvg + RSI/Volume 패널 + LineOpacityPopup)
 │   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원 모드 버튼,
 │   │                             로그 스케일 토글, 지표 메뉴, 알림 메뉴, 단축키 메뉴, 테마 토글
-│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/RSI Divergence/S·R/OB/FVG/EMA/ZZ/Custom ZZ)
+│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/S·R/OB/FVG/EMA/ZZ/Custom ZZ)
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
-│   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (5TF × RSI OB/OS/다이버전스/히든다이버전스/봉마감)
+│   │                             StructTfPanel: Custom ZZ 표시 타임프레임 다중 선택 (struct.tfs, 기본 1h)
+│   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (7TF × RSI OB/OS/봉마감)
 │   ├── ShortcutMenu.jsx       ← 단축키 커스텀 설정 UI (녹음 모드로 각 action 키 재바인딩 + 초기화)
 │   ├── Toast.jsx              ← 토스트 알림 컴포넌트 (일반: 금색, sticky: 빨강 + 확인 버튼)
 │   ├── Slider.jsx             ← 리스크/레버리지 슬라이더
 │   ├── Divider.jsx            ← 구분선
 │   ├── StatusAlert.jsx        ← 주문/TP·SL 결과 알림 배너 (성공/에러)
 │   ├── Chart/
-│   │   ├── ChartSvg.jsx           ← SVG 전체 레이어 조합 (채널/원/다이버전스 오버레이 포함)
+│   │   ├── ChartSvg.jsx           ← SVG 전체 레이어 조합 (채널/원 오버레이 포함)
 │   │   ├── BoxOverlay.jsx         ← BoxOverlay, DrawingCurrent, BoxLabels SVG 컴포넌트
 │   │   ├── PositionLines.jsx      ← 헷지모드: 롱/숏 포지션 각각 진입/TP/SL/분할TP/추가진입 수평선 (드래그 핸들)
 │   │   ├── TrendLines.jsx         ← 트렌드 라인 SVG (선택 시 끝점 핸들)
@@ -151,7 +152,6 @@ frontend/src/
 │   │   ├── Circles.jsx            ← 원 SVG (채우기+테두리, 알림 아이콘, 선택 핸들)
 │   │   ├── Structures.jsx         ← 수동 구조 SVG (지그재그 폴리라인 + CHoCH 마크 + 꼭짓점 핸들)
 │   │   │                             liveClose를 자체 구독 — ChartArea가 구독하면 틱마다 전체 리렌더
-│   │   ├── DivergenceLines.jsx    ← RSI 다이버전스 라인 (RSI 패널 내)
 │   │   └── LineOpacityPopup.jsx   ← 트렌드라인/채널/원 투명도(0.25~1.0)·잠금·알림 설정 팝업
 │   │                                  ※ FVG/OB/SR/EMA는 SVG가 아닌 `overlayRenderers.js`로 캔버스 렌더
 │   │                                  ※ Volume/RSI 패널은 `volumeRenderer.js`/`rsiRenderer.js` (캔버스) 사용
@@ -239,7 +239,8 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - 트렌드 라인 타입: `line_ep` (끝점 드래그), `line_move` (몸통 드래그)
 - 채널 타입: `channel_ep` (끝점), `channel_move` (몸통), `channel_mid_offset` (중간 핸들로 양쪽 offset 동시 조절), `channel_mirror_ep` (미러선 끝점)
 - 원 타입: `circle_move` (이동), `circle_radius` (반지름 조절)
-- 수동 구조 타입: `struct_point` (꼭짓점 이동 — 봉 꼬리에 스냅, onUp에서만 정규화)
+- 수동 구조 타입: `struct_point` (꼭짓점 이동 — 봉 꼬리에 스냅, onUp에서만 정규화.
+  실제로 움직였을 때만 `drag.moved`로 부분 선택 해제 → 제자리 클릭은 "선택"으로 남는다)
 - 포지션 오버레이 타입: `scale_in`, `split_tp`
 - `useChartInteraction.js`의 `buildHitChain`이 onMouseDown 히트 우선순위를 순서대로 처리
 
@@ -250,7 +251,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **원 모드**: 원 (2클릭: 중심→반지름)
 - **구조 모드**: 수동 시장 구조 (기본 `s`) — 클릭 반복으로 고/저점 찍기, 우클릭·더블클릭 확정
 - `Escape`: 그리기 취소 / 선택 해제
-- `Delete`: 선택된 도형 삭제
+- `Delete`: 선택된 도형 삭제 (수동 구조는 꼭짓점/선분을 클릭해 뒀으면 **그 부분만** 삭제)
 - `a`: 선택된 도형 알람 토글
 - `l`: 선택된 도형 잠금 토글
 - `[` / `]`: 선택된 도형 투명도 ±0.25 조절 (0.25~1.0)
@@ -282,15 +283,29 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 | CHoCH 마크 항상 100% 불투명 | 구조를 흐리게 하면 마크까지 흐려짐 |
 | 신규 구조 기본 투명도 0.5 | — |
 | `STRUCT_SNAP_BARS = 1` | 마그넷이 과하게 강해짐 (3에서 낮춘 값) |
-| 전 TF 공유 (storageKey에 TF 없음) | TF별 분리는 기능 후퇴 |
+| 전 TF 공유 (storageKey에 TF 없음) — **저장은 TF별로 쪼개지 않는다** | TF별 분리는 기능 후퇴 |
+| 표시 TF 필터(`struct.tfs`)는 **표시 전용**, 기본 1h (2026-08-12 사용자 요청) | 저장까지 TF로 나누면 위 항목과 충돌 |
 | 선분 중간 꼭짓점 삽입 없음 | 교대 구조상 동작 불가 — "빠진 기능"이 아님 |
 | 끝점 클릭 = 연장/흡수로 항상 하나의 구조 | 쪼개지면 경계 CHoCH 유실 |
+| 부분 삭제는 클릭 → `Delete` (Shift+클릭 즉시 삭제 아님) | 사용자가 명시적으로 바꾼 조작 |
+| 선분 삭제 = 이어붙이기(끝점 하나 제거), 쪼개기 아님 | 쪼개면 경계 CHoCH 유실 (위와 같은 이유) |
 
 ### 수동 구조 (Structure) — 손으로 그리고 CHoCH는 자동
 - **목적**: 자동 ZZ가 못 잡는 구조를 직접 지정. 자동 ZZ와 **공존**하며 `structureZigzag.js`는 건드리지 않는다.
 - **데이터**: `{ id, points: [{ t, p, type:"H"|"L" }], opacity, locked }` — localStorage `"structures"`
 - **전 TF 공유**: storageKey에 타임프레임이 없고 좌표가 timestamp라 1h에서 그린 구조가 5m/1d에도 뜬다
   (트렌드라인/채널/원과 동일 — `tsToIdx`가 TF별 bar index를 다시 계산)
+- **표시 TF 필터**: `indicatorParams.struct.tfs` (중복 선택, 기본 `["1h"]`) — IndicatorMenu ⚙ → StructTfPanel
+  - 저장 데이터는 그대로 전 TF 공유다. **어느 TF에서 보여줄지만 거른다**
+  - `App.jsx`가 두 값을 구분한다:
+    - `structOn`(지표 토글) → **그리기 가능 여부는 이것만 본다.** TF 필터까지 묶으면 지표를 켜 뒀는데도
+      구조 버튼이 죽어 있어 고장으로 보인다 (실제로 그렇게 보고됨)
+    - `showStruct = structOn && tfs.includes(현재 TF)` → 렌더 + 히트 판정
+  - 표시 대상이 아닌 TF에서 구조 모드로 **진입하면 그 TF가 목록에 자동 추가**된다
+    (`ensureStructTf`, TopBar 버튼·`s` 단축키 공통). 안 그러면 방금 그린 게 화면에 안 나온다
+  - 목록을 비우면 아무 데도 안 보인다 (패널에서 경고 문구 표시)
+  - ⚠ 백엔드 `indicatorParamsStore.DEFAULTS`에 `struct` 키가 없으면 `load()`가 통째로 버려서
+    선택이 새로고침마다 `["1h"]`로 돌아간다 — 키 추가 후 **백엔드 재시작 필수**
 - **그리기**: TopBar "구조" 버튼(또는 `s`) → 클릭할 때마다 꼭짓점 추가 → 우클릭/더블클릭 확정, ESC 취소
   - 꼭짓점 타입은 직전 점의 반대로 강제되고, `snapToStructurePoint`가 근처 봉의 고가/저가에 스냅
   - 스냅 반경은 `STRUCT_SNAP_BARS`(hitDetection.js) 하나로 관리 — 클릭 배치와 미리보기가
@@ -304,10 +319,25 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   - 첫 점(과거 방향) 연장은 draft를 역순 seed — 타입 교대·프리뷰 기준점을 맞추기 위함.
     최종 순서는 `normalizeStructurePoints`가 시간순으로 정렬하므로 draft 순서는 무관
   - 이어 그리는 중에는 원본을 렌더에서 숨기고 draft가 대신 그린다 (CHoCH 포함)
-- **편집** (선택 상태에서): 꼭짓점 드래그 이동 / 꼭짓점 `Shift+클릭` 삭제
+- **편집** (선택 상태에서): 꼭짓점 드래그 이동 / **부분 선택 후 `Delete`로 부분 삭제**
+  - 구조를 한 번 클릭해 선택 → 그 안의 **꼭짓점 또는 선분을 클릭**하면 `structPart`에 담긴다
+    (`{ kind:"point"|"segment", idx }`, `useStructures`)
+  - **색으로 구분**: 구조 전체 선택 = 금색(`#f0b90b`) / 부분 선택 = 파랑(`PALETTE.info` `#60a5fa`).
+    "지금 Delete를 누르면 무엇이 지워지는가"가 색으로 보여야 한다는 사용자 요구사항
+  - **같은 부분을 다시 클릭하면 부분 선택 해제** → 구조 전체 선택으로 복귀.
+    이 토글이 없으면 부분을 고른 뒤 구조 전체 삭제로 돌아갈 방법이 없다
+  - `Delete`: `structPart`가 있으면 **그 부분만**, 없으면 구조 전체 삭제
+    (`deleteStructSelection` — `drawables.structure.delete`에 연결)
+  - **선분 삭제는 "이어붙이기"** (2026-08-12 사용자 확정): 구조를 쪼개지 않고 끝점 하나를 지운다.
+    첫 선분이면 앞 끝점, 그 외에는 뒤 끝점 → 끝 선분은 잘려나가고 가운데는 양옆 레그가 합쳐진다.
+    **쪼개기(구조 2개로 분리)를 택하지 않은 이유는 [S4]와 같다 — 경계에서 bias가 리셋돼 CHoCH 유실**
   - 삭제로 고점–고점이 인접하면 `normalizeStructurePoints`가 더 극단적인 쪽만 남겨 교대 불변식 유지
     → "그 스윙을 없앤다"가 되어 의미가 성립
   - 꼭짓점이 2개 미만이 되면 구조 자체를 삭제
+  - ※ 예전 방식(꼭짓점 `Shift+클릭` 즉시 삭제)은 **사용자 요청으로 제거**됨. 되살리지 말 것
+  - ※ 부분 선택은 인덱스라 순서가 바뀌면 낡는다 → 구조 선택 변경 시, 삭제 후,
+    **꼭짓점을 실제로 드래그해 옮겼을 때**(`drag.moved`) 자동으로 비운다.
+    드래그 없이 눌렀다 뗀 경우는 "클릭 = 선택"이므로 유지해야 한다
   - **선분 중간 삽입은 없다(의도적)**: 고/저 교대 구조라 H–L 사이에 넣는 점은 어느 타입이든
     양옆 중 하나와 겹치고, normalize가 병합해버려 아무 일도 안 일어난다.
     점을 늘리는 경로는 아래 이어 그리기 하나로 통일
@@ -318,8 +348,10 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   H→L→H(상승) 같은 단순 BOS에도 첫 CHoCH가 찍힌다. 수동 구조는 **실제 돌파가 있을 때만** bias를 세운다
 - **표시 토글**: IndicatorMenu `struct`("Custom Structure Zigzag") — 자동 ZZ와 **독립**.
   - **OFF면 그리기 자체가 막힌다** (TopBar "구조" 버튼 비활성 + `s` 단축키 무시).
-    안 보이는 상태로 그려지면 켤 때 갑자기 나타나 혼란스럽기 때문
-  - 그리는 도중/선택한 채로 OFF하면 draft와 선택을 정리한다 (App.jsx의 showStruct useEffect) 자동 연동은 의도적으로
+    안 보이는 상태로 그려지면 켤 때 갑자기 나타나 혼란스럽기 때문.
+    **단 TF 필터는 버튼을 죽이지 않는다** — 위 "표시 TF 필터" 참고
+  - 그리는 도중/선택한 채로 OFF하거나 표시 대상이 아닌 TF로 넘어가면 draft와 선택을 정리한다
+    (App.jsx의 showStruct useEffect) 자동 연동은 의도적으로
   넣지 않았다(둘을 나란히 비교하는 용도가 막히므로). OFF일 때는 렌더뿐 아니라
   `ChartArea.visibleStructures`가 히트 판정에서도 빼서, 안 보이는 구조가 클릭에 잡히지 않게 한다
 - **투명도**: 신규 구조 기본 0.5 (`STRUCT_DEFAULT_OPACITY`) — 지그재그는 배경처럼 깔리게.
@@ -348,18 +380,19 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), Divergence(peak_lb/scan), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/max_choch/show_choch)
+- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/max_choch/show_choch), struct(tfs — 수동 구조 표시 TF)
 - ※ 새 지표 추가 시 프론트 `INDICATOR_DEFAULTS`와 백엔드 `indicatorParamsStore.DEFAULTS` **양쪽 모두**에 키 추가 필요 (백엔드 load()가 자기 DEFAULTS 키만 통과시킴)
 
 ### 알림 시스템
 - **토스트 종류**: 일반(금색 테두리, 30초 자동닫힘) / sticky(빨강 테두리, 확인 버튼 필수)
 - **포지션 종료 알림**: 롱/숏 포지션 각각 독립 감지 → 해당 사이드 종료 시 sticky 알림
 - **추세선/채널/원 근접 알림**: 0.2% 이내 진입 → sticky, 0.3% 이상 이탈 시 해제 (히스테리시스)
-- **RSI 알람** (`useAlertMonitor`): 6개 타임프레임(5m/15m/1h/4h/1d/1w) 독립 WebSocket 감시
+- **RSI 알람** (`useAlertMonitor`): 7개 타임프레임(5m/15m/1h/4h/1d/1w/1M) 독립 WebSocket 감시
   - RSI 과매수(≥70) / 과매도(≤30) — 쿨다운(봉 길이 기준) + 히스테리시스(65/35 복귀 시 해제)
-  - 다이버전스: 봉 마감 시 새로 발생한 것만 알림
   - 봉 마감: 타임프레임별 개별 설정
-- **알림 설정** (`NotificationMenu`): 6TF × (RSI OB/OS, 다이버전스, 히든다이버전스, 봉마감) 체크박스
+- **알림 설정** (`NotificationMenu`): 7TF × (RSI OB/OS, 봉마감) 체크박스
+  - `useNotificationSettings`의 병합은 **DEFAULT에 있는 키만 통과** — 제거된 알림 종류가
+    localStorage에 남아 있어도 되살아나지 않는다
 
 ### 레버리지 변경
 - 사이드바 레버리지 슬라이더 조작 → pendingLeverage 임시 저장 → 확인 버튼 클릭 시 적용
@@ -432,8 +465,9 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   ※ CHoCH 개수는 `getZzChochTotal()`로 노출 — IndicatorMenu가 "검출된 CHoCH N개" 표시와
     `max_choch` 슬라이더 상한(1~N)에 쓴다. ZZ 계산이 캔버스 렌더 경로에만 있어 React 상태로
     올라오지 않으므로, 메뉴 여는 시점에 모듈 상태를 직접 읽는다(열려 있는 동안은 갱신 안 됨)
-- **RSI 다이버전스**: RSI 고점/저점과 가격 고점/저점 비교, 일반/히든 불·베어 4종 (App.jsx에서 useMemo로 계산, DivergenceLines로 렌더)
 - **RSI 패널**: Wilder's smoothing, 별도 캔버스, 드래그로 높이 조절 (useRsiResize)
+  ※ RSI 다이버전스 지표는 제거됨 (2026-08-12) — 지표/알림/파라미터(`div`)/`DivergenceLines.jsx`/
+    `utils/rsi.js::buildRSIArray` 전부 삭제. RSI 패널에는 더 이상 SVG 오버레이가 없다
 
 ### 체결 감지
 - **LIMIT 주문**: User Data Stream WebSocket (`orderWatcher.js`)으로 즉시 감지
@@ -447,7 +481,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - 거래량: D3 imperative (`renderVolumeCanvas`) → `volCanvasRef`에 별도 드로우
 - RSI: D3 imperative (`renderRSICanvas`) → `rsiCanvasRef`에 별도 드로우
 - FVG/OB/SR/EMA: 캔버스 렌더 (`overlayRenderers.js`)
-- 오버레이 (박스/포지션 라인/트렌드라인/채널/원/다이버전스): React SVG (`ChartSvg` 내)
+- 오버레이 (박스/포지션 라인/트렌드라인/채널/원/수동 구조): React SVG (`ChartSvg` 내)
 - `useChartRenderer.js`의 `forceUpdate`(renderTick)로 캔버스 렌더 후 React 오버레이 동기화
 - pan 중: `redrawChart()`가 redrawCanvas+redrawVolume+redrawRSI+forceUpdate 동시 호출
 

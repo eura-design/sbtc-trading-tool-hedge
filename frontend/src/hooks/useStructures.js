@@ -36,6 +36,11 @@ export const STRUCT_DEFAULT_OPACITY = 0.5;
  *
  * [S5] 흡수된 구조(mergeIds)는 finishStruct에서 반드시 제거한다.
  *      남기면 같은 꼭짓점이 두 벌이 되어 CHoCH가 겹쳐 그려진다.
+ *
+ * [S6] 부분 삭제는 **클릭으로 선택 → Delete**다. 예전의 "꼭짓점 Shift+클릭 즉시 삭제"로
+ *      되돌리지 말 것 — 사용자가 명시적으로 바꾼 조작이다.
+ *      선분 삭제는 구조를 쪼개지 않고 **끝점 하나를 지워 이어붙인다**(removeStructSegment).
+ *      쪼개면 [S4]와 같은 이유로 경계 CHoCH가 유실된다.
  */
 export function useStructures() {
   const store = useDrawableStore("structures");
@@ -43,7 +48,21 @@ export function useStructures() {
   const [structMode,       setStructMode]       = useState(false);
   const [structDraft,      setStructDraft]      = useState(null);   // { points: [...] } — 그리는 중
   const [structPreview,    setStructPreview]    = useState(null);   // { t, p, type } — 커서 스냅 미리보기
-  const [selectedStructId, setSelectedStructId] = useState(null);
+  const [selectedStructId, setSelectedStructIdRaw] = useState(null);
+
+  // 선택된 구조 **안에서** 다시 고른 부분 — { kind: "point"|"segment", idx } | null
+  // 꼭짓점/선분을 클릭하면 여기 담기고, Delete가 구조 전체 대신 이것만 지운다.
+  // (예전엔 꼭짓점 Shift+클릭 즉시 삭제였다 — 클릭 → Delete로 변경, 사용자 요청)
+  const [structPart, setStructPart] = useState(null);
+
+  const clearStructPart  = useCallback(() => setStructPart(null), []);
+  const selectStructPart = useCallback(part => setStructPart(part), []);
+
+  // 구조 선택이 바뀌면 부분 선택은 의미가 없어지므로 같이 비운다
+  const setSelectedStructId = useCallback((id) => {
+    setSelectedStructIdRaw(id);
+    setStructPart(null);
+  }, []);
 
   const cancelStructDraw = useCallback(() => {
     setStructMode(false); setStructDraft(null); setStructPreview(null);
@@ -141,14 +160,38 @@ export function useStructures() {
     const item = store.items.find(x => x.id === id);
     if (!item) return;
     const points = normalizeStructurePoints(item.points.filter((_, k) => k !== idx));
+    setStructPart(null);   // 인덱스가 밀리므로 부분 선택은 반드시 비운다
     // 꼭짓점이 2개 미만이면 구조 자체가 의미 없으므로 통째로 삭제
-    if (points.length < 2) { store.remove(id); setSelectedStructId(null); return; }
+    if (points.length < 2) { store.remove(id); setSelectedStructIdRaw(null); return; }
     store.update(id, { points });
   }, [store]);
 
+  /**
+   * 선분 하나 삭제 — **이어붙이기 방식**(사용자 확정, 2026-08-12).
+   * segIdx는 findStructSegmentIdx가 주는 값 = 그 선분의 뒤쪽 꼭짓점 인덱스.
+   *
+   * 구조를 둘로 쪼개지 않고 끝점 하나를 지운다:
+   *  - 첫 선분(segIdx=1)이면 앞 끝점(0), 그 외에는 뒤 끝점을 제거
+   *  - 끝 선분은 그대로 잘려나가고, 가운데 선분은 양옆이 같은 타입이 되면서
+   *    normalizeStructurePoints가 더 극단적인 쪽만 남겨 두 레그가 하나로 합쳐진다
+   *
+   * 쪼개기(구조 2개로 분리)를 택하지 않은 이유: 경계에서 bias가 리셋돼 그 지점
+   * CHoCH가 유실된다 ([S4]와 같은 이유).
+   */
+  const removeStructSegment = useCallback((id, segIdx) => {
+    removeStructPoint(id, segIdx === 1 ? 0 : segIdx);
+  }, [removeStructPoint]);
+
   const deleteStruct = useCallback((id) => {
-    store.remove(id); setSelectedStructId(null);
+    store.remove(id); setSelectedStructIdRaw(null); setStructPart(null);
   }, [store]);
+
+  // Delete 키 처리 — 부분(꼭짓점/선분)이 선택돼 있으면 그것만, 아니면 구조 전체
+  const deleteStructSelection = useCallback((id) => {
+    if (structPart?.kind === "point")        removeStructPoint(id, structPart.idx);
+    else if (structPart?.kind === "segment") removeStructSegment(id, structPart.idx);
+    else                                     deleteStruct(id);
+  }, [structPart, removeStructPoint, removeStructSegment, deleteStruct]);
 
   return {
     structures: store.items,
@@ -156,8 +199,10 @@ export function useStructures() {
     structDraft,      setStructDraft,
     structPreview,    setStructPreview,
     selectedStructId, setSelectedStructId,
+    structPart, selectStructPart, clearStructPart,
     cancelStructDraw, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-    moveStructPoint, normalizeStruct, removeStructPoint, deleteStruct,
+    moveStructPoint, normalizeStruct, removeStructPoint, removeStructSegment,
+    deleteStruct, deleteStructSelection,
     setStructOpacity: store.setOpacity,
     toggleStructLock: store.toggleLock,
   };

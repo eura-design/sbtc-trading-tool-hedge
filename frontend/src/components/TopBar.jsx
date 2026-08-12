@@ -80,11 +80,11 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
         transition:"all 0.15s",
       }}>채널</button>
 
-      {/* 지표가 꺼져 있으면 그려도 화면에 안 나오므로 아예 막는다 (App.jsx에서도 가드) */}
+      {/* 지표가 꺼져 있거나 현재 TF가 표시 대상이 아니면 그려도 화면에 안 나오므로 아예 막는다 (App.jsx에서도 가드) */}
       <button onClick={onStructModeToggle} disabled={!structEnabled}
         title={structEnabled
           ? "시장 구조 — 클릭으로 고/저점 찍기, 우클릭·더블클릭 확정 / CHoCH 자동 표시"
-          : "지표 메뉴에서 Custom Structure Zigzag를 켜야 그릴 수 있습니다"} style={{
+          : "지표 메뉴에서 Custom Structure Zigzag를 켜고, 현재 타임프레임을 표시 대상으로 선택해야 그릴 수 있습니다"} style={{
         height:"22px", padding:"0 7px", borderRadius:"3px",
         cursor: structEnabled ? "pointer" : "not-allowed", flexShrink:0,
         fontSize:"12px", fontFamily:"inherit", fontWeight:"400",

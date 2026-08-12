@@ -48,7 +48,7 @@ export const DRAG_HANDLERS = {
       }
       if (setters.overlaysRef) setters.overlaysRef.current._panning = true;
       // redrawChart = redrawCanvas + redrawVolume + redrawRSI + forceUpdate
-      // forceUpdate → scales 재계산 → 선/원/채널/다이버전스 등 SVG 오버레이도 즉시 따라옴
+      // forceUpdate → scales 재계산 → 선/원/채널/구조 등 SVG 오버레이도 즉시 따라옴
       // _panning 플래그가 FVG/OB/SR/EMA 캔버스 렌더는 스킵하므로 성능 유지
       setters.redrawChart?.();
       setCursor("grabbing");
@@ -265,11 +265,15 @@ export const DRAG_HANDLERS = {
       if (!scales || !candles.length) return;
       const snapped = snapToStructurePoint(pos, candles, scales.xScale, scales.yScale, drag.ptType, 0);
       if (!snapped) return;
+      drag.moved = true;
       setters.moveStructPoint(drag.structId, drag.ptIdx, snapped.t, snapped.p);
       setters.setCursor("move");
     },
     onUp({ drag, setters }) {
       setters.normalizeStruct?.(drag.structId);
+      // 실제로 움직였을 때만 부분 선택 해제 — normalize가 순서를 바꿔 인덱스가 낡기 때문.
+      // 움직이지 않은 경우는 "꼭짓점 클릭 = 선택"이므로 유지해야 Delete로 지울 수 있다.
+      if (drag.moved) setters.clearStructPart?.();
       setters.setCursor("crosshair");
     },
   },

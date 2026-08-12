@@ -45,11 +45,9 @@ export function ChartArea({
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, srData: srLevels,
   // 지표 표시 여부
-  showRsi, showSR, showOB, showFVG, showVol, showEMA, showDiv, showZZ, showStruct,
+  showRsi, showSR, showOB, showFVG, showVol, showEMA, showZZ, showStruct,
   // 지표 파라미터
   indicatorParams,
-  // 다이버전스
-  divData,
   // 드로잉 상태 (useTrendLines)
   lines, lineMode, lineStart, setLineStart, linePreview, setLinePreview,
   selectedLineId, setSelectedLineId,
@@ -69,7 +67,8 @@ export function ChartArea({
   structures, structMode, structDraft, structPreview, setStructPreview,
   selectedStructId, setSelectedStructId,
   cancelStructDraw, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-  moveStructPoint, normalizeStruct, removeStructPoint,
+  moveStructPoint, normalizeStruct,
+  structPart, selectStructPart, clearStructPart,   // 꼭짓점/선분 부분 선택 (Delete 대상)
   // 도형 통합 인터페이스 (App.jsx에서 구성)
   drawables,
   // 공유 상태 (App.jsx에서 관리 — 키보드 ESC와 공유)
@@ -243,7 +242,7 @@ export function ChartArea({
       structMode, structDraft, structPreview, setStructPreview,
       structures: visibleStructures, selectedStructId, setSelectedStructId,
       addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-      moveStructPoint, normalizeStruct, removeStructPoint,
+      moveStructPoint, normalizeStruct, structPart, selectStructPart, clearStructPart,
       drawables,
       overlaysRef,
     });
@@ -291,8 +290,8 @@ export function ChartArea({
             setDrawMode(false); setCurrent(null); dragRef.current = null;
           }
         }}
-        scales={scales} candles={candles} candlesRef={candlesRef} divData={divData}
-        showRsi={showRsi} showDiv={showDiv}
+        scales={scales} candles={candles} candlesRef={candlesRef}
+        showRsi={showRsi}
         rsiH={effectiveRsiH} onDividerMouseDown={onDividerMouseDown}
         showVol={showVol} volH={effectiveVolH} onVolDividerMouseDown={onVolDividerMouseDown}
         vLineRef={vLineRef} hLineMainRef={hLineMainRef} hLineRsiRef={hLineRsiRef}
@@ -306,7 +305,7 @@ export function ChartArea({
         channelStep={channelStep} channelPoints={channelPoints} channelPreview={channelPreview}
         circles={circles} selectedCircleId={selectedCircleId}
         circleCenter={circleCenter} circlePreview={circlePreview}
-        structures={visibleStructures} selectedStructId={selectedStructId}
+        structures={visibleStructures} selectedStructId={selectedStructId} structPart={structPart}
         structDraft={showStruct ? structDraft : null}
         structPreview={showStruct ? structPreview : null}
       />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { BN_PUBLIC, BN_WS, TF_MS } from "../constants";
 
 const ALL_TF      = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
@@ -6,77 +6,16 @@ const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시
 // TF_MS(constants.js)를 쿨다운 기준으로 사용 — TF_SECS 제거
 
 // ── RSI 유틸 ──────────────────────────────────────────────────────────────────
-import { buildRSIState, tickRSI, buildRSIArray } from "../utils/rsi";
-
-// ── 다이버전스 감지 ────────────────────────────────────────────────────────────
-
-function findPeaks(data, lb) {
-  const r = [];
-  for (let i = lb; i < data.length - lb; i++) {
-    let ok = true;
-    for (let j = 1; j <= lb; j++) {
-      if (data[i].rsi <= data[i-j].rsi || data[i].rsi <= data[i+j].rsi) { ok = false; break; }
-    }
-    if (ok) r.push(i);
-  }
-  return r;
-}
-
-function findTroughs(data, lb) {
-  const r = [];
-  for (let i = lb; i < data.length - lb; i++) {
-    let ok = true;
-    for (let j = 1; j <= lb; j++) {
-      if (data[i].rsi >= data[i-j].rsi || data[i].rsi >= data[i+j].rsi) { ok = false; break; }
-    }
-    if (ok) r.push(i);
-  }
-  return r;
-}
-
-// t1/r1/t2/r2 포함 — 차트 렌더링에 사용
-function detectDivs(candles, peakLb, scan, period) {
-  const slice  = candles.slice(-scan);
-  const rsiArr = buildRSIArray(slice, period);
-  if (rsiArr.length < 20) return [];
-
-  const cMap = new Map();
-  for (const c of slice) cMap.set(+c.t, c);
-
-  const peaks   = findPeaks(rsiArr, peakLb);
-  const troughs = findTroughs(rsiArr, peakLb);
-  const divs    = [];
-
-  for (let i = peaks.length - 1; i >= 1; i--) {
-    const rA = rsiArr[peaks[i-1]], rB = rsiArr[peaks[i]];
-    const cA = cMap.get(+rA.t), cB = cMap.get(+rB.t);
-    if (!cA || !cB) continue;
-    if (cB.h > cA.h && rB.rsi < rA.rsi)
-      divs.push({ type: "regular", dir: "bear", key: `rb${+rB.t}`, t1: rA.t, r1: rA.rsi, t2: rB.t, r2: rB.rsi });
-    else if (cB.h < cA.h && rB.rsi > rA.rsi)
-      divs.push({ type: "hidden",  dir: "bear", key: `hb${+rB.t}`, t1: rA.t, r1: rA.rsi, t2: rB.t, r2: rB.rsi });
-  }
-  for (let i = troughs.length - 1; i >= 1; i--) {
-    const rA = rsiArr[troughs[i-1]], rB = rsiArr[troughs[i]];
-    const cA = cMap.get(+rA.t), cB = cMap.get(+rB.t);
-    if (!cA || !cB) continue;
-    if (cB.l < cA.l && rB.rsi > rA.rsi)
-      divs.push({ type: "regular", dir: "bull", key: `ru${+rB.t}`, t1: rA.t, r1: rA.rsi, t2: rB.t, r2: rB.rsi });
-    else if (cB.l > cA.l && rB.rsi < rA.rsi)
-      divs.push({ type: "hidden",  dir: "bull", key: `hu${+rB.t}`, t1: rA.t, r1: rA.rsi, t2: rB.t, r2: rB.rsi });
-  }
-  return divs;
-}
+import { buildRSIState, tickRSI } from "../utils/rsi";
 
 // ── 타임프레임별 모니터 ────────────────────────────────────────────────────────
 
-function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, onAlertRef, onDivUpdate) {
+function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef) {
   let closed = false;
 
   stateRef.current[tf] = {
     candles: [], ws: null,
     rsiState: null, prevRSI: null,
-    lastDivKeys: new Set(),
     inOB: false, inOS: false,
     lastOBAlert: 0, lastOSAlert: 0, // 마지막 알람 타임스탬프(ms)
     lastOBAlertCandleTime: 0,
@@ -95,10 +34,6 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
       const period0 = rsiParamsRef.current.period ?? 14;
       st.rsiState = buildRSIState(closed_, period0);
       st.prevRSI  = st.rsiState?.rsi ?? null;
-      const dp = divParamsRef.current;
-      const divs = detectDivs(closed_, dp.peak_lb ?? 5, dp.scan_candles ?? 300, period0);
-      st.lastDivKeys = new Set(divs.map(d => d.key));
-      onDivUpdate(tf, divs.slice(0, dp.max_show ?? 10));
     })
     .catch(e => console.error("[AlertMonitor] REST 실패", tf, e));
 
@@ -145,29 +80,6 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
 
         // 봉 마감 알림
         if (s.close) onAlertRef.current(`${TF_LABEL[tf]} 봉 마감`);
-
-        // 다이버전스 (봉 마감 시에만 체크) — detectDivs 1회만 호출
-        {
-          const dp      = divParamsRef.current;
-          const divs    = detectDivs(closed_, dp.peak_lb ?? 5, dp.scan_candles ?? 300, period);
-          const newKeys = new Set(divs.map(d => d.key));
-          if (s.div || s.hiddenDiv) {
-            for (const div of divs) {
-              if (!st.lastDivKeys.has(div.key)) {
-                if (div.type === "regular" && s.div) {
-                  const label = div.dir === "bull" ? "불리시 다이버전스" : "베어리시 다이버전스";
-                  onAlertRef.current(`${TF_LABEL[tf]} ${label}`);
-                }
-                if (div.type === "hidden" && s.hiddenDiv) {
-                  const label = div.dir === "bull" ? "히든 불리시 다이버전스" : "히든 베어리시 다이버전스";
-                  onAlertRef.current(`${TF_LABEL[tf]} ${label}`);
-                }
-              }
-            }
-          }
-          st.lastDivKeys = newKeys;
-          onDivUpdate(tf, divs.slice(0, dp.max_show ?? 10));
-        }
 
       } else {
         arr[arr.length - 1] = candle;
@@ -225,24 +137,18 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
 
 // ── 메인 훅 ───────────────────────────────────────────────────────────────────
 
-export function useAlertMonitor(settings, onAlert, divParams = {}, rsiParams = {}) {
+export function useAlertMonitor(settings, onAlert, rsiParams = {}) {
   const settingsRef  = useRef(settings);
   settingsRef.current = settings;
   const onAlertRef   = useRef(onAlert);
   onAlertRef.current = onAlert;
-  const divParamsRef = useRef(divParams);
-  divParamsRef.current = divParams;
   const rsiParamsRef = useRef(rsiParams);
   rsiParamsRef.current = rsiParams;
   const stateRef     = useRef({});
 
-  const [divsByTF, setDivsByTF] = useState({});
-
   useEffect(() => {
     const cleanups = ALL_TF.map(tf =>
-      startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, onAlertRef, (tf, divs) => {
-        setDivsByTF(prev => ({ ...prev, [tf]: divs }));
-      })
+      startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef)
     );
     return () => {
       cleanups.forEach(fn => fn());
@@ -250,10 +156,8 @@ export function useAlertMonitor(settings, onAlert, divParams = {}, rsiParams = {
     };
   }, []); // 마운트/언마운트 시에만 — settings는 ref로 항상 최신값 참조
 
-  // divParams 또는 rsiParams.period 변경 시 즉시 재계산
-  // period가 바뀌면 rsiState도 새 기간으로 재빌드 (틱 RSI 연속성 유지)
+  // rsiParams.period 변경 시 rsiState를 새 기간으로 재빌드 (틱 RSI 연속성 유지)
   useEffect(() => {
-    const { peak_lb = 5, scan_candles = 300, max_show = 10 } = divParams;
     const period = rsiParams.period ?? 14;
     ALL_TF.forEach(tf => {
       const st = stateRef.current[tf];
@@ -261,11 +165,6 @@ export function useAlertMonitor(settings, onAlert, divParams = {}, rsiParams = {
       const closed_ = st.candles.slice(0, -1);
       st.rsiState = buildRSIState(closed_, period);
       st.prevRSI  = st.rsiState?.rsi ?? null;
-      const divs = detectDivs(closed_, peak_lb, scan_candles, period);
-      st.lastDivKeys = new Set(divs.map(d => d.key));
-      setDivsByTF(prev => ({ ...prev, [tf]: divs.slice(0, max_show) }));
     });
-  }, [divParams.peak_lb, divParams.scan_candles, divParams.max_show, rsiParams.period]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return { divsByTF };
+  }, [rsiParams.period]);
 }

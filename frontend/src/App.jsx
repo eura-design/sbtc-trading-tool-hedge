@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 
 import { useTheme }  from "./ThemeContext";
 import { useStore }  from "./store";
+import { INTERVALS } from "./constants";
 
 import { useCandles }                from "./hooks/useCandles";
 import { useBalance }                from "./hooks/useBalance";
@@ -53,16 +54,34 @@ export default function App() {
   useTpsl();
   useRealtimeData();
 
+  // ── 지표 파라미터 ─────────────────────────────────────────────────────────
+  // showStruct가 struct.tfs를 봐야 해서 지표 표시 여부보다 먼저 로드한다.
+  const { params: indicatorParams, setParam: setIndicatorParam, setEmaList, resetIndicator } = useIndicatorParams();
+
   // ── 지표 표시 여부 ────────────────────────────────────────────────────────
   const showRsi = indicators.rsi !== false;
   const showSR  = indicators.sr  !== false;
   const showOB  = indicators.ob  !== false;
   const showFVG = indicators.fvg !== false;
-  const showDiv = indicators.div !== false;
   const showVol = indicators.vol !== false;
   const showEMA = indicators.ema !== false;
   const showZZ  = indicators.zz  !== false;
-  const showStruct = indicators.struct !== false;   // 수동 구조 — 자동 ZZ와 독립 토글
+  // 수동 구조 — 자동 ZZ와 독립 토글 + 표시 타임프레임 필터(struct.tfs, 중복 선택 / 기본 1h).
+  // 데이터는 여전히 전 TF 공유이고 "어느 TF에서 보여줄지"만 거르는 것이다.
+  //  - structOn   : 지표 토글 자체. **그리기 가능 여부는 이것만 본다** —
+  //                 TF 필터까지 묶으면 지표를 켜 뒀는데도 구조 버튼이 죽어 있어 고장으로 보인다
+  //  - showStruct : 현재 TF에서 실제로 그려지는지 (렌더 + 히트 판정)
+  const structOn   = indicators.struct !== false;
+  const structTfs  = indicatorParams.struct?.tfs ?? [];
+  const showStruct = structOn && structTfs.includes(interval_);
+
+  // 표시 대상이 아닌 TF에서 구조 모드로 들어가면 그 TF를 표시 목록에 자동 추가한다.
+  // (안 그러면 방금 그린 게 화면에 안 나온다 — 그리려 한 시점이 곧 "여기서도 보고 싶다"는 뜻)
+  const ensureStructTf = () => {
+    if (structTfs.includes(interval_)) return;
+    const next = [...structTfs, interval_];
+    setIndicatorParam("struct", "tfs", INTERVALS.filter(i => next.includes(i.value)).map(i => i.value));
+  };
 
   // ── drawing ↔ pending order 동기화 ────────────────────────────────────────
   useEffect(() => {
@@ -108,7 +127,8 @@ export default function App() {
   // ── 수동 구조 (지그재그 + 자동 CHoCH) ─────────────────────────────────────
   const structs = useStructures();
 
-  // 그리는 도중/선택한 채로 Custom Structure Zigzag를 끄면 편집 상태를 정리한다.
+  // 그리는 도중/선택한 채로 Custom Structure Zigzag를 끄거나(지표 토글),
+  // 표시 대상이 아닌 TF로 넘어가면 편집 상태를 정리한다.
   // 안 그러면 안 보이는 draft가 남아 있다가 다시 켤 때 그리던 중간부터 튀어나온다.
   useEffect(() => {
     if (showStruct) return;
@@ -118,8 +138,7 @@ export default function App() {
 
   const { toasts, addToast, addLineAlert, removeToast } = useToast();
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
-  const { params: indicatorParams, setParam: setIndicatorParam, setEmaList, resetIndicator } = useIndicatorParams();
-  const { divsByTF } = useAlertMonitor(notifSettings, addToast, indicatorParams.div, indicatorParams.rsi);
+  useAlertMonitor(notifSettings, addToast, indicatorParams.rsi);
 
   // ── 캔들 데이터 ───────────────────────────────────────────────────────────
   const onTickRef = useRef(null);
@@ -142,18 +161,6 @@ export default function App() {
   const obData  = useOrderBlock(candles, indicatorParams.ob);
   // ZZ(Structure Zigzag)는 진행 중 봉까지 반영해야 하므로 candleRenderer가 candlesRef로 직접 계산 — 여기서 계산하지 않음
   const { srLevels, srLoading, refreshSR } = useSRLevels();
-
-  // divsByTF → 메인 차트 캔들 인덱스로 변환
-  const divData = useMemo(() => {
-    const tfDivs = divsByTF[interval_] ?? [];
-    if (!tfDivs.length || !candles.length) return [];
-    const tMap = new Map(candles.map((c, i) => [+c.t, i]));
-    return tfDivs.map(d => {
-      const i1 = tMap.get(+d.t1), i2 = tMap.get(+d.t2);
-      if (i1 == null || i2 == null) return null;
-      return { type: d.type, dir: d.dir, i1, r1: d.r1, i2, r2: d.r2 };
-    }).filter(Boolean);
-  }, [divsByTF, interval_, candles]);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
   const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp } = useOrderFlow();
@@ -190,7 +197,8 @@ export default function App() {
     structure: {
       id: structs.selectedStructId, items: structs.structures,
       setSelectedId: structs.setSelectedStructId,
-      delete:        structs.deleteStruct,
+      // Delete 키 → 꼭짓점/선분이 선택돼 있으면 그것만, 아니면 구조 전체 삭제
+      delete:        structs.deleteStructSelection,
       toggleAlert:   () => {},   // 구조는 근접 알림 대상이 아님 (chart/drawables.js 주석 참고)
       toggleLock:    structs.toggleStructLock,
       setOpacity:    structs.setStructOpacity,
@@ -203,7 +211,7 @@ export default function App() {
     trendLines.selectedCircleId, trendLines.circles, trendLines.setSelectedCircleId,
     trendLines.deleteCircle, trendLines.toggleCircleAlert, trendLines.toggleCircleLock, trendLines.setCircleOpacity,
     structs.selectedStructId, structs.structures, structs.setSelectedStructId,
-    structs.deleteStruct, structs.toggleStructLock, structs.setStructOpacity,
+    structs.deleteStructSelection, structs.toggleStructLock, structs.setStructOpacity,
   ]);
 
   // ── 키보드 단축키 ─────────────────────────────────────────────────────────
@@ -216,7 +224,9 @@ export default function App() {
     cancelCircleDraw:  trendLines.cancelCircleDraw,
     cancelStructDraw:  structs.cancelStructDraw,
     setStructMode:     structs.setStructMode,
-    structEnabled:     showStruct,
+    structEnabled:     structOn,
+    structMode:        structs.structMode,
+    ensureStructTf,
     drawables,
     setSelectedBox,
     drawing, hasPending, locked: drawLocked, selectedBox,
@@ -253,8 +263,9 @@ export default function App() {
             setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw(); structs.cancelStructDraw();
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
           }}
-          structMode={structs.structMode} structEnabled={showStruct} onStructModeToggle={() => {
-            if (!showStruct) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단
+          structMode={structs.structMode} structEnabled={structOn} onStructModeToggle={() => {
+            if (!structOn) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단
+            if (!structs.structMode) ensureStructTf();   // 진입할 때만 — 나갈 때 추가하면 엉뚱하다
             setDrawMode(false);
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
             structs.setStructMode(m => { if (m) structs.cancelStructDraw(); return !m; });
@@ -288,10 +299,9 @@ export default function App() {
           onTickRef={onTickRef} interval_={interval_} isDark={isDark} isLog={isLog}
           rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData} srData={srLevels}
           showRsi={showRsi} showSR={showSR} showOB={showOB} showFVG={showFVG}
-          showVol={showVol} showEMA={showEMA} showDiv={showDiv}
+          showVol={showVol} showEMA={showEMA}
           showZZ={showZZ} showStruct={showStruct}
           indicatorParams={indicatorParams}
-          divData={divData}
           current={current} setCurrent={setCurrent}
           actionsRef={chartActionsRef}
           drawables={drawables}

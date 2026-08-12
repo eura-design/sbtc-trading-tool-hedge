@@ -34,7 +34,7 @@ export function useChartInteraction({
   structMode, structDraft, structPreview, setStructPreview,
   structures, selectedStructId, setSelectedStructId,
   addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-  moveStructPoint, normalizeStruct, removeStructPoint,
+  moveStructPoint, normalizeStruct, structPart, selectStructPart, clearStructPart,
   // 도형 통합 인터페이스
   drawables,
   overlaysRef,
@@ -142,8 +142,7 @@ export function useChartInteraction({
       circles, selectedCircleId,
       addCircle, moveCircle,
       structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
-      structures, selectedStructId, removeStructPoint,
-      shiftKey: e.shiftKey,
+      structures, selectedStructId, structPart, selectStructPart,
     });
 
     for (const step of chain) {
@@ -151,7 +150,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, removeStructPoint]);
+  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -318,11 +317,11 @@ export function useChartInteraction({
         setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart,
         updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
-        moveStructPoint, normalizeStruct,
+        moveStructPoint, normalizeStruct, clearStructPart,
       },
       state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
     });
-  }, [candles, drawing, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct]);
+  }, [candles, drawing, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
 
   const onDoubleClick = useCallback(e => {
     const pos    = getSvgPos(e);

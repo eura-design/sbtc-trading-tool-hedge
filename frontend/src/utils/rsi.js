@@ -44,29 +44,3 @@ export function tickRSI(state, prevClose, currClose, period) {
   const al = (state.al * (period - 1) + Math.max(-d, 0)) / period;
   return toRsi(ag, al);
 }
-
-/**
- * 캔들 배열 전체에 대한 RSI 배열({ t, rsi })을 빌드합니다.
- * useAlertMonitor의 다이버전스 감지에 사용됩니다.
- * @param {Array}  candles
- * @param {number} period
- * @returns {Array<{ t: Date, rsi: number }>}
- */
-export function buildRSIArray(candles, period) {
-  if (candles.length < period + 1) return [];
-  const cl = candles.map(c => c.c);
-  let ag = 0, al = 0;
-  for (let i = 1; i <= period; i++) {
-    const d = cl[i] - cl[i - 1];
-    if (d > 0) ag += d; else al -= d;
-  }
-  ag /= period; al /= period;
-  const data = [{ t: candles[period].t, rsi: toRsi(ag, al) }];
-  for (let i = period + 1; i < cl.length; i++) {
-    const d = cl[i] - cl[i - 1];
-    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
-    al = (al * (period - 1) + Math.max(-d, 0)) / period;
-    data.push({ t: candles[i].t, rsi: toRsi(ag, al) });
-  }
-  return data;
-}

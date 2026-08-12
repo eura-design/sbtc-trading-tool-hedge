@@ -65,7 +65,7 @@ export const PALETTE = {
   short:    "#f6465d",   // SHORT/BEAR/실패
   info:     "#60a5fa",   // 정보 (대기 주문, 청산 액션 등)
   accent:   "#c084fc",   // 강조 (드로잉/지표 활성)
-  accent2:  "#a78bfa",   // 보조 강조 (R:R, 다이버전스 등)
+  accent2:  "#a78bfa",   // 보조 강조 (R:R 등)
   warn:     "#f0b90b",   // 경고 (변경 확인, 평균가 등)
   liq:      "#ff4444",   // 청산가
   neutralFg:"#94a3b8",   // 보조 텍스트 — 색 강조 없는 수치
