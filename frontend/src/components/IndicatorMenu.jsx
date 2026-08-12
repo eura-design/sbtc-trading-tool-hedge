@@ -10,6 +10,8 @@ export const INDICATORS = [
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
   { key: "zz",  label: "Structure Zigzag" },
+  // 수동 구조 표시 토글 — 자동 ZZ와 독립. 파라미터 없음(PARAMS_META에 항목 없음)
+  { key: "struct", label: "내 구조" },
   { key: "ema", label: "EMA" },
 ];
 

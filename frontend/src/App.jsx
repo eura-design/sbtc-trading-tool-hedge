@@ -62,6 +62,7 @@ export default function App() {
   const showVol = indicators.vol !== false;
   const showEMA = indicators.ema !== false;
   const showZZ  = indicators.zz  !== false;
+  const showStruct = indicators.struct !== false;   // 수동 구조 — 자동 ZZ와 독립 토글
 
   // ── drawing ↔ pending order 동기화 ────────────────────────────────────────
   useEffect(() => {
@@ -277,7 +278,7 @@ export default function App() {
           rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData} srData={srLevels}
           showRsi={showRsi} showSR={showSR} showOB={showOB} showFVG={showFVG}
           showVol={showVol} showEMA={showEMA} showDiv={showDiv}
-          showZZ={showZZ}
+          showZZ={showZZ} showStruct={showStruct}
           indicatorParams={indicatorParams}
           divData={divData}
           current={current} setCurrent={setCurrent}

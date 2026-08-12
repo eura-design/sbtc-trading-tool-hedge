@@ -45,7 +45,7 @@ export function ChartArea({
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, srData: srLevels,
   // 지표 표시 여부
-  showRsi, showSR, showOB, showFVG, showVol, showEMA, showDiv, showZZ,
+  showRsi, showSR, showOB, showFVG, showVol, showEMA, showDiv, showZZ, showStruct,
   // 지표 파라미터
   indicatorParams,
   // 다이버전스
@@ -100,6 +100,10 @@ export function ChartArea({
   // 헷지모드: 양쪽 모두 점유(포지션 or pending)됐을 때만 신규 박스 드로잉 차단
   const { hasLong, hasShort, hasPos, drawLocked } = derivePositionFlags(position);
   const locked = drawLocked;
+
+  // 수동 구조 표시 OFF면 렌더뿐 아니라 히트 판정에서도 빼야 한다.
+  // 안 그러면 안 보이는 구조가 클릭에 잡혀 선택·드래그된다.
+  const visibleStructures = showStruct ? structures : [];
 
   // ── 봉마감 카운트다운 ──────────────────────────────────────────────────────
   const [countdown, setCountdown] = useState({ text: "", ratio: 1 });
@@ -237,7 +241,7 @@ export function ChartArea({
       circles, selectedCircleId, setSelectedCircleId,
       addCircle, moveCircle,
       structMode, structDraft, structPreview, setStructPreview,
-      structures, selectedStructId, setSelectedStructId,
+      structures: visibleStructures, selectedStructId, setSelectedStructId,
       addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
       moveStructPoint, normalizeStruct, removeStructPoint,
       drawables,
@@ -302,8 +306,9 @@ export function ChartArea({
         channelStep={channelStep} channelPoints={channelPoints} channelPreview={channelPreview}
         circles={circles} selectedCircleId={selectedCircleId}
         circleCenter={circleCenter} circlePreview={circlePreview}
-        structures={structures} selectedStructId={selectedStructId}
-        structDraft={structDraft} structPreview={structPreview}
+        structures={visibleStructures} selectedStructId={selectedStructId}
+        structDraft={showStruct ? structDraft : null}
+        structPreview={showStruct ? structPreview : null}
       />
       {countdown.text && (
         <div style={{

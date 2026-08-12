@@ -316,6 +316,9 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   자동 ZZ의 forward-only 누적 상태는 진행 중 봉 ATR 드리프트를 막으려던 것이라 여기선 불필요
 - **자동 ZZ와 판정이 다른 부분**: 자동 ZZ는 structHigh/Low가 NaN일 때 bias를 강제 세팅해서
   H→L→H(상승) 같은 단순 BOS에도 첫 CHoCH가 찍힌다. 수동 구조는 **실제 돌파가 있을 때만** bias를 세운다
+- **표시 토글**: IndicatorMenu `struct`("내 구조") — 자동 ZZ와 **독립**. 자동 연동은 의도적으로
+  넣지 않았다(둘을 나란히 비교하는 용도가 막히므로). OFF일 때는 렌더뿐 아니라
+  `ChartArea.visibleStructures`가 히트 판정에서도 빼서, 안 보이는 구조가 클릭에 잡히지 않게 한다
 - **투명도**: 신규 구조 기본 0.5 (`STRUCT_DEFAULT_OPACITY`) — 지그재그는 배경처럼 깔리게.
   **CHoCH 마크는 투명도 설정과 무관하게 항상 100%** (`ChochMarks`는 opacity를 받지 않음)
 - **진행 중 레그는 구조 하나만 갖는다**: 꼭짓점 timestamp가 가장 최근인 구조(또는 draft) 1개.
