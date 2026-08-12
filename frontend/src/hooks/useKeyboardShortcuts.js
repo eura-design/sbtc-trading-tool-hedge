@@ -6,8 +6,9 @@ const INTERVAL_VALUES = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
 export function useKeyboardShortcuts({
   shortcuts,
   setDrawMode, setCurrent,
-  cancelDraw, cancelChannelDraw, cancelCircleDraw,
-  drawables,   // { line, channel, circle } — chart/drawables.js 인터페이스
+  cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelStructDraw,
+  setStructMode,
+  drawables,   // { line, channel, circle, structure } — chart/drawables.js 인터페이스
   setSelectedBox,
   drawing, hasPending, locked,
   selectedBox,
@@ -23,6 +24,7 @@ export function useKeyboardShortcuts({
       if (match(e, "escape")) {
         setDrawMode(false); setCurrent(null);
         cancelDraw(); cancelChannelDraw(); cancelCircleDraw();
+        cancelStructDraw();   // 그리던 구조는 확정하지 않고 버린다 (확정은 우클릭/더블클릭)
         clearAllSelections(drawables);
         setSelectedBox(false);
         return;
@@ -41,9 +43,16 @@ export function useKeyboardShortcuts({
 
       if (match(e, "drawBox")) {
         if (!locked) {
-          cancelDraw(); cancelChannelDraw(); cancelCircleDraw();
+          cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelStructDraw();
           setDrawMode(m => !m);
         }
+        return;
+      }
+
+      if (match(e, "drawStruct")) {
+        setDrawMode(false);
+        cancelDraw(); cancelChannelDraw(); cancelCircleDraw();
+        setStructMode(m => { if (m) cancelStructDraw(); return !m; });
         return;
       }
 
@@ -80,5 +89,6 @@ export function useKeyboardShortcuts({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [shortcuts, drawables, selectedBox, drawing, hasPending, locked, deleteBox, interval_, onIntervalChange,
-      setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, setSelectedBox]);
+      setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelStructDraw,
+      setStructMode, setSelectedBox]);
 }

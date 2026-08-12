@@ -3,6 +3,7 @@ import { useTheme } from "../../ThemeContext";
 import { TrendLines }   from "./TrendLines";
 import { Channels }     from "./Channels";
 import { Circles }      from "./Circles";
+import { Structures }   from "./Structures";
 import { PositionLines } from "./PositionLines";
 import { BoxOverlay, DrawingCurrent, BoxLabels } from "./BoxOverlay";
 import { DivergenceLines } from "./DivergenceLines";
@@ -12,7 +13,7 @@ export function ChartSvg({
   containerW, containerH, IW, IH,
   onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onContextMenu, onDoubleClick,
   // 오버레이 데이터 (FVG/OB/SR은 Canvas로 이동)
-  scales, candles, divData,
+  scales, candles, candlesRef, divData,
   showRsi, showDiv, rsiH, onDividerMouseDown,
   showVol, volH, onVolDividerMouseDown,
   vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef,
@@ -21,6 +22,7 @@ export function ChartSvg({
   drawing, current, locked, selectedBox,
   channels, selectedChannelId, channelStep, channelPoints, channelPreview,
   circles, selectedCircleId, circleCenter, circlePreview,
+  structures, selectedStructId, structDraft, structPreview,
 }) {
   const { isDark } = useTheme();
   const crosshairColor = isDark ? "#d1d5db" : "#374151";
@@ -45,6 +47,9 @@ export function ChartSvg({
         <Channels channels={channels} selectedChannelId={selectedChannelId}
           channelStep={channelStep} channelPoints={channelPoints} channelPreview={channelPreview}
           scales={scales} IW={IW} IH={IH} candles={candles} isLog={isLog} />
+        <Structures structures={structures} selectedStructId={selectedStructId}
+          structDraft={structDraft} structPreview={structPreview}
+          scales={scales} candles={candles} candlesRef={candlesRef} IW={IW} />
         <TrendLines lines={lines} selectedLineId={selectedLineId}
           lineStart={lineStart} linePreview={linePreview}
           scales={scales} IW={IW} IH={IH} isLog={isLog} candles={candles} />

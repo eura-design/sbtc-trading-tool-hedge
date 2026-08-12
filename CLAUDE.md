@@ -87,7 +87,6 @@ frontend/src/
 │   ├── useRSI.js              ← RSI(14) 계산 (Wilder's smoothing, candles 기반)
 │   ├── useFVG.js              ← FVG(Fair Value Gap) 검출 (최근 400캔들, 50% 이상 채워지면 소멸)
 │   ├── useOrderBlock.js       ← 오더블록 검출 (BOS 기반 스윙 탐지, 최근 500캔들)
-│   ├── useMarketStructure.js  ← ICT 시장 구조 (BOS/CHoCH) — protected swing 로직, 봉마감 기준 돌파
 │   ├── useEMA.js              ← 다중 EMA 계산 (id/period/color/enabled 속성, useMemo 캐시)
 │   ├── useAlertMonitor.js     ← 타임프레임별 RSI 알람 (5m/15m/1h/4h/1d WebSocket 감시)
 │   │                             + 다이버전스 봉 마감 시 감지 + 히스테리시스 쿨다운 적용
@@ -97,6 +96,8 @@ frontend/src/
 │   ├── useNotificationSettings.js ← 타임프레임별 알림 설정 (RSI OB/OS, 다이버전스, 봉마감) localStorage 동기화
 │   ├── useTrendLines.js       ← 트렌드 라인 + 채널 + 원 상태 (내부적으로 useDrawableStore 3개 사용)
 │   ├── useDrawableStore.js    ← 제네릭 도형 스토어 (localStorage 영속화, 공통 필드 id/opacity/locked/alert)
+│   ├── useStructures.js       ← 수동 구조 도형 스토어 (useDrawableStore("structures")) + 그리기/편집 액션
+│   │                             points 배열 변형은 전부 normalizeStructurePoints를 거쳐 고/저 교대 유지
 │   ├── useIndicatorParams.js  ← 지표 파라미터 로드/저장 (서버 /api/indicator-params, INDICATOR_DEFAULTS 기본값 병합)
 │   ├── useShortcutSettings.js ← 단축키 커스텀 설정 (DEFAULT_SHORTCUTS + localStorage "keyboard_shortcuts")
 │   ├── useKeyboardShortcuts.js ← 단축키 글로벌 핸들러 (ESC/Delete/박스·선택·알람·잠금·투명도·TF 전환)
@@ -112,7 +113,13 @@ frontend/src/
 │   ├── candleRenderer.js      ← renderCandles() (캔들+축+오버레이 호출)
 │   │                             renderVolumeCanvas/renderRSICanvas는 각 파일에서 re-export
 │   ├── canvasUtils.js         ← initCanvas(DPR 대응), withClip(클리핑 헬퍼), getVisibleRange(가시 인덱스)
-│   ├── overlayRenderers.js    ← renderFVG, renderOrderBlock, renderSRLines, renderEMA (전부 캔버스 렌더)
+│   ├── overlayRenderers.js    ← renderFVG, renderOrderBlock, renderSRLines, renderEMA,
+│   │                             renderStructureZigzag (전부 캔버스 렌더)
+│   ├── structureZigzag.js     ← computeStructureZigzag() — ZZ 지표 계산 (훅 아님, 순수 함수)
+│   │                             유일하게 렌더 경로에서 계산되는 지표 — 틱마다 라이브 봉 반영
+│   │                             forward-only 누적 상태(모듈 레벨 _st) — 기록은 추가만, 제거 없음
+│   ├── deriveStructure.js     ← deriveStructure() / normalizeStructurePoints() — 수동 구조용 순수 함수
+│   │                             꼭짓점 배열 → 세그먼트 + CHoCH. 누적 상태 없이 매번 전체 재계산
 │   ├── volumeRenderer.js      ← renderVolumeCanvas (모듈 레벨 _volMap 재사용)
 │   ├── rsiRenderer.js         ← renderRSICanvas
 │   ├── cursorRules.js         ← CURSOR_RULES 배열, getCursor(ctx) — 커서 결정 로직
@@ -127,7 +134,7 @@ frontend/src/
 │   ├── ChartArea.jsx          ← 차트 전체 영역 조합 (hooks + ChartSvg + RSI/Volume 패널 + LineOpacityPopup)
 │   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원 모드 버튼,
 │   │                             로그 스케일 토글, 지표 메뉴, 알림 메뉴, 단축키 메뉴, 테마 토글
-│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/RSI Divergence/S·R/OB/FVG/EMA/MS)
+│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/RSI Divergence/S·R/OB/FVG/EMA/ZZ)
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
 │   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (5TF × RSI OB/OS/다이버전스/히든다이버전스/봉마감)
 │   ├── ShortcutMenu.jsx       ← 단축키 커스텀 설정 UI (녹음 모드로 각 action 키 재바인딩 + 초기화)
@@ -142,6 +149,8 @@ frontend/src/
 │   │   ├── TrendLines.jsx         ← 트렌드 라인 SVG (선택 시 끝점 핸들)
 │   │   ├── Channels.jsx           ← 채널 SVG (메인선+미러선+채우기, 알림 글로우, 선택 핸들)
 │   │   ├── Circles.jsx            ← 원 SVG (채우기+테두리, 알림 아이콘, 선택 핸들)
+│   │   ├── Structures.jsx         ← 수동 구조 SVG (지그재그 폴리라인 + CHoCH 마크 + 꼭짓점 핸들)
+│   │   │                             liveClose를 자체 구독 — ChartArea가 구독하면 틱마다 전체 리렌더
 │   │   ├── DivergenceLines.jsx    ← RSI 다이버전스 라인 (RSI 패널 내)
 │   │   └── LineOpacityPopup.jsx   ← 트렌드라인/채널/원 투명도(0.25~1.0)·잠금·알림 설정 팝업
 │   │                                  ※ FVG/OB/SR/EMA는 SVG가 아닌 `overlayRenderers.js`로 캔버스 렌더
@@ -230,6 +239,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - 트렌드 라인 타입: `line_ep` (끝점 드래그), `line_move` (몸통 드래그)
 - 채널 타입: `channel_ep` (끝점), `channel_move` (몸통), `channel_mid_offset` (중간 핸들로 양쪽 offset 동시 조절), `channel_mirror_ep` (미러선 끝점)
 - 원 타입: `circle_move` (이동), `circle_radius` (반지름 조절)
+- 수동 구조 타입: `struct_point` (꼭짓점 이동 — 봉 꼬리에 스냅, onUp에서만 정규화)
 - 포지션 오버레이 타입: `scale_in`, `split_tp`
 - `useChartInteraction.js`의 `buildHitChain`이 onMouseDown 히트 우선순위를 순서대로 처리
 
@@ -238,6 +248,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **라인 모드**: 트렌드 라인 (2점 클릭)
 - **채널 모드**: 평행 채널 (3클릭: 시작→끝→폭 확정)
 - **원 모드**: 원 (2클릭: 중심→반지름)
+- **구조 모드**: 수동 시장 구조 (기본 `s`) — 클릭 반복으로 고/저점 찍기, 우클릭·더블클릭 확정
 - `Escape`: 그리기 취소 / 선택 해제
 - `Delete`: 선택된 도형 삭제
 - `a`: 선택된 도형 알람 토글
@@ -252,10 +263,87 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - `alert`: true 시 근접(0.2%) 감지 → sticky 토스트 알림 + 3초마다 소리 반복
 - 공통 저장 로직은 `useDrawableStore(storageKey)` 제네릭 훅으로 일원화 (add/update/remove/replaceAll)
 
+### ⚠️ 수동 구조 — 사용자 확정 사양 (임의 변경 금지)
+
+**2026-08-12 확정, 실사용 테스트 통과.** 아래는 전부 사용자가 직접 요구했거나 실제 버그를
+겪고 함께 고쳐서 확정한 동작이다. "이상해 보인다 / 더 정확할 것 같다"는 판단으로 되돌리지 말 것.
+바꿔야 할 이유가 생기면 **먼저 사용자에게 확인**할 것. 코드 각 파일 상단에 같은 내용이
+`[1]`~`[6]` / `[R1]`~`[R5]` / `[S1]`~`[S5]` 번호로 달려 있다.
+
+| 결정 | 되돌리면 재발하는 문제 |
+|---|---|
+| CHoCH는 bias가 선 상태에서만 — 자동 ZZ식 완화 금지 | 상승 지속(BOS)에도 CHoCH 오탐 |
+| 마크가 적게 뜬다고 규칙 완화 금지 | 사용자 기준은 "알고리즘대로면 OK", 빈도가 아님 |
+| BOS 표시 안 함 (제안 거절됨) | 화면이 복잡해짐 |
+| CHoCH 선 끝 = 선분 교차점(`crossT`), 캔들 조회 금지 | 가로선이 지그재그를 지나 오른쪽으로 삐져나옴 |
+| 라이브 판정 = 꼬리 기준 + 구간 극값(래치) | 종가 기준이면 꼬리 돌파를 놓치고, 되돌아올 때 마크가 사라짐 |
+| `deriveStructure`에 `candlesRef.current` 전달 | React candles는 봉마감 때만 갱신 → 라이브가 조용히 죽음 |
+| 라이브 레그는 가장 최근 구조 1개만 | 과거 구조가 화면 끝까지 점선을 뻗음 |
+| CHoCH 마크 항상 100% 불투명 | 구조를 흐리게 하면 마크까지 흐려짐 |
+| 신규 구조 기본 투명도 0.5 | — |
+| `STRUCT_SNAP_BARS = 1` | 마그넷이 과하게 강해짐 (3에서 낮춘 값) |
+| 전 TF 공유 (storageKey에 TF 없음) | TF별 분리는 기능 후퇴 |
+| 선분 중간 꼭짓점 삽입 없음 | 교대 구조상 동작 불가 — "빠진 기능"이 아님 |
+| 끝점 클릭 = 연장/흡수로 항상 하나의 구조 | 쪼개지면 경계 CHoCH 유실 |
+
+### 수동 구조 (Structure) — 손으로 그리고 CHoCH는 자동
+- **목적**: 자동 ZZ가 못 잡는 구조를 직접 지정. 자동 ZZ와 **공존**하며 `structureZigzag.js`는 건드리지 않는다.
+- **데이터**: `{ id, points: [{ t, p, type:"H"|"L" }], opacity, locked }` — localStorage `"structures"`
+- **전 TF 공유**: storageKey에 타임프레임이 없고 좌표가 timestamp라 1h에서 그린 구조가 5m/1d에도 뜬다
+  (트렌드라인/채널/원과 동일 — `tsToIdx`가 TF별 bar index를 다시 계산)
+- **그리기**: TopBar "구조" 버튼(또는 `s`) → 클릭할 때마다 꼭짓점 추가 → 우클릭/더블클릭 확정, ESC 취소
+  - 꼭짓점 타입은 직전 점의 반대로 강제되고, `snapToStructurePoint`가 근처 봉의 고가/저가에 스냅
+  - 스냅 반경은 `STRUCT_SNAP_BARS`(hitDetection.js) 하나로 관리 — 클릭 배치와 미리보기가
+    같은 값을 써야 커서에 보이던 위치와 실제 찍히는 위치가 어긋나지 않는다. 드래그만 0(커서 추종)
+- **이어 그리기 / 두 구조 잇기**: 구조 모드에서 **기존 구조의 양 끝 꼭짓점 클릭** = 이어붙이기
+  - draft 없을 때 클릭 → `startExtendStruct` (그 구조를 연장, `extendId` 부여 → finishStruct가 update)
+  - draft 있을 때 다른 구조의 끝점 클릭 → `mergeStructIntoDraft` (그 구조를 흡수, `mergeIds`에 기록
+    → finishStruct가 흡수된 구조를 `store.remove`. 안 지우면 꼭짓점이 두 벌 남아 CHoCH가 겹친다)
+  - **왜 필수인가**: 확정 후에는 Shift+클릭(선분 사이 삽입)으로 끝점 뒤에 점을 못 붙인다.
+    또 구조를 둘로 쪼개면 `deriveStructure`가 각각 `bias=0`으로 새로 시작해 **경계의 CHoCH가 유실**된다
+  - 첫 점(과거 방향) 연장은 draft를 역순 seed — 타입 교대·프리뷰 기준점을 맞추기 위함.
+    최종 순서는 `normalizeStructurePoints`가 시간순으로 정렬하므로 draft 순서는 무관
+  - 이어 그리는 중에는 원본을 렌더에서 숨기고 draft가 대신 그린다 (CHoCH 포함)
+- **편집** (선택 상태에서): 꼭짓점 드래그 이동 / 꼭짓점 `Shift+클릭` 삭제
+  - 삭제로 고점–고점이 인접하면 `normalizeStructurePoints`가 더 극단적인 쪽만 남겨 교대 불변식 유지
+    → "그 스윙을 없앤다"가 되어 의미가 성립
+  - 꼭짓점이 2개 미만이 되면 구조 자체를 삭제
+  - **선분 중간 삽입은 없다(의도적)**: 고/저 교대 구조라 H–L 사이에 넣는 점은 어느 타입이든
+    양옆 중 하나와 겹치고, normalize가 병합해버려 아무 일도 안 일어난다.
+    점을 늘리는 경로는 아래 이어 그리기 하나로 통일
+- **CHoCH 자동 계산**: `deriveStructure(points)`가 매번 전체를 다시 뽑는 순수 함수
+  → **꼭짓점을 옮기면 그 이후 CHoCH가 사라지거나 새로 생긴다. 의도된 동작이다.**
+  자동 ZZ의 forward-only 누적 상태는 진행 중 봉 ATR 드리프트를 막으려던 것이라 여기선 불필요
+- **자동 ZZ와 판정이 다른 부분**: 자동 ZZ는 structHigh/Low가 NaN일 때 bias를 강제 세팅해서
+  H→L→H(상승) 같은 단순 BOS에도 첫 CHoCH가 찍힌다. 수동 구조는 **실제 돌파가 있을 때만** bias를 세운다
+- **투명도**: 신규 구조 기본 0.5 (`STRUCT_DEFAULT_OPACITY`) — 지그재그는 배경처럼 깔리게.
+  **CHoCH 마크는 투명도 설정과 무관하게 항상 100%** (`ChochMarks`는 opacity를 받지 않음)
+- **진행 중 레그는 구조 하나만 갖는다**: 꼭짓점 timestamp가 가장 최근인 구조(또는 draft) 1개.
+  모든 구조가 현재가를 쫓으면 과거 구조도 마지막 꼭짓점에서 화면 오른쪽 끝까지 긴 점선을 뻗어
+  엉뚱한 데로 이어지려는 것처럼 보인다. 나머지는 `deriveStructure(points, null)`로 라이브를 끈다
+  (확정 CHoCH는 캔들 없이 계산되므로 잃는 게 없다)
+- **실시간 + 꼬리 기준 + 래치**: 마지막 꼭짓점 → 현재를 진행 중 레그로 보고 매 틱 판정
+  - 판정값은 **마지막 꼭짓점 이후 구간의 최고가/최저가**(종가 아님 — 꼭짓점 스냅과 기준 통일)
+  - 구간 극값은 구간이 늘어나도 되돌아가지 않으므로 **한번 뚫으면 가격이 되돌아와도 마크 유지**
+    (누적 상태 없이 순수 함수인 채로 래치 성립)
+  - 확정분과 구분되게 점선 (`liveSegment`도 점선) — 나중에 그 자리에 꼭짓점을 찍으면 실선이 됨
+  - ※ `deriveStructure`에는 **`candlesRef.current`를 넘겨야 한다.** React `candles` state는
+    봉마감 때만 갱신돼서 진행 중 봉의 고가/저가가 낡아 있다 (`useCandles.js:29-38`)
+- **CHoCH 가로선 끝점 = 레그 선분과 레벨의 교차점**(`crossT`, 선형 보간). 확정·라이브 동일
+  - **캔들을 보고 끊으면 안 된다.** 화면에 그려진 건 캔들이 아니라 꼭짓점을 이은 직선이고
+    둘은 어긋난다. 고점110→저점85 레그에서 레벨 90이면 직선은 80% 지점에서 지나지만
+    실제 가격은 90 위에서 뭉개다 레그 끝에서 깨는 일이 흔하다. 봉 기준으로 끊으면 그 차이만큼
+    가로선이 지그재그를 지나 오른쪽으로 삐져나온다 (하락 레그에 잦아 bear 쪽에 몰려 보임)
+  - 선분 교차점은 정의상 두 꼭짓점 사이에 들어가므로 어떤 데이터·TF에서도 삐져나오지 않는다
+- **스타일**: 자동 ZZ와 동일 (지그재그 `#888888` / CHoCH `#0ecb81`·`#f6465d` 1.5px + 라벨), 렌더만 SVG
+- **알림 없음**: `useTrendLineAlert`은 선/채널/원만 대상 → `drawables.structure.toggleAlert`는 no-op,
+  LineOpacityPopup에서도 알림 버튼을 숨김
+
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), Divergence(peak_lb/scan), SR(KDE 파라미터), EMA(배열), MS(swing_lb/scan_from/max_display/close_only/show_bos)
+- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), Divergence(peak_lb/scan), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/scan_from/max_choch/show_choch)
+- ※ 새 지표 추가 시 프론트 `INDICATOR_DEFAULTS`와 백엔드 `indicatorParamsStore.DEFAULTS` **양쪽 모두**에 키 추가 필요 (백엔드 load()가 자기 DEFAULTS 키만 통과시킴)
 
 ### 알림 시스템
 - **토스트 종류**: 일반(금색 테두리, 30초 자동닫힘) / sticky(빨강 테두리, 확인 버튼 필수)
@@ -316,7 +404,20 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **EMA**: 다중 EMA (id/period/color/enabled 속성, useMemo 캐시로 무한루프 방지)
 - **FVG**: 3캔들 패턴으로 갭 검출, 중간값 50% 진입 시 소멸
 - **오더블록**: 스윙 감지 → BOS 탐지 → 직전 역방향 캔들을 OB로 등록, 미티게이션 시 소멸
-- **Market Structure (MS)**: ICT BOS(추세 지속)/CHoCH(추세 전환) — protected swing 로직으로 internal structure 필터링, 봉마감 기준 돌파 감지 (close_only=true)
+- **Structure Zigzag (ZZ)**: `기타/structure_zigzag.pine` 포팅 — 왼쪽 left_bars 봉만 보는 피벗(오른쪽 확인봉 없음),
+  꼬리(고가/저가) 기준 판정, Wilder ATR × atr_mult 미만 스윙은 노이즈로 제거,
+  꼭짓점을 회색 지그재그로 연결 + 구조 고/저점 돌파 시 CHoCH 마크
+  CHoCH 마크 스타일은 수동 구조(Structures.jsx)와 동일 (BULL_DARK/BEAR_DARK 실선 1.5px + 라벨)
+  ※ 구 Market Structure(MS) 지표는 ZZ가 대체하여 제거됨 (2026-08-12)
+  ※ **다른 지표와 달리 훅이 아니라 `chart/structureZigzag.js`의 순수 함수** — 원본 Pine처럼 진행 중 봉에서
+    실시간 판정하려면 틱 RAF가 도는 캔버스 렌더 경로에서 candlesRef로 계산해야 하기 때문
+    (useCandles는 틱을 React 상태에 반영하지 않으므로 훅으로는 봉 마감 시에만 계산됨)
+  ※ **실시간 + repaint 없음** — 매 틱 전체 재계산이 아니라 forward-only 누적 상태로 진행,
+    한번 찍힌 CHoCH/세그먼트는 제거하지 않음. 진행 중 봉 고가는 단조 증가·저가는 단조 감소이므로
+    같은 봉을 매 틱 다시 step() 해도 멱등(값 그대로면 no-op, 갱신됐으면 꼭짓점 연장만)
+    → 전체 재계산 시 진행 중 봉의 ATR이 커지며 노이즈 필터 임계값이 올라가 직전 틱의 CHoCH가
+      탈락·소멸하는 문제를 이 구조로 차단 (원본 Pine은 이 케이스에서 마크가 사라짐)
+  ※ 상태 초기화 조건: 캔들 배열 교체(TF 전환) / 파라미터 변경 / candles[0] 변경(버퍼 shift·재로드)
 - **RSI 다이버전스**: RSI 고점/저점과 가격 고점/저점 비교, 일반/히든 불·베어 4종 (App.jsx에서 useMemo로 계산, DivergenceLines로 렌더)
 - **RSI 패널**: Wilder's smoothing, 별도 캔버스, 드래그로 높이 조절 (useRsiResize)
 

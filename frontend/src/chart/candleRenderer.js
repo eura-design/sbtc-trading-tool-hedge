@@ -1,7 +1,8 @@
 import * as d3 from "d3";
 import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
-import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderMarketStructure } from "./overlayRenderers";
+import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderStructureZigzag } from "./overlayRenderers";
+import { computeStructureZigzag } from "./structureZigzag";
 import { idxToTimestamp } from "../utils/coordUtils";
 
 export { renderVolumeCanvas } from "./volumeRenderer";
@@ -120,7 +121,10 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
     if (ov.showOB  && ov.obData?.length)    renderOrderBlock(ctx, ov.obData, xScale, yScale, IW, IH);
     if (ov.showSR  && ov.srLevels?.length)  renderSRLines(ctx, ov.srLevels, yScale, IW, IH, isDark);
     if (ov.showEMA && ov.emaData?.length)   renderEMA(ctx, ov.emaData, xScale, yScale, IW, IH);
-    if (ov.showMS  && ov.msData?.length)    renderMarketStructure(ctx, ov.msData, xScale, yScale, IW, IH);
+    // ZZ만 여기서 계산 — 진행 중 봉(candles 마지막 = candlesRef의 라이브 봉)까지 반영하기 위함
+    if (ov.showZZ) {
+      renderStructureZigzag(ctx, computeStructureZigzag(candles, ov.zzParams ?? {}), xScale, yScale, IW, IH);
+    }
   }
 
   // ── X 축 ──────────────────────────────────────────────────────────────────

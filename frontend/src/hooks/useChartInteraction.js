@@ -5,7 +5,7 @@ import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
 import { getCursor } from "../chart/cursorRules";
-import { buildHitChain, findHitChannel, findHitCircle, snapToOHLC } from "../chart/hitDetection";
+import { buildHitChain, findHitChannel, findHitCircle, findHitStructure, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
 
 export function useChartInteraction({
   candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, onLineDoubleClick,
@@ -30,6 +30,11 @@ export function useChartInteraction({
   circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
   circles, selectedCircleId, setSelectedCircleId,
   addCircle, moveCircle,
+  // 수동 구조
+  structMode, structDraft, structPreview, setStructPreview,
+  structures, selectedStructId, setSelectedStructId,
+  addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
+  moveStructPoint, normalizeStruct, removeStructPoint,
   // 도형 통합 인터페이스
   drawables,
   overlaysRef,
@@ -136,6 +141,9 @@ export function useChartInteraction({
       circleMode, circleCenter, setCircleCenter, circlePreview,
       circles, selectedCircleId,
       addCircle, moveCircle,
+      structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
+      structures, selectedStructId, removeStructPoint,
+      shiftKey: e.shiftKey,
     });
 
     for (const step of chain) {
@@ -143,7 +151,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle]);
+  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, removeStructPoint]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -224,6 +232,16 @@ export function useChartInteraction({
         setCirclePreview({ t: snapped.t, p: snapped.p });
       }
 
+      // 구조 그리기 프리뷰 — 다음 꼭짓점 타입은 직전 점의 반대
+      if (structMode && scales) {
+        const lastPt = structDraft?.points?.[structDraft.points.length - 1];
+        const snapped = snapToStructurePoint(
+          pos, candles, scales.xScale, scales.yScale,
+          lastPt ? (lastPt.type === "H" ? "L" : "H") : null,
+        );
+        if (snapped) setStructPreview(snapped);
+      }
+
       // 채널 그리기 프리뷰
       if (channelMode && scales) {
         const { xScale, yScale } = scales;
@@ -251,10 +269,10 @@ export function useChartInteraction({
       if (!drag) {
         if (scales) {
           const { xScale, yScale } = scales;
-          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawing, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, isLog });
+          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawing, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, selectedStructId, structures, structMode, structDraft, isLog });
           if (cursor) { setCursor(cursor); return; }
         }
-        setCursor((drawMode || lineMode || channelMode || circleMode) ? "crosshair" : "grab"); return;
+        setCursor((drawMode || lineMode || channelMode || circleMode || structMode) ? "crosshair" : "grab"); return;
       }
 
       // 드래그 핸들러 위임
@@ -266,6 +284,7 @@ export function useChartInteraction({
         redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp,
         isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
+        moveStructPoint, normalizeStruct,
       };
       const state = { drawing, dragTpsl, dragScaleIn, dragSplitTp };
 
@@ -279,7 +298,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, refreshCrosshair, isLog]);
+  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
@@ -299,16 +318,21 @@ export function useChartInteraction({
         setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart,
         updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
+        moveStructPoint, normalizeStruct,
       },
       state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
     });
-  }, [candles, drawing, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos]);
+  }, [candles, drawing, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct]);
 
   const onDoubleClick = useCallback(e => {
     const pos    = getSvgPos(e);
     const scales = getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog);
     if (!scales) return;
     const { xScale, yScale } = scales;
+
+    // 구조 그리는 중 더블클릭 = 확정.
+    // 더블클릭은 mousedown이 2번 들어와 같은 봉에 점이 하나 더 찍히므로 마지막을 버린다.
+    if (structMode) { finishStruct({ dropLast: true }); return; }
 
     const hit = findHitLine(pos.x, pos.y, lines, xScale, yScale, candles, 8, isLog);
     if (hit) { onLineDoubleClick?.(hit.id, "line", e.clientX, e.clientY); return; }
@@ -318,7 +342,10 @@ export function useChartInteraction({
 
     const hitCi = findHitCircle(pos.x, pos.y, circles ?? [], xScale, yScale, candles);
     if (hitCi) { onLineDoubleClick?.(hitCi.id, "circle", e.clientX, e.clientY); return; }
-  }, [candles, lines, channels, circles, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
+    if (hitSt) { onLineDoubleClick?.(hitSt.id, "structure", e.clientX, e.clientY); return; }
+  }, [candles, lines, channels, circles, structures, structMode, finishStruct, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMouseLeave = useCallback(() => {
     dragRef.current = null;

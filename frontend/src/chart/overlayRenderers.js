@@ -145,44 +145,60 @@ export function renderEMA(ctx, emaDataList, xScale, yScale, IW, IH) {
   });
 }
 
-// ── Market Structure (BOS/CHoCH) ────────────────────────────────────────────
-export function renderMarketStructure(ctx, msData, xScale, yScale, IW, IH) {
-  if (!msData?.length) return;
+// ── Structure Zigzag (지그재그 + CHoCH) ──────────────────────────────────────
+export function renderStructureZigzag(ctx, zzData, xScale, yScale, IW, IH) {
+  const segments = zzData?.segments;
+  const chochs   = zzData?.chochs;
+  if (!segments?.length && !chochs?.length) return;
+
   withClip(ctx, M.left, M.top, IW, IH, () => {
-    ctx.font = "700 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
-    ctx.textBaseline = "alphabetic";
     const [iMin, iMax] = xScale.domain();
 
-    for (const ev of msData) {
-      if (ev.atIdx < iMin - 1 || ev.brokenIdx > iMax + 1) continue;
-      const x0 = Math.max(0, xScale(ev.brokenIdx));
-      const x1 = Math.min(IW, xScale(ev.atIdx));
-      const y  = yScale(ev.brokenPrice);
-      if (x1 <= x0) continue;
-
-      const isBull  = ev.dir === "bull";
-      const isChoch = ev.kind === "CHoCH";
-      // BOS: 방향색 / CHoCH: 방향색 동일하되 실선+굵기로 BOS와 구분
-      const color = isBull ? CANVAS_C.BULL_DARK : CANVAS_C.BEAR_DARK;
-
-      // 돌파된 스윙 레벨선
-      ctx.strokeStyle = color;
-      ctx.lineWidth = isChoch ? 1.5 : 1;
+    // 지그재그 선 (한 번의 path로 배치 스트로크)
+    if (segments?.length) {
+      ctx.strokeStyle = CANVAS_C.NEUTRAL;
+      ctx.lineWidth   = 1;
       ctx.globalAlpha = 0.8;
-      ctx.setLineDash(isChoch ? [] : [4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(x0, y);
-      ctx.lineTo(x1, y);
-      ctx.stroke();
       ctx.setLineDash([]);
+      ctx.beginPath();
+      for (const s of segments) {
+        if (s.i2 < iMin - 1 || s.i1 > iMax + 1) continue;
+        ctx.moveTo(xScale(s.i1), yScale(s.p1));
+        ctx.lineTo(xScale(s.i2), yScale(s.p2));
+      }
+      ctx.stroke();
+    }
 
-      // 라벨
-      ctx.globalAlpha = 1;
-      ctx.fillStyle   = color;
-      ctx.textAlign   = "center";
-      const tx = (x0 + x1) / 2;
-      const ty = isBull ? y - 4 : y + 12;
-      ctx.fillText(ev.kind, tx, ty);
+    // CHoCH 마크 (돌파된 구조 레벨 + 라벨)
+    if (chochs?.length) {
+      ctx.font         = "700 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
+      ctx.textAlign    = "center";
+      ctx.textBaseline = "alphabetic";
+
+      for (const ev of chochs) {
+        if (ev.toIdx < iMin - 1 || ev.fromIdx > iMax + 1) continue;
+        const x0 = Math.max(0,  xScale(ev.fromIdx));
+        const x1 = Math.min(IW, xScale(ev.toIdx));
+        const y  = yScale(ev.price);
+        if (x1 <= x0) continue;
+
+        // 방향색 + 실선 1.5px (수동 구조 Structures.jsx의 CHoCH 마크와 같은 스타일)
+        const isBull = ev.dir === "bull";
+        const color  = isBull ? CANVAS_C.BULL_DARK : CANVAS_C.BEAR_DARK;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = 1.5;
+        ctx.globalAlpha = 0.8;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+        ctx.stroke();
+
+        ctx.globalAlpha = 1;
+        ctx.fillStyle   = color;
+        ctx.fillText("CHoCH", (x0 + x1) / 2, isBull ? y - 4 : y + 12);
+      }
     }
   });
 }

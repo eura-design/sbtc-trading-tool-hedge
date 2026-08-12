@@ -1,0 +1,158 @@
+//@version=5
+indicator("Structure Zigzag - CHoCH Style (Simple, Realtime)", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ---------------- Inputs (핵심만) ----------------
+leftBars   = input.int(5, "Pivot Left Bars", minval=1)
+rightBars  = input.int(5, "Pivot Right Bars (실시간 모드에서는 미사용)", minval=1)
+
+useNoiseFilter = input.bool(true, "Noise Filter 사용 (ATR 기반)")
+atrMultiplier  = input.float(1.5, "ATR Multiplier", minval=0.1, step=0.1,
+     tooltip="스윙폭이 ATR(14) * 이 값보다 작으면 노이즈로 간주")
+
+showZigzag = input.bool(true, "Show Structure Zigzag Line")
+showChoch  = input.bool(true, "Show CHoCH Marks")
+
+neutralColor   = input.color(color.gray, "Zigzag Line Color")
+
+chochUpColor    = input.color(#39FF14, "CHoCH Bullish Color")
+chochDownColor  = input.color(#FF073A, "CHoCH Bearish Color")
+
+// ---------------- 고정값 (더이상 옵션 아님) ----------------
+lineWidth      = 1
+chochLineStyle = line.style_dashed
+labelSize      = size.small
+atrLength      = 14
+
+atrVal = ta.atr(atrLength)
+
+// ---------------- Variables ----------------
+// [수정] 오른쪽(rightBars) 확인 없이, 왼쪽 leftBars 봉만 보고 현재 봉에서 즉시 피벗 후보 판단 (실시간, repaint 가능)
+ph = high > ta.highest(high[1], leftBars) ? high : na
+pl = low  < ta.lowest(low[1], leftBars)  ? low  : na
+
+var int   lastPivotType  = 0 // 1 = High, -1 = Low
+var float lastPointPrice = na
+var int   lastPointBar   = na
+var line  zzLine         = na
+
+var float structHigh    = na
+var int   structHighBar = na
+var float structLow     = na
+var int   structLowBar  = na
+
+var int  bias = 0 // 1 = 상승, -1 = 하락
+var bool isChochFormedInThisLeg = false
+
+// ---------------- 노이즈 필터 ----------------
+f_passesFilter(newPrice) =>
+    result = true
+    if useNoiseFilter and not na(lastPointPrice)
+        swing = math.abs(newPrice - lastPointPrice)
+        result := swing >= atrVal * atrMultiplier
+    result
+
+// ---------------- High Pivot (고점 로직) ----------------
+if not na(ph)
+    pivotBar = bar_index // [수정] 실시간이므로 현재 봉을 그대로 사용 (rightBars 오프셋 제거)
+
+    if lastPivotType == -1 or lastPivotType == 0
+        if f_passesFilter(ph)
+            if lastPivotType == -1
+                structLow := lastPointPrice
+                structLowBar := lastPointBar
+
+            lastPivotType := 1
+            isChoch = false
+
+            if not na(structHigh) and ph > structHigh
+                if bias == -1
+                    isChoch := true
+                bias := 1
+            else if na(structHigh)
+                bias := 1
+
+            if showZigzag and not na(lastPointBar)
+                zzLine := line.new(lastPointBar, lastPointPrice, pivotBar, ph, color=neutralColor, width=lineWidth)
+
+            if showChoch and isChoch and not na(structHighBar)
+                markColor = chochUpColor
+                midBar = math.round((structHighBar + pivotBar) / 2)
+                line.new(structHighBar, structHigh, pivotBar, structHigh, color=markColor, width=1, style=chochLineStyle)
+                label.new(midBar, structHigh, "CHoCH", style=label.style_label_down, color=markColor, textcolor=color.black, size=labelSize)
+
+            isChochFormedInThisLeg := isChoch
+            lastPointPrice := ph
+            lastPointBar := pivotBar
+        else
+            na
+
+    else if lastPivotType == 1
+        if ph > lastPointPrice
+            if showZigzag and not na(zzLine)
+                line.set_xy2(zzLine, pivotBar, ph)
+
+            if not isChochFormedInThisLeg and not na(structHigh) and ph > structHigh
+                if bias == -1
+                    bias := 1
+                    if showChoch and not na(structHighBar)
+                        markColor = chochUpColor
+                        midBar = math.round((structHighBar + pivotBar) / 2)
+                        line.new(structHighBar, structHigh, pivotBar, structHigh, color=markColor, width=1, style=chochLineStyle)
+                        label.new(midBar, structHigh, "CHoCH", style=label.style_label_down, color=markColor, textcolor=color.black, size=labelSize)
+                    isChochFormedInThisLeg := true
+
+            lastPointPrice := ph
+            lastPointBar := pivotBar
+
+// ---------------- Low Pivot (저점 로직) ----------------
+if not na(pl)
+    pivotBar = bar_index // [수정] 실시간이므로 현재 봉을 그대로 사용 (rightBars 오프셋 제거)
+
+    if lastPivotType == 1 or lastPivotType == 0
+        if f_passesFilter(pl)
+            if lastPivotType == 1
+                structHigh := lastPointPrice
+                structHighBar := lastPointBar
+
+            lastPivotType := -1
+            isChoch = false
+
+            if not na(structLow) and pl < structLow
+                if bias == 1
+                    isChoch := true
+                bias := -1
+            else if na(structLow)
+                bias := -1
+
+            if showZigzag and not na(lastPointBar)
+                zzLine := line.new(lastPointBar, lastPointPrice, pivotBar, pl, color=neutralColor, width=lineWidth)
+
+            if showChoch and isChoch and not na(structLowBar)
+                markColor = chochDownColor
+                midBar = math.round((structLowBar + pivotBar) / 2)
+                line.new(structLowBar, structLow, pivotBar, structLow, color=markColor, width=1, style=chochLineStyle)
+                label.new(midBar, structLow, "CHoCH", style=label.style_label_up, color=markColor, textcolor=color.white, size=labelSize)
+
+            isChochFormedInThisLeg := isChoch
+            lastPointPrice := pl
+            lastPointBar := pivotBar
+        else
+            na
+
+    else if lastPivotType == -1
+        if pl < lastPointPrice
+            if showZigzag and not na(zzLine)
+                line.set_xy2(zzLine, pivotBar, pl)
+
+            if not isChochFormedInThisLeg and not na(structLow) and pl < structLow
+                if bias == 1
+                    bias := -1
+                    if showChoch and not na(structLowBar)
+                        markColor = chochDownColor
+                        midBar = math.round((structLowBar + pivotBar) / 2)
+                        line.new(structLowBar, structLow, pivotBar, structLow, color=markColor, width=1, style=chochLineStyle)
+                        label.new(midBar, structLow, "CHoCH", style=label.style_label_up, color=markColor, textcolor=color.white, size=labelSize)
+                    isChochFormedInThisLeg := true
+
+            lastPointPrice := pl
+            lastPointBar := pivotBar

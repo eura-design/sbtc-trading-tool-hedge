@@ -10,7 +10,8 @@
 // 모든 도형 관련 컴포넌트는 이 객체를 받아 if/else 3분기 없이 dispatch한다.
 
 // 우선순위 — useKeyboardShortcuts 기존 동작과 동일: 채널 > 원 > 선
-export const DRAWABLE_KINDS = ["channel", "circle", "line"];
+// structure(수동 구조)는 알림 기능이 없어 toggleAlert가 no-op이다 (App.jsx 참고)
+export const DRAWABLE_KINDS = ["channel", "circle", "line", "structure"];
 
 // 현재 선택된 도형을 반환. 우선순위에 따라 첫 번째 선택을 찾음.
 // 반환 형태: { kind, ...drawables[kind], item } | null

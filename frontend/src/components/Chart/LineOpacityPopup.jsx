@@ -2,12 +2,14 @@ import { useEffect, useRef } from "react";
 import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
 
-const KIND_LABEL = { line: "선", channel: "채널", circle: "원" };
+const KIND_LABEL = { line: "선", channel: "채널", circle: "원", structure: "구조" };
+// 근접 알림(useTrendLineAlert)은 선/채널/원만 대상 — 구조는 알림 버튼을 숨긴다
+const ALERT_KINDS = new Set(["line", "channel", "circle"]);
 
 export function LineOpacityPopup({ popup, drawables, onClose }) {
   const { theme } = useTheme();
   const ref  = useRef(null);
-  const kind = popup.type; // "line" | "channel" | "circle"
+  const kind = popup.type; // "line" | "channel" | "circle" | "structure"
   const d    = drawables[kind];
   const item = d?.items?.find(x => x.id === popup.id) ?? null;
 
@@ -54,14 +56,16 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
           <span style={{ fontSize: "12px", color: PALETTE.accent, fontWeight: "700" }}>
             {Math.round(opacity * 100)}%
           </span>
-          <button onClick={() => d.toggleAlert(popup.id)}
-            title={alert ? "알림 ON — 클릭하여 OFF" : "알림 OFF — 클릭하여 ON"} style={{
-            background: "none", border: "none", cursor: "pointer", padding: 0,
-            fontSize: "14px", lineHeight: 1, opacity: alert ? 1 : 0.35,
-            color: alert ? PALETTE.warn : theme.textMuted,
-          }}>
-            🔔
-          </button>
+          {ALERT_KINDS.has(kind) && (
+            <button onClick={() => d.toggleAlert(popup.id)}
+              title={alert ? "알림 ON — 클릭하여 OFF" : "알림 OFF — 클릭하여 ON"} style={{
+              background: "none", border: "none", cursor: "pointer", padding: 0,
+              fontSize: "14px", lineHeight: 1, opacity: alert ? 1 : 0.35,
+              color: alert ? PALETTE.warn : theme.textMuted,
+            }}>
+              🔔
+            </button>
+          )}
           <button onClick={() => d.toggleLock(popup.id)} style={{
             background: "none", border: "none", cursor: "pointer", padding: 0,
             fontSize: "14px", lineHeight: 1, opacity: locked ? 1 : 0.4,

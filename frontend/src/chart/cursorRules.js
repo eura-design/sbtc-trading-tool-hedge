@@ -1,7 +1,7 @@
 import { HIT } from "../constants";
 import { distToSeg } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
-import { channelXYs, lineXY } from "./hitDetection";
+import { channelXYs, lineXY, findHitStructPointIdx, findStructEndpointHit } from "./hitDetection";
 
 export const CURSOR_RULES = [
   {
@@ -141,6 +141,28 @@ export const CURSOR_RULES = [
       if (Math.hypot(pos.x-cx, pos.y-cy) < 10 || Math.hypot(pos.x-rx, pos.y-ry) < 10) return false;
       const r = Math.hypot(rx-cx, ry-cy);
       return Math.abs(Math.hypot(pos.x-cx, pos.y-cy) - r) < 8;
+    },
+    cursor: "move",
+  },
+  // 구조 모드에서 기존 구조의 끝점 위 — 클릭하면 이어진다는 신호
+  // (draft 없으면 이어 그리기 시작, 있으면 그 구조를 흡수해 두 구조를 잇는다)
+  {
+    test: ({ structMode, structDraft, structures, pos, xScale, yScale, candles }) => {
+      if (!structMode || !structures?.length) return false;
+      const hit = findStructEndpointHit(pos.x, pos.y, structures, xScale, yScale, candles);
+      if (!hit) return false;
+      // 이미 draft에 들어와 있는 구조는 다시 이을 게 없다
+      return hit.id !== structDraft?.extendId && !structDraft?.mergeIds?.includes(hit.id);
+    },
+    cursor: "cell",
+  },
+  // 구조 선택 시 꼭짓점 핸들
+  {
+    test: ({ selectedStructId, structures, pos, xScale, yScale, candles }) => {
+      if (selectedStructId == null || !structures?.length) return false;
+      const st = structures.find(s => s.id === selectedStructId);
+      if (!st) return false;
+      return findHitStructPointIdx(st, pos.x, pos.y, xScale, yScale, candles) !== -1;
     },
     cursor: "move",
   },

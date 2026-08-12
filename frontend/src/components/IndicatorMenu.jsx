@@ -9,7 +9,7 @@ export const INDICATORS = [
   { key: "sr",  label: "S/R Levels" },
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
-  { key: "ms",  label: "Market Structure" },
+  { key: "zz",  label: "Structure Zigzag" },
   { key: "ema", label: "EMA" },
 ];
 
@@ -40,12 +40,14 @@ const PARAMS_META = {
     { key: "displacement_only", label: "Displacement만",  type: "toggle" },
     { key: "use_wick",          label: "윅 포함",           type: "toggle" },
   ],
-  ms: [
-    { key: "swing_lb",    label: "스윙 감지(봉)", min: 1,   max: 10,   step: 1  },
-    { key: "scan_from",   label: "표시 범위",     min: 100, max: 1000, step: 50 },
-    { key: "max_display", label: "최대 표시",     min: 2,   max: 30,   step: 1  },
-    { key: "close_only",  label: "봉마감 기준",   type: "toggle" },
-    { key: "show_bos",    label: "BOS 표시",      type: "toggle" },
+  zz: [
+    { key: "left_bars",  label: "피벗 감지(봉)",  min: 1,   max: 10,    step: 1  },
+    { key: "use_filter", label: "노이즈 필터",    type: "toggle" },
+    { key: "atr_mult",   label: "ATR 배수",       min: 0.1, max: 5.0,   step: 0.1, fmt: v => v.toFixed(1) + "×" },
+    { key: "atr_period", label: "ATR 기간",       min: 5,   max: 50,    step: 1  },
+    { key: "scan_from",  label: "표시 범위",      min: 100, max: 1000,  step: 50 },
+    { key: "max_choch",  label: "CHoCH 최대 표시", min: 1,  max: 30,    step: 1  },
+    { key: "show_choch", label: "CHoCH 표시",     type: "toggle" },
   ],
   div: [
     { key: "peak_lb",      label: "피크 감지(봉)", min: 2,  max: 15,  step: 1  },

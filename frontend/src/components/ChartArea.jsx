@@ -44,10 +44,8 @@ export function ChartArea({
   candles, candlesRef, candleLoading, onTickRef, interval_, isDark, isLog,
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, srData: srLevels,
-  msData,
   // 지표 표시 여부
-  showRsi, showSR, showOB, showFVG, showVol, showEMA, showDiv,
-  showMS,
+  showRsi, showSR, showOB, showFVG, showVol, showEMA, showDiv, showZZ,
   // 지표 파라미터
   indicatorParams,
   // 다이버전스
@@ -67,6 +65,11 @@ export function ChartArea({
   addCircle, moveCircle,
   setCircleOpacity, toggleCircleLock, toggleCircleAlert, setCircleAlertOff,
   cancelDraw, cancelChannelDraw, cancelCircleDraw,
+  // 수동 구조 (useStructures)
+  structures, structMode, structDraft, structPreview, setStructPreview,
+  selectedStructId, setSelectedStructId,
+  cancelStructDraw, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
+  moveStructPoint, normalizeStruct, removeStructPoint,
   // 도형 통합 인터페이스 (App.jsx에서 구성)
   drawables,
   // 공유 상태 (App.jsx에서 관리 — 키보드 ESC와 공유)
@@ -177,7 +180,7 @@ export function ChartArea({
   const overlaysRef = useRef({});
   overlaysRef.current = {
     fvgData, showFVG, obData, showOB, srLevels, showSR, emaData, showEMA,
-    msData, showMS,
+    showZZ, zzParams: indicatorParams.zz,   // ZZ는 candleRenderer가 라이브 캔들로 직접 계산
     showVol, volH: effectiveVolH, volColorMode: indicatorParams.vol?.colorMode ?? "neutral",
     rsiData, showRsi, rsiH: effectiveRsiH, rsiParams: indicatorParams.rsi,
   };
@@ -197,7 +200,7 @@ export function ChartArea({
   // ── 오버레이 변경 시 캔버스 재렌더 ────────────────────────────────────────
   // candles.length 가드: 타임프레임 전환 중 candles=[] 상태에서 forceUpdate가 불려
   // scales=null이 되면 SVG 오버레이가 순간 사라지는 들썩임이 발생하므로 방지
-  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, msData, showMS]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, showZZ, indicatorParams.zz]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { redrawVolume(); }, [showVol, effectiveVolH, indicatorParams.vol?.colorMode]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (candles.length) redrawRSI(); }, [rsiData, showRsi, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -233,6 +236,10 @@ export function ChartArea({
       circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
       circles, selectedCircleId, setSelectedCircleId,
       addCircle, moveCircle,
+      structMode, structDraft, structPreview, setStructPreview,
+      structures, selectedStructId, setSelectedStructId,
+      addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
+      moveStructPoint, normalizeStruct, removeStructPoint,
       drawables,
       overlaysRef,
     });
@@ -270,6 +277,9 @@ export function ChartArea({
         onMouseLeave={onMouseLeave} onDoubleClick={onDoubleClick}
         onContextMenu={e => {
           e.preventDefault();
+          // 구조는 꼭짓점 개수가 정해져 있지 않으므로 우클릭이 "여기까지" 확정 신호다
+          // (선/채널/원은 점 개수가 고정이라 우클릭이 취소)
+          if (structMode) { finishStruct(); return; }
           if (lineMode) cancelDraw();
           if (channelMode) cancelChannelDraw();
           if (circleMode) cancelCircleDraw();
@@ -277,7 +287,7 @@ export function ChartArea({
             setDrawMode(false); setCurrent(null); dragRef.current = null;
           }
         }}
-        scales={scales} candles={candles} divData={divData}
+        scales={scales} candles={candles} candlesRef={candlesRef} divData={divData}
         showRsi={showRsi} showDiv={showDiv}
         rsiH={effectiveRsiH} onDividerMouseDown={onDividerMouseDown}
         showVol={showVol} volH={effectiveVolH} onVolDividerMouseDown={onVolDividerMouseDown}
@@ -292,6 +302,8 @@ export function ChartArea({
         channelStep={channelStep} channelPoints={channelPoints} channelPreview={channelPreview}
         circles={circles} selectedCircleId={selectedCircleId}
         circleCenter={circleCenter} circlePreview={circlePreview}
+        structures={structures} selectedStructId={selectedStructId}
+        structDraft={structDraft} structPreview={structPreview}
       />
       {countdown.text && (
         <div style={{

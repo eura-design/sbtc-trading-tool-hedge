@@ -1,5 +1,6 @@
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
 import { padYDomain } from "./scales";
+import { snapToStructurePoint } from "./hitDetection";
 
 // 두 가격(p1, p2)을 마우스 드래그 vector에 따라 같이 이동시킨다.
 // 선형 모드: delta(가격 차) 가산 / 로그 모드: ratio(가격 비율) 곱
@@ -254,6 +255,23 @@ export const DRAG_HANDLERS = {
       setters.setCursor("move");
     },
     onUp({ setters }) { setters.setCursor("crosshair"); },
+  },
+
+  // ── 수동 구조 꼭짓점 드래그 ───────────────────────────────────────────────
+  // windowBars=0 → 커서가 있는 봉의 꼬리에 정확히 붙는다 (주변 극점 탐색 없음).
+  // 순서 재정렬은 onUp에서 한 번만 — 드래그 중 정렬하면 점이 커서 아래에서 튄다.
+  struct_point: {
+    onMove({ pos, drag, scales, candles, setters }) {
+      if (!scales || !candles.length) return;
+      const snapped = snapToStructurePoint(pos, candles, scales.xScale, scales.yScale, drag.ptType, 0);
+      if (!snapped) return;
+      setters.moveStructPoint(drag.structId, drag.ptIdx, snapped.t, snapped.p);
+      setters.setCursor("move");
+    },
+    onUp({ drag, setters }) {
+      setters.normalizeStruct?.(drag.structId);
+      setters.setCursor("crosshair");
+    },
   },
 
   // ── 트렌드라인 드래그 ─────────────────────────────────────────────────────

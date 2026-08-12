@@ -42,8 +42,90 @@ export function lineXY(t, p, candles, xScale, yScale) {
 }
 
 // 마우스 픽셀 → timestamp + 가격 (미래 영역 외삽 포함)
+// ※ 이름과 달리 OHLC로 스냅하지 않는다 — 트렌드라인/채널/원은 자유 좌표를 쓴다.
 export function snapToOHLC(pos, candles, xScale, yScale) {
   return { t: idxToTimestamp(xScale.invert(pos.x), candles), p: yScale.invert(pos.y) };
+}
+
+// ── 수동 구조(Structure) ─────────────────────────────────────────────────────
+
+// 구조 꼭짓점 스냅 반경(봉).
+//
+// ※ 사용자 확정값 — 처음 3으로 만들었다가 "마그넷이 강하다"는 요청으로 절반인 1로 낮췄다.
+//   임의로 되돌리거나 키우지 말 것. 더 약하게 원하면 0(커서가 있는 봉의 꼬리에만 스냅).
+// ※ 클릭 배치(hitDetection 0.7)와 미리보기(useChartInteraction)가 **반드시 같은 값**을
+//   써야 커서에 보이던 위치와 실제 찍히는 위치가 어긋나지 않는다. 호출부마다 숫자를
+//   따로 넣지 말고 이 상수를 참조할 것.
+export const STRUCT_SNAP_BARS = 1;
+
+/**
+ * 구조 꼭짓점용 스냅 — 커서 주변 봉 중 고가 최대(또는 저가 최소) 지점에 붙인다.
+ * 구조 꼭짓점은 항상 꼬리 끝에 놓이므로 자유 좌표보다 스냅이 정확하고 빠르다.
+ *
+ * @param expectType "H"|"L"|null — null이면 커서가 봉의 위/아래 어디인지로 판정
+ * @param windowBars 탐색 반경(봉). 드래그는 0(커서가 있는 봉에만 붙어 정확히 추종)
+ */
+export function snapToStructurePoint(pos, candles, xScale, yScale, expectType = null, windowBars = STRUCT_SNAP_BARS) {
+  if (!candles.length) return null;
+  const center = Math.max(0, Math.min(Math.round(xScale.invert(pos.x)), candles.length - 1));
+  const price  = yScale.invert(pos.y);
+
+  let type = expectType;
+  if (!type) {
+    const c = candles[center];
+    type = price >= (c.h + c.l) / 2 ? "H" : "L";
+  }
+
+  const lo = Math.max(0, center - windowBars);
+  const hi = Math.min(candles.length - 1, center + windowBars);
+  let best = center;
+  for (let i = lo; i <= hi; i++) {
+    if (type === "H" ? candles[i].h > candles[best].h : candles[i].l < candles[best].l) best = i;
+  }
+  return { t: +candles[best].t, p: type === "H" ? candles[best].h : candles[best].l, type };
+}
+
+export function structureXYs(st, candles, xScale, yScale) {
+  return (st.points ?? []).map(pt => ({ x: xScale(tsToIdx(pt.t, candles)), y: yScale(pt.p) }));
+}
+
+export function findHitStructure(px, py, structures, xScale, yScale, candles, threshold = 8) {
+  return (structures ?? []).find(st =>
+    findStructSegmentIdx(st, px, py, xScale, yScale, candles, threshold) !== -1
+  );
+}
+
+// 꼭짓점 히트 → points 배열의 인덱스 (없으면 -1)
+export function findHitStructPointIdx(st, px, py, xScale, yScale, candles, threshold = 10) {
+  const xy = structureXYs(st, candles, xScale, yScale);
+  for (let k = 0; k < xy.length; k++) {
+    if (Math.hypot(px - xy[k].x, py - xy[k].y) < threshold) return k;
+  }
+  return -1;
+}
+
+/**
+ * 기존 구조의 **양 끝** 꼭짓점 히트 → { id, fromStart }
+ * 구조 모드에서 이어 그리기를 시작할 지점을 찾는 용도라 중간 꼭짓점은 보지 않는다.
+ */
+export function findStructEndpointHit(px, py, structures, xScale, yScale, candles, threshold = 10) {
+  for (const st of structures ?? []) {
+    if (st.locked || !st.points?.length) continue;
+    const xy = structureXYs(st, candles, xScale, yScale);
+    const a = xy[0], b = xy[xy.length - 1];
+    if (Math.hypot(px - b.x, py - b.y) < threshold) return { id: st.id, fromStart: false };
+    if (xy.length > 1 && Math.hypot(px - a.x, py - a.y) < threshold) return { id: st.id, fromStart: true };
+  }
+  return null;
+}
+
+// 선분 히트 → 그 선분의 끝점 인덱스 k (= 삽입 위치). 없으면 -1
+export function findStructSegmentIdx(st, px, py, xScale, yScale, candles, threshold = 8) {
+  const xy = structureXYs(st, candles, xScale, yScale);
+  for (let k = 1; k < xy.length; k++) {
+    if (distToSeg(px, py, xy[k - 1].x, xy[k - 1].y, xy[k].x, xy[k].y) < threshold) return k;
+  }
+  return -1;
 }
 
 // ── onMouseDown 히트 테스트 체인 ──────────────────────────────────────────────
@@ -67,7 +149,15 @@ export function buildHitChain(ctx) {
     circleMode, circleCenter, setCircleCenter, circlePreview,
     circles, selectedCircleId,
     addCircle, moveCircle,
+    // 수동 구조
+    structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
+    structures, selectedStructId, removeStructPoint,
+    shiftKey,
   } = ctx;
+
+  // 다음에 찍을 꼭짓점 타입 — 직전 점의 반대 (첫 점은 커서 위치로 판정)
+  const lastDraft   = structDraft?.points?.[structDraft.points.length - 1];
+  const nextPtType  = lastDraft ? (lastDraft.type === "H" ? "L" : "H") : null;
 
   return [
     // 0. 채널 그리기 모드
@@ -98,6 +188,25 @@ export function buildHitChain(ctx) {
         } else {
           addCircle(circleCenter.t, circleCenter.p, t, p);
         }
+      },
+    },
+    // 0.7. 구조 그리기 모드 — 클릭할 때마다 꼭짓점 추가 (고/저 교대, 꼬리 스냅)
+    //      확정은 우클릭 또는 더블클릭, 취소는 ESC (ChartArea/useKeyboardShortcuts에서 처리)
+    {
+      when: structMode,
+      handle() {
+        // 기존 구조의 끝점을 누르면 새 점을 찍는 대신 그 구조와 이어진다.
+        // 구조를 쪼개두면 deriveStructure가 각각 bias=0으로 시작해 경계 CHoCH가 유실되므로,
+        // "이어 그리기"와 "두 구조 잇기" 모두 하나의 구조로 합쳐야 한다.
+        const hit = findStructEndpointHit(pos.x, pos.y, structures, xScale, yScale, candles);
+        if (hit) {
+          if (!structDraft) { startExtendStruct(hit.id, hit.fromStart); return; }
+          const already = hit.id === structDraft.extendId
+                       || structDraft.mergeIds?.includes(hit.id);
+          if (!already) { mergeStructIntoDraft(hit.id, hit.fromStart); return; }
+        }
+        const snapped = snapToStructurePoint(pos, candles, xScale, yScale, nextPtType);
+        if (snapped) addStructDraftPoint(snapped);
       },
     },
     // 1. 선 그리기 모드
@@ -215,6 +324,35 @@ export function buildHitChain(ctx) {
         return false;
       },
     },
+    // 4.65 선택된 구조 편집 — 꼭짓점 드래그 / Shift+클릭 삭제
+    //      구조는 폴리라인이 x<60(TP/SL 핸들 영역)을 자주 지나므로 포지션 핸들 뒤에 둔다
+    //
+    //      ※ 선분 중간에 점 하나를 끼우는 기능은 없다. 지그재그는 고/저가 교대라서
+    //        H–L 사이에 넣는 점은 어느 타입이든 양옆 중 하나와 겹치고,
+    //        normalizeStructurePoints가 병합해버려 결과적으로 아무 일도 안 일어난다.
+    //        점을 늘리려면 끝점을 클릭해 이어 그리면 된다.
+    {
+      when: selectedStructId != null && !structMode && !drawMode,
+      handle() {
+        const st = (structures ?? []).find(s => s.id === selectedStructId);
+        if (!st || st.locked) return false;
+
+        const ptIdx = findHitStructPointIdx(st, pos.x, pos.y, xScale, yScale, candles);
+        if (ptIdx !== -1) {
+          // 삭제는 교대 구조에서도 의미가 성립한다 — 양옆이 같은 타입이 되면
+          // 병합돼서 "그 스윙을 없앤다"가 된다
+          if (shiftKey) { removeStructPoint(selectedStructId, ptIdx); return true; }
+          dragRef.current = {
+            type: "struct_point", structId: selectedStructId,
+            ptIdx, ptType: st.points[ptIdx].type,
+          };
+          return true;
+        }
+
+        // 몸통 클릭 = 선택 유지 (팬으로 넘어가지 않도록)
+        return findStructSegmentIdx(st, pos.x, pos.y, xScale, yScale, candles) !== -1;
+      },
+    },
     // 4.7 선택된 채널 드래그 처리
     {
       when: selectedChannelId !== null && !channelMode && !drawMode,
@@ -279,6 +417,9 @@ export function buildHitChain(ctx) {
         if (hitCh) { selectDrawable(drawables, "channel", hitCh.id); setSelectedBox(false); return true; }
         const hitCi = findHitCircle(pos.x, pos.y, circles ?? [], xScale, yScale, candles);
         if (hitCi) { selectDrawable(drawables, "circle",  hitCi.id); setSelectedBox(false); return true; }
+        // 구조는 여러 봉에 걸친 폴리라인이라 클릭을 많이 삼키므로 맨 뒤에서 판정
+        const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
+        if (hitSt) { selectDrawable(drawables, "structure", hitSt.id); setSelectedBox(false); return true; }
         clearAllSelections(drawables);
         return false;
       },

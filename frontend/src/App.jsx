@@ -10,10 +10,10 @@ import { useTpsl }                   from "./hooks/useTpsl";
 import { useRSI }                    from "./hooks/useRSI";
 import { useSRLevels }               from "./hooks/useSRLevels";
 import { useTrendLines }             from "./hooks/useTrendLines";
+import { useStructures }             from "./hooks/useStructures";
 import { useOrderFlow }              from "./hooks/useOrderFlow";
 import { useFVG }                    from "./hooks/useFVG";
 import { useOrderBlock }             from "./hooks/useOrderBlock";
-import { useMarketStructure }        from "./hooks/useMarketStructure";
 import { useRealtimeData }           from "./hooks/useRealtimeData";
 import { useToast }                  from "./hooks/useToast";
 import { useTrendLineAlert }         from "./hooks/useTrendLineAlert";
@@ -61,7 +61,7 @@ export default function App() {
   const showDiv = indicators.div !== false;
   const showVol = indicators.vol !== false;
   const showEMA = indicators.ema !== false;
-  const showMS  = indicators.ms  !== false;
+  const showZZ  = indicators.zz  !== false;
 
   // ── drawing ↔ pending order 동기화 ────────────────────────────────────────
   useEffect(() => {
@@ -103,6 +103,9 @@ export default function App() {
   // ── 트렌드 라인 ───────────────────────────────────────────────────────────
   const trendLines = useTrendLines();
 
+  // ── 수동 구조 (지그재그 + 자동 CHoCH) ─────────────────────────────────────
+  const structs = useStructures();
+
   const { toasts, addToast, addLineAlert, removeToast } = useToast();
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
   const { params: indicatorParams, setParam: setIndicatorParam, setEmaList, resetIndicator } = useIndicatorParams();
@@ -127,7 +130,7 @@ export default function App() {
   const emaData = useEMA(candles, indicatorParams.ema);
   const fvgData = useFVG(candles, indicatorParams.fvg);
   const obData  = useOrderBlock(candles, indicatorParams.ob);
-  const msData  = useMarketStructure(candles, indicatorParams.ms);
+  // ZZ(Structure Zigzag)는 진행 중 봉까지 반영해야 하므로 candleRenderer가 candlesRef로 직접 계산 — 여기서 계산하지 않음
   const { srLevels, srLoading, refreshSR } = useSRLevels();
 
   // divsByTF → 메인 차트 캔들 인덱스로 변환
@@ -174,6 +177,14 @@ export default function App() {
       toggleLock:    trendLines.toggleCircleLock,
       setOpacity:    trendLines.setCircleOpacity,
     },
+    structure: {
+      id: structs.selectedStructId, items: structs.structures,
+      setSelectedId: structs.setSelectedStructId,
+      delete:        structs.deleteStruct,
+      toggleAlert:   () => {},   // 구조는 근접 알림 대상이 아님 (chart/drawables.js 주석 참고)
+      toggleLock:    structs.toggleStructLock,
+      setOpacity:    structs.setStructOpacity,
+    },
   }), [
     trendLines.selectedLineId, trendLines.lines, trendLines.setSelectedLineId,
     trendLines.deleteLine, trendLines.toggleLineAlert, trendLines.toggleLineLock, trendLines.setLineOpacity,
@@ -181,6 +192,8 @@ export default function App() {
     trendLines.deleteChannel, trendLines.toggleChannelAlert, trendLines.toggleChannelLock, trendLines.setChannelOpacity,
     trendLines.selectedCircleId, trendLines.circles, trendLines.setSelectedCircleId,
     trendLines.deleteCircle, trendLines.toggleCircleAlert, trendLines.toggleCircleLock, trendLines.setCircleOpacity,
+    structs.selectedStructId, structs.structures, structs.setSelectedStructId,
+    structs.deleteStruct, structs.toggleStructLock, structs.setStructOpacity,
   ]);
 
   // ── 키보드 단축키 ─────────────────────────────────────────────────────────
@@ -191,6 +204,8 @@ export default function App() {
     cancelDraw:        trendLines.cancelDraw,
     cancelChannelDraw: trendLines.cancelChannelDraw,
     cancelCircleDraw:  trendLines.cancelCircleDraw,
+    cancelStructDraw:  structs.cancelStructDraw,
+    setStructMode:     structs.setStructMode,
     drawables,
     setSelectedBox,
     drawing, hasPending, locked: drawLocked, selectedBox,
@@ -216,16 +231,21 @@ export default function App() {
         <TopBar
           interval_={interval_} onIntervalChange={val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain(); }}
           lineMode={trendLines.lineMode} onLineModeToggle={() => {
-            setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
+            setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); structs.cancelStructDraw();
             trendLines.setLineMode(m => { if (m) trendLines.cancelDraw(); return !m; });
           }}
           channelMode={trendLines.channelMode} onChannelModeToggle={() => {
-            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelCircleDraw();
+            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelCircleDraw(); structs.cancelStructDraw();
             trendLines.setChannelMode(m => { if (m) trendLines.cancelChannelDraw(); return !m; });
           }}
           circleMode={trendLines.circleMode} onCircleModeToggle={() => {
-            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw();
+            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw(); structs.cancelStructDraw();
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
+          }}
+          structMode={structs.structMode} onStructModeToggle={() => {
+            setDrawMode(false);
+            trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
+            structs.setStructMode(m => { if (m) structs.cancelStructDraw(); return !m; });
           }}
           isDark={isDark} onThemeToggle={toggleTheme}
           last={last} candleLoading={candleLoading}
@@ -255,16 +275,16 @@ export default function App() {
           candles={candles} candlesRef={candlesRef} candleLoading={candleLoading}
           onTickRef={onTickRef} interval_={interval_} isDark={isDark} isLog={isLog}
           rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData} srData={srLevels}
-          msData={msData}
           showRsi={showRsi} showSR={showSR} showOB={showOB} showFVG={showFVG}
           showVol={showVol} showEMA={showEMA} showDiv={showDiv}
-          showMS={showMS}
+          showZZ={showZZ}
           indicatorParams={indicatorParams}
           divData={divData}
           current={current} setCurrent={setCurrent}
           actionsRef={chartActionsRef}
           drawables={drawables}
           {...trendLines}
+          {...structs}
         />
       </div>
 
@@ -297,6 +317,7 @@ export default function App() {
           onCancelSplitTp={cancelSplitTp}
           onDrawModeToggle={() => {
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
+            structs.cancelStructDraw();
             setDrawMode(m => !m);
           }}
         />
