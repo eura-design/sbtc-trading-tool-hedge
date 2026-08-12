@@ -10,6 +10,7 @@ export const INDICATORS = [
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
   { key: "ms",  label: "Market Structure" },
+  { key: "chocho", label: "ChoCho Signal" },
   { key: "ema", label: "EMA" },
 ];
 
@@ -46,6 +47,9 @@ const PARAMS_META = {
     { key: "max_display", label: "최대 표시",     min: 2,   max: 30,   step: 1  },
     { key: "close_only",  label: "봉마감 기준",   type: "toggle" },
     { key: "show_bos",    label: "BOS 표시",      type: "toggle" },
+  ],
+  chocho: [
+    { key: "lookback", label: "최저점 비교(봉)", min: 1, max: 100, step: 1 },
   ],
   div: [
     { key: "peak_lb",      label: "피크 감지(봉)", min: 2,  max: 15,  step: 1  },

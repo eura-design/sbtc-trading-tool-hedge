@@ -1,7 +1,7 @@
 import * as d3 from "d3";
 import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
-import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderMarketStructure } from "./overlayRenderers";
+import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderMarketStructure, renderChoChoSignal } from "./overlayRenderers";
 import { idxToTimestamp } from "../utils/coordUtils";
 
 export { renderVolumeCanvas } from "./volumeRenderer";
@@ -121,6 +121,7 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
     if (ov.showSR  && ov.srLevels?.length)  renderSRLines(ctx, ov.srLevels, yScale, IW, IH, isDark);
     if (ov.showEMA && ov.emaData?.length)   renderEMA(ctx, ov.emaData, xScale, yScale, IW, IH);
     if (ov.showMS  && ov.msData?.length)    renderMarketStructure(ctx, ov.msData, xScale, yScale, IW, IH);
+    if (ov.showChoCho && ov.chochoData?.length) renderChoChoSignal(ctx, ov.chochoData, xScale, yScale, IW, IH);
   }
 
   // ── X 축 ──────────────────────────────────────────────────────────────────
@@ -128,13 +129,13 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   ctx.lineWidth    = 1;
   ctx.font         = "12px 'JetBrains Mono', 'Fira Code', 'Courier New', monospace";
 
-  ctx.strokeStyle = isDark ? CANVAS_C.AXIS : "#cbd5e1";
+  ctx.strokeStyle  = CANVAS_C.AXIS;
   ctx.beginPath();
   ctx.moveTo(M.left, M.top + IH);
   ctx.lineTo(M.left + IW, M.top + IH);
   ctx.stroke();
 
-  ctx.strokeStyle = isDark ? CANVAS_C.AXIS : "#cbd5e1";
+  ctx.strokeStyle  = CANVAS_C.AXIS;
   ctx.beginPath();
   const xTicks = xScale.ticks(6);
   for (const tickIdx of xTicks) {
@@ -144,7 +145,7 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   }
   ctx.stroke();
 
-  ctx.fillStyle    = isDark ? CANVAS_C.XTICK : "#64748b";
+  ctx.fillStyle    = CANVAS_C.XTICK;
   ctx.textAlign    = "center";
   ctx.textBaseline = "top";
   for (const tickIdx of xTicks) {
@@ -154,7 +155,7 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   }
 
   // ── Y 축 ──────────────────────────────────────────────────────────────────
-  ctx.strokeStyle = isDark ? CANVAS_C.AXIS : "#cbd5e1";
+  ctx.strokeStyle  = CANVAS_C.AXIS;
   ctx.beginPath();
   ctx.moveTo(M.left + IW, M.top);
   ctx.lineTo(M.left + IW, M.top + IH);
@@ -167,7 +168,7 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   }
   ctx.stroke();
 
-  ctx.fillStyle    = isDark ? CANVAS_C.YTICK : "#64748b";
+  ctx.fillStyle    = CANVAS_C.YTICK;
   ctx.textAlign    = "left";
   ctx.textBaseline = "middle";
   for (const v of yTicks) {

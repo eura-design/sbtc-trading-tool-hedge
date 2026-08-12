@@ -1,5 +1,5 @@
 import { useRef, useMemo, useEffect, useState } from "react";
-import { M, RSI_GAP, VOL_GAP, TF_MS } from "../constants";
+import { M, RSI_GAP, VOL_GAP } from "../constants";
 import { useStore }          from "../store";
 import { useShallow }        from "zustand/react/shallow";
 import { useChartSize }      from "../hooks/useChartSize";
@@ -14,7 +14,8 @@ import { getScales }         from "../chart/scales";
 import { ChartSvg }          from "./Chart/ChartSvg";
 import { LineOpacityPopup }  from "./Chart/LineOpacityPopup";
 
-// 봉마감 카운트다운 — TF_MS(constants.js)에서 봉 간격 참조
+// 봉마감 카운트다운 — 봉 간격(ms)
+const INTERVAL_MS = { "5m": 5*60*1000, "15m": 15*60*1000, "1h": 60*60*1000, "4h": 4*60*60*1000, "1d": 24*60*60*1000, "1w": 7*24*60*60*1000, "1M": 30*24*60*60*1000 };
 
 // 달봉: 다음 달 1일 00:00 UTC까지 남은 ms 반환 (실제 월말 기준)
 function msUntilMonthEnd() {
@@ -44,10 +45,10 @@ export function ChartArea({
   candles, candlesRef, candleLoading, onTickRef, interval_, isDark, isLog,
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, srData: srLevels,
-  msData,
+  msData, chochoData,
   // 지표 표시 여부
   showRsi, showSR, showOB, showFVG, showVol, showEMA, showDiv,
-  showMS,
+  showMS, showChoCho,
   // 지표 파라미터
   indicatorParams,
   // 다이버전스
@@ -113,7 +114,7 @@ export function ChartArea({
         remaining = msUntilMonthEnd();
         ratio     = remaining / msDurationOfCurrentMonth();
       } else {
-        const iMs      = TF_MS[interval_] ?? 60 * 60 * 1000;
+        const iMs      = INTERVAL_MS[interval_] ?? 60 * 60 * 1000;
         const arr      = candlesRef.current; // React state가 아닌 항상 최신 ref 사용
         const lastCdl  = arr.length > 0 ? arr[arr.length - 1] : null;
 
@@ -177,7 +178,7 @@ export function ChartArea({
   const overlaysRef = useRef({});
   overlaysRef.current = {
     fvgData, showFVG, obData, showOB, srLevels, showSR, emaData, showEMA,
-    msData, showMS,
+    msData, showMS, chochoData, showChoCho,
     showVol, volH: effectiveVolH, volColorMode: indicatorParams.vol?.colorMode ?? "neutral",
     rsiData, showRsi, rsiH: effectiveRsiH, rsiParams: indicatorParams.rsi,
   };
@@ -197,7 +198,7 @@ export function ChartArea({
   // ── 오버레이 변경 시 캔버스 재렌더 ────────────────────────────────────────
   // candles.length 가드: 타임프레임 전환 중 candles=[] 상태에서 forceUpdate가 불려
   // scales=null이 되면 SVG 오버레이가 순간 사라지는 들썩임이 발생하므로 방지
-  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, msData, showMS]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, msData, showMS, chochoData, showChoCho]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { redrawVolume(); }, [showVol, effectiveVolH, indicatorParams.vol?.colorMode]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (candles.length) redrawRSI(); }, [rsiData, showRsi, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
 

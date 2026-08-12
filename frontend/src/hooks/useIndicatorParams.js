@@ -9,6 +9,7 @@ export const INDICATOR_DEFAULTS = {
   div: { peak_lb: 5, scan_candles: 300, max_show: 10 },
   sr:  { kde_range: 20, persistence_atr: 0.5, bandwidth_atr: 0.3, peak_min_pers: 0.08, limit: 1000, top_n: 5 },
   ms:  { swing_lb: 5, scan_from: 500, max_display: 15, close_only: true, show_bos: true },
+  chocho: { lookback: 10 },
   ema: [
     { id: 1, period: 10, color: "#888888", enabled: true },
     { id: 2, period: 20, color: "#f0b90b", enabled: true },

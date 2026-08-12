@@ -186,3 +186,41 @@ export function renderMarketStructure(ctx, msData, xScale, yScale, IW, IH) {
     }
   });
 }
+
+// ── ChoCho Signal ────────────────────────────────────────────────────────────
+export function renderChoChoSignal(ctx, chochoData, xScale, yScale, IW, IH) {
+  if (!chochoData?.length) return;
+  withClip(ctx, M.left, M.top, IW, IH, () => {
+    ctx.font = "700 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
+    ctx.textBaseline = "alphabetic";
+    const [iMin, iMax] = xScale.domain();
+
+    for (const ev of chochoData) {
+      if (ev.atIdx < iMin - 1 || ev.brokenIdx > iMax + 1) continue;
+      const x0 = Math.max(0, xScale(ev.brokenIdx));
+      const x1 = Math.min(IW, xScale(ev.atIdx));
+      const y  = yScale(ev.brokenPrice);
+      if (x1 <= x0) continue;
+      
+      const color = "#3b82f6"; // 파란색
+
+      // 돌파된 스윙 레벨선 (CHoCH 스타일: 실선, 굵기 1.5)
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.8;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+
+      // 라벨
+      ctx.globalAlpha = 1;
+      ctx.fillStyle   = color;
+      ctx.textAlign   = "center";
+      const tx = (x0 + x1) / 2;
+      const ty = y - 4; // Bullish CHoCH이므로 텍스트는 선 위로
+      ctx.fillText(ev.kind, tx, ty);
+    }
+  });
+}

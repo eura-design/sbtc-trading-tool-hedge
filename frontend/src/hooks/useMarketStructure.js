@@ -43,8 +43,9 @@ export function useMarketStructure(candles, params = {}) {
     const events = [];
 
     for (let i = scanStart; i < candles.length; i++) {
-      // swing은 i + swing_lb 시점에 확정됨
-      while (swingPtr < swings.length && swings[swingPtr].i + swing_lb <= i) {
+      // swing은 phase 1에서 이미 오른쪽 swing_lb봉까지 확인 완료된 상태
+      // → phase 2에서 추가 대기 불필요: 해당 봉이 과거가 되는 즉시 활성화
+      while (swingPtr < swings.length && swings[swingPtr].i < i) {
         const sw = swings[swingPtr++];
         if (sw.type === "H") {
           // 추세가 bull이면 HH(더 높은 고점)일 때만 갱신 → internal structure 필터

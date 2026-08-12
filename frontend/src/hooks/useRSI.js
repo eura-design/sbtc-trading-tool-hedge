@@ -1,6 +1,6 @@
 import { useRef } from "react";
-import { toRsi } from "../utils/rsi";
 
+const toRsi = (ag, al) => al === 0 ? 100 : 100 - 100 / (1 + ag / al);
 
 /**
  * RSI — Wilder's smoothing.
