@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { BN_PUBLIC, BN_WS } from "../constants";
+import { BN_PUBLIC, BN_WS, TF_MS } from "../constants";
 
 const ALL_TF      = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
 const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시간", "1d": "1일", "1w": "1주", "1M": "1월" };
-// 타임프레임별 봉 길이(초) — 알람 쿨다운 기준
-const TF_SECS     = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800, "1M": 30 * 24 * 3600 };
+// TF_MS(constants.js)를 쿨다운 기준으로 사용 — TF_SECS 제거
 
 // ── RSI 유틸 ──────────────────────────────────────────────────────────────────
 
@@ -225,7 +224,7 @@ function startTFMonitor(tf, stateRef, settingsRef, divParamsRef, rsiParamsRef, o
         const osThr_     = rp_.oversold   ?? 30;
         const prevClose  = arr[arr.length - 2].c;
         const currRSI    = tickRSI(st.rsiState, prevClose, candle.c, period_);
-        const cooldownMs = (TF_SECS[tf] ?? 300) * 1000;
+        const cooldownMs = TF_MS[tf] ?? 300_000;
         const now        = Date.now();
         const candleTime = candle.t.getTime();
         if (currRSI !== null) {

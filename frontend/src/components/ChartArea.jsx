@@ -1,5 +1,5 @@
 import { useRef, useMemo, useEffect, useState } from "react";
-import { M, RSI_GAP, VOL_GAP } from "../constants";
+import { M, RSI_GAP, VOL_GAP, TF_MS } from "../constants";
 import { useStore }          from "../store";
 import { useShallow }        from "zustand/react/shallow";
 import { useChartSize }      from "../hooks/useChartSize";
@@ -14,8 +14,7 @@ import { getScales }         from "../chart/scales";
 import { ChartSvg }          from "./Chart/ChartSvg";
 import { LineOpacityPopup }  from "./Chart/LineOpacityPopup";
 
-// 봉마감 카운트다운 — 봉 간격(ms)
-const INTERVAL_MS = { "5m": 5*60*1000, "15m": 15*60*1000, "1h": 60*60*1000, "4h": 4*60*60*1000, "1d": 24*60*60*1000, "1w": 7*24*60*60*1000, "1M": 30*24*60*60*1000 };
+// 봉마감 카운트다운 — TF_MS(constants.js)에서 봉 간격 참조
 
 // 달봉: 다음 달 1일 00:00 UTC까지 남은 ms 반환 (실제 월말 기준)
 function msUntilMonthEnd() {
@@ -114,7 +113,7 @@ export function ChartArea({
         remaining = msUntilMonthEnd();
         ratio     = remaining / msDurationOfCurrentMonth();
       } else {
-        const iMs      = INTERVAL_MS[interval_] ?? 60 * 60 * 1000;
+        const iMs      = TF_MS[interval_] ?? 60 * 60 * 1000;
         const arr      = candlesRef.current; // React state가 아닌 항상 최신 ref 사용
         const lastCdl  = arr.length > 0 ? arr[arr.length - 1] : null;
 
