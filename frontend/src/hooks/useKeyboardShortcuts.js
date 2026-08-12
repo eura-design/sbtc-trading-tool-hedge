@@ -7,7 +7,7 @@ export function useKeyboardShortcuts({
   shortcuts,
   setDrawMode, setCurrent,
   cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelStructDraw,
-  setStructMode,
+  setStructMode, structEnabled,
   drawables,   // { line, channel, circle, structure } — chart/drawables.js 인터페이스
   setSelectedBox,
   drawing, hasPending, locked,
@@ -50,6 +50,7 @@ export function useKeyboardShortcuts({
       }
 
       if (match(e, "drawStruct")) {
+        if (!structEnabled) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단 (TopBar 버튼도 동일)
         setDrawMode(false);
         cancelDraw(); cancelChannelDraw(); cancelCircleDraw();
         setStructMode(m => { if (m) cancelStructDraw(); return !m; });
@@ -90,5 +91,5 @@ export function useKeyboardShortcuts({
     return () => window.removeEventListener("keydown", onKey);
   }, [shortcuts, drawables, selectedBox, drawing, hasPending, locked, deleteBox, interval_, onIntervalChange,
       setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelStructDraw,
-      setStructMode, setSelectedBox]);
+      setStructMode, structEnabled, setSelectedBox]);
 }

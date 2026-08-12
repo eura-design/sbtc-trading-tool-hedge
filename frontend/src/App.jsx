@@ -93,6 +93,7 @@ export default function App() {
 
   useEffect(() => { if (!drawing) setSelectedBox(false); }, [drawing, setSelectedBox]);
 
+
   // ── 로컬 상태 ────────────────────────────────────────────────────────────
   const [isLog, setIsLog] = useState(() => localStorage.getItem("chart_isLog") === "true");
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem("sidebar_open") !== "false");
@@ -106,6 +107,14 @@ export default function App() {
 
   // ── 수동 구조 (지그재그 + 자동 CHoCH) ─────────────────────────────────────
   const structs = useStructures();
+
+  // 그리는 도중/선택한 채로 Custom Structure Zigzag를 끄면 편집 상태를 정리한다.
+  // 안 그러면 안 보이는 draft가 남아 있다가 다시 켤 때 그리던 중간부터 튀어나온다.
+  useEffect(() => {
+    if (showStruct) return;
+    structs.cancelStructDraw();
+    structs.setSelectedStructId(null);
+  }, [showStruct]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { toasts, addToast, addLineAlert, removeToast } = useToast();
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
@@ -207,6 +216,7 @@ export default function App() {
     cancelCircleDraw:  trendLines.cancelCircleDraw,
     cancelStructDraw:  structs.cancelStructDraw,
     setStructMode:     structs.setStructMode,
+    structEnabled:     showStruct,
     drawables,
     setSelectedBox,
     drawing, hasPending, locked: drawLocked, selectedBox,
@@ -243,7 +253,8 @@ export default function App() {
             setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw(); structs.cancelStructDraw();
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
           }}
-          structMode={structs.structMode} onStructModeToggle={() => {
+          structMode={structs.structMode} structEnabled={showStruct} onStructModeToggle={() => {
+            if (!showStruct) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단
             setDrawMode(false);
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
             structs.setStructMode(m => { if (m) structs.cancelStructDraw(); return !m; });

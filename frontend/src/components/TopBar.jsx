@@ -7,7 +7,7 @@ import { NotificationMenu }  from "./NotificationMenu";
 import { ShortcutMenu }      from "./ShortcutMenu";
 
 
-export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, structMode, onStructModeToggle, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, srLoading, refreshSR, shortcuts, onShortcutUpdate, onShortcutReset }) {
+export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, srLoading, refreshSR, shortcuts, onShortcutUpdate, onShortcutReset }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
@@ -80,14 +80,18 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
         transition:"all 0.15s",
       }}>채널</button>
 
-      <button onClick={onStructModeToggle}
-        title="시장 구조 — 클릭으로 고/저점 찍기, 우클릭·더블클릭 확정 / CHoCH 자동 표시" style={{
+      {/* 지표가 꺼져 있으면 그려도 화면에 안 나오므로 아예 막는다 (App.jsx에서도 가드) */}
+      <button onClick={onStructModeToggle} disabled={!structEnabled}
+        title={structEnabled
+          ? "시장 구조 — 클릭으로 고/저점 찍기, 우클릭·더블클릭 확정 / CHoCH 자동 표시"
+          : "지표 메뉴에서 Custom Structure Zigzag를 켜야 그릴 수 있습니다"} style={{
         height:"22px", padding:"0 7px", borderRadius:"3px",
-        cursor:"pointer", flexShrink:0,
+        cursor: structEnabled ? "pointer" : "not-allowed", flexShrink:0,
         fontSize:"12px", fontFamily:"inherit", fontWeight:"400",
         background: structMode ? "#60a5fa" : "transparent",
         border:`1px solid ${structMode ? "#60a5fa" : theme.textFaint}`,
         color: structMode ? "#000" : theme.textMuted,
+        opacity: structEnabled ? 1 : 0.35,
         transition:"all 0.15s",
       }}>구조</button>
 
