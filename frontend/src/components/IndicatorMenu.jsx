@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useTheme } from "../ThemeContext";
 import { INDICATOR_DEFAULTS } from "../hooks/useIndicatorParams";
 import { getZzChochTotal } from "../chart/structureZigzag";
+import { getRsiZoneCount } from "../chart/overlayRenderers";
 import { INTERVALS } from "../constants";
 
 export const INDICATORS = [
@@ -24,6 +25,8 @@ const PARAMS_META = {
     { key: "period",     label: "기간",     min: 2,    max: 50,  step: 1 },
     { key: "overbought", label: "과매수",   min: 51,   max: 95,  step: 1 },
     { key: "oversold",   label: "과매도",   min: 5,    max: 49,  step: 1 },
+    // 과매수/과매도 구간을 메인 차트 배경에 파란 세로 밴드로 (RSI 패널은 그대로)
+    { key: "zone_bg",    label: "구간 배경", type: "toggle" },
   ],
   fvg: [
     { key: "lookback",       label: "표시 범위",      min: 50,  max: 1000, step: 10 },
@@ -74,9 +77,10 @@ const PARAMS_META = {
 //   전체 스위치를 OFF로 저장해 둔 채 UI만 사라지면 구조별 ON이 아무 효과가 없고
 //   되돌릴 방법도 없다. 화면 정리는 구조별 토글 하나로 충분하다.
 
-// "검출된 CHoCH N개" — 자동 ZZ 전용(지표 하나가 리스트 하나라 합계가 곧 그 값).
-// 렌더 경로의 모듈 상태를 직접 읽는 것이라 메뉴를 여는 시점의 스냅샷이다.
-function ChochCountRow({ total, theme }) {
+// "검출된 ○○ N개" — ZZ의 CHoCH / RSI의 과매수·과매도 구간이 공유한다.
+// 둘 다 렌더 경로의 모듈 상태를 직접 읽는 것이라 **메뉴를 여는 시점의 스냅샷**이다
+// (계산이 캔버스 렌더에만 있어 React 상태로 올라오지 않는다).
+function DetectedCountRow({ label, total, theme }) {
   return (
     <div style={{
       display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -84,12 +88,52 @@ function ChochCountRow({ total, theme }) {
       borderBottom: `1px solid ${theme.borderSec}`,
       fontSize: 11, color: theme.textSec,
     }}>
-      <span>검출된 CHoCH</span>
+      <span>검출된 {label}</span>
       <span style={{
         color: total ? "#c084fc" : theme.textFaint, fontWeight: 700,
         fontVariantNumeric: "tabular-nums",
       }}>
         {total}개
+      </span>
+    </div>
+  );
+}
+
+/**
+ * "최근 N개만" 슬라이더 — 상한이 **실제 검출 개수**라 데이터에 따라 움직인다.
+ *
+ * 구조/ZZ 팝업의 CHoCH 개수 슬라이더(LineOpacityPopup::CountRow)와 같은 규칙:
+ * 끝까지 올리면 `null`(= 전체)로 저장한다. 숫자로 고정해두면 구간이 늘어났을 때
+ * 새 밴드가 조용히 잘린다.
+ */
+function RecentCountSlider({ label, value, detected, onChange, theme }) {
+  const hi  = Math.max(1, detected);
+  const all = value == null || value >= hi;
+  const cur = all ? hi : Math.max(1, value);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+      <span style={{ fontSize: 11, color: theme.textSec, width: 100, flexShrink: 0 }}>
+        {label}
+      </span>
+      <input
+        type="range" min={1} max={hi} step={1} value={cur}
+        disabled={detected === 0}
+        onChange={e => {
+          const n = parseInt(e.target.value, 10);
+          onChange(n >= hi ? null : n);      // 끝까지 올리면 제한 해제
+        }}
+        style={{
+          flex: 1, accentColor: "#c084fc",
+          cursor: detected ? "pointer" : "default",
+          opacity: detected ? 1 : 0.4,
+        }}
+      />
+      <span style={{
+        fontSize: 11, color: all ? theme.textMuted : theme.textPrimary,
+        width: 38, textAlign: "right",
+        fontVariantNumeric: "tabular-nums", flexShrink: 0,
+      }}>
+        {detected === 0 ? "없음" : all ? "전체" : cur}
       </span>
     </div>
   );
@@ -292,11 +336,17 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
   const metas   = PARAMS_META[indKey] || [];
   const isSR    = indKey === "sr";
   const isZZ    = indKey === "zz";
+  const isRSI   = indKey === "rsi";
   const indParams = params[indKey] || {};
 
   // ZZ: 검출된 CHoCH 개수 표시용 (모듈 상태 직접 조회 — 메뉴를 여는 시점의 값).
   // 표시 개수 제한(max_choch)은 여기 없다 — ZZ 선 더블클릭 팝업으로 옮겼다.
   const zzTotal = isZZ ? getZzChochTotal() : 0;
+
+  // RSI: 검출된 과매수/과매도 구간 개수 — ZZ와 같은 이유로 모듈 상태 직접 조회.
+  // 개수 슬라이더(zone_max)의 상한이자 "몇 개 중 몇 개인지"를 보여주는 값이다.
+  const zoneTotal = isRSI ? getRsiZoneCount() : 0;
+  const zoneBgOn  = indParams.zone_bg !== false;
 
   const handleRefresh = async () => {
     setSrStatus(null);
@@ -316,7 +366,8 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
       background: theme.bgCardAlt,
       borderTop: `1px solid ${theme.borderSec}`,
     }}>
-      {isZZ && <ChochCountRow total={zzTotal} theme={theme} />}
+      {isZZ  && <DetectedCountRow label="CHoCH"        total={zzTotal}   theme={theme} />}
+      {isRSI && <DetectedCountRow label="과매수/과매도" total={zoneTotal} theme={theme} />}
       {metas.map(m => (
         <ParamSlider
           key={m.key}
@@ -326,6 +377,15 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
           theme={theme}
         />
       ))}
+      {/* 구간 개수는 상한이 검출 개수라 정적 PARAMS_META로 못 만든다 → 전용 슬라이더.
+          배경이 꺼져 있으면 조절할 대상이 없으므로 같이 숨긴다 */}
+      {isRSI && zoneBgOn && (
+        <RecentCountSlider
+          label="구간 개수" value={indParams.zone_max} detected={zoneTotal}
+          onChange={n => setParam("rsi", "zone_max", n)}
+          theme={theme}
+        />
+      )}
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         <button
           onClick={() => resetIndicator(indKey)}

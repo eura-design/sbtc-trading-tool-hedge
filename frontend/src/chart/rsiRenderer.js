@@ -1,9 +1,11 @@
 import * as d3 from "d3";
-import { M } from "../constants";
+import { M, CANVAS_C } from "../constants";
 import { initCanvas } from "./canvasUtils";
 
-const RSI_OB_C  = "#60a5fa";
-const RSI_OS_C  = "#60a5fa";
+// 메인 차트의 과매수/과매도 구간 배경(renderRsiZones)과 **같은 토큰**을 쓴다 —
+// 한쪽만 바꾸면 패널의 선과 배경 밴드 색이 어긋난다
+const RSI_OB_C  = CANVAS_C.RSI_ZONE;
+const RSI_OS_C  = CANVAS_C.RSI_ZONE;
 const RSI_MID_C = "#888888";
 
 function getRsiColor(v, ob, os) {

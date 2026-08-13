@@ -205,7 +205,14 @@ export function ChartArea({
   // scales=null이 되면 SVG 오버레이가 순간 사라지는 들썩임이 발생하므로 방지
   useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, showZZ, indicatorParams.zz, zzSelected]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { redrawVolume(); }, [showVol, effectiveVolH, indicatorParams.vol?.colorMode]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (candles.length) redrawRSI(); }, [rsiData, showRsi, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
+  // RSI는 패널뿐 아니라 **메인 캔버스**에도 그려진다 (과매수/과매도 구간 배경) →
+  // 데이터·파라미터가 바뀌면 두 캔버스를 같이 갱신해야 밴드가 즉시 따라온다.
+  // redrawChart가 아니라 redrawCanvas인 이유: SVG 오버레이는 RSI와 무관해 리렌더가 불필요
+  useEffect(() => {
+    if (!candles.length) return;
+    redrawRSI();
+    redrawCanvas();
+  }, [rsiData, showRsi, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
   const { saveTpsl, moveScaleIn, moveSplitTp } = useOrderFlow();

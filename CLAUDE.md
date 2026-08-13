@@ -51,7 +51,7 @@ backend/
 frontend/src/
 ├── constants.js               ← DARK/LIGHT 테마, SIDEBAR_W, M, HIT, MIN_QTY, QTY_STEP, VOL_H, VOL_GAP,
 │                                 API_BASE(localhost:3002), BN_PUBLIC, BN_WS(demo-fstream), INTERVALS, RSI_H, RSI_GAP,
-│                                 POLLING(폴링 주기 상수), CANVAS_C(캔버스 색상 토큰: BULL/BEAR/AXIS/XTICK/YTICK)
+│                                 POLLING(폴링 주기 상수), CANVAS_C(캔버스 색상 토큰: BULL/BEAR/RSI_ZONE/AXIS/XTICK/YTICK)
 ├── ThemeContext.jsx           ← ThemeProvider + useTheme() — 다크/라이트 전환 (localStorage 동기화)
 ├── store/
 │   ├── index.js               ← Zustand 스토어 조립(4개 slice 통합) — `useStore` export
@@ -118,7 +118,10 @@ frontend/src/
 │   │                             renderVolumeCanvas/renderRSICanvas는 각 파일에서 re-export
 │   ├── canvasUtils.js         ← initCanvas(DPR 대응), withClip(클리핑 헬퍼), getVisibleRange(가시 인덱스)
 │   ├── overlayRenderers.js    ← renderFVG, renderOrderBlock, renderSRLines, renderEMA,
-│   │                             renderStructureZigzag (전부 캔버스 렌더)
+│   │                             renderStructureZigzag, renderRsiZones (전부 캔버스 렌더)
+│   │                             renderRsiZones만 캔들 **뒤**(배경)에 그린다 — 나머지는 캔들 위
+│   │                             computeRsiZones/getRsiZoneCount/clearRsiZones — 구간 목록
+│   │                               모듈 캐시 (지표 메뉴의 "검출된 과매수/과매도 N개"가 읽음)
 │   ├── structureZigzag.js     ← computeStructureZigzag() — ZZ 지표 계산 (훅 아님, 순수 함수)
 │   │                             유일하게 렌더 경로에서 계산되는 지표 — 틱마다 라이브 봉 반영
 │   │                             forward-only 누적 상태(모듈 레벨 _st) — 기록은 추가만, 제거 없음
@@ -536,7 +539,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS), FVG(lookback/mitigation), OB(swing/bos), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
+- 대상: RSI(period/OB/OS/**zone_bg/zone_max**), FVG(lookback/mitigation), OB(swing/bos), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
 - ※ `zz`의 **show_choch·max_choch·alert_choch·opacity는 전부 ZZ 선 더블클릭 팝업**에서 조작한다
   (PARAMS_META.zz에 없음). `show_choch`는 예전에 IndicatorMenu에도 있었지만 **같은 값을 가리키는
   중복이라 2026-08-12 제거**했다 — 되살리지 말 것
@@ -661,6 +664,36 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **RSI 패널**: Wilder's smoothing, 별도 캔버스, 드래그로 높이 조절 (useRsiResize)
   ※ RSI 다이버전스 지표는 제거됨 (2026-08-12) — 지표/알림/파라미터(`div`)/`DivergenceLines.jsx`/
     `utils/rsi.js::buildRSIArray` 전부 삭제. RSI 패널에는 더 이상 SVG 오버레이가 없다
+- **RSI 과매수/과매도 구간 배경** (2026-08-13, `overlayRenderers.js::renderRsiZones`)
+  - RSI가 과매수(≥ob) / 과매도(≤os)인 봉 구간을 **메인 차트**에 파란 세로 밴드로 칠한다
+  - **메인 차트에만.** RSI 패널은 선 색으로 이미 구분되므로 건드리지 않는다 (사용자 선택)
+  - **과매수·과매도 같은 파랑** (`CANVAS_C.RSI_ZONE` `#60a5fa` — RSI 선·기준선과 같은 색).
+    어느 쪽인지는 RSI 패널을 보면 되고, 메인 차트에는 "지금 극단 구간"만 알면 된다는 판단
+  - **봉 단위로 끊는다** — RSI 선처럼 임계값 교차점을 보간하지 않는다. 밴드는 캔들과
+    나란히 놓이는 배경이라 봉 경계에서 끊겨야 어느 봉이 과매수였는지 눈으로 맞아떨어진다
+  - **연속 구간은 사각형 하나로 합친다** — 봉마다 fillRect하면 경계에서 알파가 겹쳐
+    세로 줄무늬가 생긴다 (반투명 사각형을 이어 붙일 때의 고전적 문제)
+  - **캔들보다 먼저 그린다**(배경). 다른 오버레이와 달리 **pan 중에도 그린다** —
+    사각형 몇 개라 비용이 없고, 드래그할 때만 사라지면 구간이 깜빡이는 것처럼 보인다
+  - **최근 N개만 표시** (`rsi.zone_max`, **기본 5**, `null` = 전체) — 과거까지 온통 파래지면
+    배경이 아니라 노이즈가 된다는 사용자 요청. 제한은 **화면이 아니라 전체 목록 기준**
+    (`zones.slice(-max)`) — 뷰포트에 따라 "최근 5개"가 달라지면 스크롤할 때마다 밴드가
+    다른 데 찍혀 같은 지표로 보이지 않는다
+  - 토글/개수: IndicatorMenu RSI ⚙ → `구간 배경`(`zone_bg`, 기본 ON) + `구간 개수` 슬라이더.
+    RSI 지표가 꺼져 있으면 함께 꺼지고, `zone_bg`가 OFF면 개수 슬라이더도 숨긴다
+  - **슬라이더 상한 = 실제 검출 개수** (`getRsiZoneCount()`) + `검출된 과매수/과매도 N개` 행.
+    ZZ의 CHoCH 개수와 같은 규칙 — 끝까지 올리면 `null`(전체)로 저장한다.
+    숫자로 고정하면 구간이 늘었을 때 새 밴드가 조용히 잘린다
+  - ⚠ `zone_max`는 **`null`이 "전체"**라 `?? 5`로 기본값을 채우면 안 된다 (null을 5로 덮어씀).
+    `=== undefined` 검사를 쓸 것
+  - ⚠ 구간 계산(`computeRsiZones`)은 **`zone_bg`가 꺼져 있어도 돌린다** — 메뉴의 검출 개수
+    (= 슬라이더 상한)가 배경을 끄면 0으로 주저앉으면 안 되기 때문. rsiData 참조 비교
+    캐시라 봉마감 전까지 재계산이 없어 비용은 없다. RSI 지표 자체가 꺼지면 `clearRsiZones()`
+  - ⚠ `rsiData`는 React `candles` 기반이라 **진행 중 봉은 반영되지 않는다**(봉마감 시 갱신).
+    RSI 패널도 같은 데이터를 쓰므로 둘은 항상 일치한다 — 여기만 `candlesRef`로 앞서가게
+    만들면 패널의 선과 배경이 어긋나 보인다
+  - `ChartArea`의 RSI useEffect가 `redrawRSI` + **`redrawCanvas`**를 같이 부른다
+    (밴드가 메인 캔버스에 있으므로). `redrawChart`가 아닌 이유는 SVG 오버레이가 RSI와 무관해서
 
 ### 체결 감지
 - **LIMIT 주문**: User Data Stream WebSocket (`orderWatcher.js`)으로 즉시 감지
@@ -673,7 +706,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - 캔들: D3 imperative (`renderCandles`) → `canvasRef`에 직접 드로우
 - 거래량: D3 imperative (`renderVolumeCanvas`) → `volCanvasRef`에 별도 드로우
 - RSI: D3 imperative (`renderRSICanvas`) → `rsiCanvasRef`에 별도 드로우
-- FVG/OB/SR/EMA: 캔버스 렌더 (`overlayRenderers.js`)
+- FVG/OB/SR/EMA/RSI 구간 배경: 캔버스 렌더 (`overlayRenderers.js`)
 - 오버레이 (박스/포지션 라인/트렌드라인/채널/원/수동 구조): React SVG (`ChartSvg` 내)
 - `useChartRenderer.js`의 `forceUpdate`(renderTick)로 캔버스 렌더 후 React 오버레이 동기화
 - pan 중: `redrawChart()`가 redrawCanvas+redrawVolume+redrawRSI+forceUpdate 동시 호출

@@ -3,7 +3,10 @@ import { api } from "../api/client";
 
 export const INDICATOR_DEFAULTS = {
   vol: { colorMode: "neutral" },
-  rsi: { period: 14, overbought: 70, oversold: 30 },
+  // zone_bg  — 과매수/과매도 구간을 **메인 차트** 배경에 세로 밴드로 표시 (2026-08-13)
+  // zone_max — 그중 **최근 몇 개만** 칠할지. 기본 5, `null`이면 전체
+  //   (과거까지 온통 파래지면 배경이 아니라 노이즈가 된다는 사용자 요청)
+  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5 },
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },
   ob:  { swing_lb: 5, bos_window: 30, ob_lookback: 20, scan_from: 500, mitigation_pct: 50, max_display: 15, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false, use_wick: false },
   sr:  { kde_range: 20, persistence_atr: 0.5, bandwidth_atr: 0.3, peak_min_pers: 0.08, limit: 1000, top_n: 5 },

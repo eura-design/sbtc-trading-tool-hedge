@@ -1,7 +1,8 @@
 import * as d3 from "d3";
 import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
-import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderStructureZigzag } from "./overlayRenderers";
+import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderStructureZigzag,
+         computeRsiZones, clearRsiZones, renderRsiZones } from "./overlayRenderers";
 import { computeStructureZigzag } from "./structureZigzag";
 import { idxToTimestamp } from "../utils/coordUtils";
 
@@ -36,6 +37,27 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   const [i0, i1] = getVisibleRange(xScale, candles.length);
   const bw        = Math.max((xScale(1) - xScale(0)) * 0.65, 1);
   const pxPerBar  = xScale(1) - xScale(0);
+
+  const ov = overlaysRef?.current ?? {};
+
+  // ── RSI 과매수/과매도 구간 배경 ────────────────────────────────────────────
+  // 캔들보다 **먼저** 그린다 — 배경이므로 캔들이 위에 얹혀야 한다.
+  // 다른 오버레이와 달리 pan 중(_panning)에도 그린다: 사각형 몇 개라 비용이 없고,
+  // 배경이 드래그할 때만 사라지면 구간이 깜빡이는 것처럼 보인다
+  //
+  // ※ 계산(computeRsiZones)은 **zone_bg가 꺼져 있어도** 돌린다 — 지표 메뉴가 보여주는
+  //   "검출된 구간 N개"(= 개수 슬라이더 상한)가 배경을 끄면 0으로 주저앉으면 안 된다.
+  //   캐시 덕에 봉마감 전까지는 재계산이 없으므로 비용도 없다
+  if (ov.showRsi && ov.rsiData?.length) {
+    const zones = computeRsiZones(ov.rsiData, ov.rsiParams);
+    if (ov.rsiParams?.zone_bg !== false) {
+      // zone_max는 null이 "전체"라 ?? 로 기본값을 채우면 안 된다 (null을 5로 덮어씀)
+      const zoneMax = ov.rsiParams?.zone_max === undefined ? 5 : ov.rsiParams.zone_max;
+      renderRsiZones(ctx, zones, xScale, IW, IH, isDark, zoneMax);
+    }
+  } else {
+    clearRsiZones();
+  }
 
   // ── 캔들 ──────────────────────────────────────────────────────────────────
   withClip(ctx, M.left, M.top, IW, IH, () => {
@@ -115,7 +137,6 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
 
   // ── Canvas 오버레이 ────────────────────────────────────────────────────────
   ctx.globalAlpha = 1;
-  const ov = overlaysRef?.current ?? {};
   if (!ov._panning) {
     if (ov.showFVG && ov.fvgData?.length)   renderFVG(ctx, ov.fvgData, xScale, yScale, IW, IH);
     if (ov.showOB  && ov.obData?.length)    renderOrderBlock(ctx, ov.obData, xScale, yScale, IW, IH);
