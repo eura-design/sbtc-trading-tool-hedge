@@ -61,9 +61,11 @@ export function useChochAlert({ structures, zzAlertOn, onAlert }) {
       for (const e of live) {
         const key = `${e.structId}|${e.dir}|${e.price}`;
         if (seen.has(key)) continue;
-        // 알림은 구조별 플래그로 끈다 — 기본 ON이므로 undefined는 ON
+        // 알림은 구조별 플래그로 켠다 — **기본 OFF**(2026-08-13 사용자 요청).
+        // 켜져 있으면 그 구조가 호박색 점선으로 보이므로, 기본이 ON이면 모든 구조가
+        // 알림 스타일이 되어 색이 정보를 못 준다 (Structures.jsx [R10])
         const st = structures?.find(s => s.id === e.structId);
-        if (st && st.alertChoch === false) continue;
+        if (!st?.alertChoch) continue;
         onAlert(`구조 CHoCH ${dirLabel(e.dir)}  ${fmt(e.price)}`);
       }
     }

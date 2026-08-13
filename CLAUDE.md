@@ -92,7 +92,8 @@ frontend/src/
 │   │                             + 봉 마감 알림 + 히스테리시스 쿨다운 적용
 │   ├── useToast.js            ← 토스트 알림 — addToast(30초 자동닫힘) / addLineAlert(sticky, 3초 소리 반복)
 │   ├── useTrendLineAlert.js   ← 추세선/채널/원 근접 알림 (0.2% 이내, 히스테리시스 0.3%)
-│   ├── useChochAlert.js       ← CHoCH 발생 알림 (자동 ZZ + 수동 구조 공용, 기본 ON)
+│   ├── useChochAlert.js       ← CHoCH 발생 알림 (자동 ZZ + 수동 구조 공용)
+│   │                             자동 ZZ 기본 ON / 수동 구조는 **구조별 기본 OFF** [R10]
 │   │                             liveClose 구독 → 틱마다 모듈 상태 비교 (첫 관측·재계산은 무음)
 │   ├── usePositionCloseAlert.js ← 포지션 종료 감지 → sticky 알림 (롱/숏 각각 독립 추적)
 │   ├── useNotificationSettings.js ← 타임프레임별 알림 설정 (RSI OB/OS, 봉마감) localStorage 동기화
@@ -357,7 +358,8 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **목적**: 자동 ZZ가 못 잡는 구조를 직접 지정. 자동 ZZ와 **공존**하며 `structureZigzag.js`는 건드리지 않는다.
 - **데이터**: `{ id, points: [{ t, p, type:"H"|"L" }], opacity, locked, showChoch, alertChoch,
   maxChoch, showLegVol }` — localStorage `"structures"`
-  (`showChoch`/`alertChoch`/`showLegVol`은 undefined = ON, `maxChoch`는 undefined = 제한 없음 —
+  (`showChoch`/`showLegVol`은 undefined = ON, `alertChoch`만 **기본 OFF**(true일 때만 ON),
+   `maxChoch`는 undefined = 제한 없음 —
    기존 저장 구조가 새 필드 때문에 꺼지거나 잘린 채로 뜨지 않게)
 - **전 TF 공유**: storageKey에 타임프레임이 없고 좌표가 timestamp라 1h에서 그린 구조가 5m/1d에도 뜬다
   (트렌드라인/채널/원과 동일 — `tsToIdx`가 TF별 bar index를 다시 계산)
@@ -479,8 +481,8 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   한쪽만 바꾸지 말 것 — 같은 🔔인데 선 종류마다 다르게 보인다
   - ※ **자동 ZZ는 아직 이 스타일이 아니다** (캔버스 렌더라 `overlayRenderers.js` 쪽 작업이 따로 필요).
     맞출 거면 `renderStructureZigzag`에서 같은 값으로
-  - ※ `alertChoch`는 **기본 ON**이라 손대지 않은 구조는 전부 알림 스타일로 보인다.
-    색으로 구분하려면 기본을 OFF로 바꿔야 하는데, 그러면 기존 구조의 CHoCH 알림이 꺼진다
+  - ⚠ 그래서 `alertChoch`는 **기본 OFF**다 (2026-08-13 사용자 결정, `[R10]`).
+    기본이 ON이면 손대지 않은 구조가 전부 알림 스타일이 되어 색이 아무것도 구분해주지 못한다.
 - **근접 알림 없음**: `useTrendLineAlert`은 선/채널/원만 대상. 대신 `drawables.structure.toggleAlert`가
   **CHoCH 발생 알림**(`useChochAlert`)에 연결돼 있어 🔔 아이콘과 단축키 `a`가 그대로 동작한다.
   CHoCH 마크 표시(`showChoch`)는 슬라이더 아래 `CHoCH 표시 [ON/OFF]` 행 — 자동 ZZ와 같은 UI다
@@ -630,10 +632,11 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **토스트 종류**: 일반(금색 테두리, 30초 자동닫힘) / sticky(빨강 테두리, 확인 버튼 필수)
 - **포지션 종료 알림**: 롱/숏 포지션 각각 독립 감지 → 해당 사이드 종료 시 sticky 알림
 - **추세선/채널/원 근접 알림**: 0.2% 이내 진입 → sticky, 0.3% 이상 이탈 시 해제 (히스테리시스)
-- **CHoCH 발생 알림** (`useChochAlert`, 2026-08-12 추가) — 자동 ZZ + 수동 구조 공용, **기본 ON**
+- **CHoCH 발생 알림** (`useChochAlert`, 2026-08-12 추가) — 자동 ZZ + 수동 구조 공용.
+  **자동 ZZ는 기본 ON, 수동 구조는 기본 OFF**(2026-08-13 — 알림 ON이 호박색 점선으로 보이므로)
   - **설정 위치는 지그재그 선 더블클릭 팝업의 🔔 아이콘**(사용자 지정) + 단축키 `a`.
     자동 ZZ는 `indicatorParams.zz.alert_choch`(지표 단위), 수동 구조는 `structures[].alertChoch`(구조별).
-    둘 다 undefined = ON
+    자동 ZZ는 undefined = ON, **수동 구조는 true일 때만 ON**(기본 OFF)
   - 일반 토스트(`addToast`) — sticky가 아니다. CHoCH는 확인이 필요한 경보가 아니라 지나가는
     이벤트고 자주 뜨므로, 확인 버튼을 강제하면 화면을 막는다
   - **대상은 진행 중 레그에서 나온 CHoCH뿐**. 확정분까지 보면 `deriveStructure`가 순수 함수라
@@ -677,9 +680,9 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 
 - 5m:15m:1h = **12:4:1** — "5m만 확실히 느리고 15m은 미묘하다"는 보고와 비율이 맞는다
 - 게다가 `Structures`는 `liveClose`를 구독해 **틱마다(최대 60fps) 다시 칠한다**
-- 방아쇠는 2026-08-13의 알림 스타일 변경 — CHoCH 알림이 **기본 ON**이라 모든 구조가
-  점선이 됐다. 알림 기본값을 OFF로 돌리는 건 **대증요법이다**(실선도 노드는 여전히 거대하고,
-  선·채널은 예전부터 알림 ON이면 점선이었다). 클리핑이 근본 대책이다
+- 방아쇠는 2026-08-13의 알림 스타일 변경 — CHoCH 알림이 그때 기본 ON이라 모든 구조가
+  점선이 됐다. (이후 기본값은 OFF로 바꿨지만 **보기 좋으라고 바꾼 것이지 성능 대책이 아니다** —
+  실선도 노드는 여전히 거대하고, 선·채널은 예전부터 알림 ON이면 점선이었다.) 클리핑이 근본 대책이다
 - 화면 안 형상은 **완전히 동일**하다 — 선분 교차점을 선형 보간으로 구한다 (실측 오차 1e-14)
 - ※ 캔버스 오버레이(Pivot/ZZ/CHoCH/FVG/OB)는 **이미 화면 밖 컬링이 되어 있다**
   (`renderPivotLevels`의 `Math.max(0, …)`, `renderStructureZigzag`의 도메인 컷) — 손대지 말 것

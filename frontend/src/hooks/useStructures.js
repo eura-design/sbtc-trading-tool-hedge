@@ -13,8 +13,10 @@ export const STRUCT_DEFAULT_OPACITY = 0.5;
  * 데이터: { id, points: [{ t, p, type:"H"|"L" }], opacity, locked,
  *          showChoch, alertChoch, maxChoch, showLegVol }
  *   maxChoch: 표시할 CHoCH 개수(최신 N개). undefined = 제한 없음 (기본)
- *   showChoch / alertChoch / showLegVol 모두 **undefined = ON** (기본값). 이미 저장된 구조가
- *   새 필드 때문에 전부 꺼진 채로 뜨면 안 되므로 false만 OFF로 읽는다.
+ *   showChoch / showLegVol은 **undefined = ON** — 이미 저장된 구조가 새 필드 때문에
+ *     꺼진 채로 뜨면 안 되므로 false만 OFF로 읽는다
+ *   alertChoch만 **기본 OFF** (true일 때만 ON). 알림 ON이 호박색 점선으로 보이므로
+ *     기본이 ON이면 전 구조가 알림 스타일이 된다 — [SL2] / Structures.jsx [R10]
  *
  * ╔════════════════════════════════════════════════════════════════════════╗
  * ║ 사용자 확정 사양 — 임의 변경 금지 (2026-08-12 확정, 실사용 테스트 통과)    ║
@@ -220,14 +222,19 @@ export function useStructures() {
   }, [store]);
 
   /**
-   * 이 구조에 CHoCH가 발생하면 알림을 띄울지 (더블클릭 팝업, 기본 ON).
+   * 이 구조에 CHoCH가 발생하면 알림을 띄울지 (더블클릭 팝업, **기본 OFF**).
+   *
+   * 기본이 OFF인 이유는 표시와 묶여 있기 때문이다 — 알림 ON인 구조는 호박색 점선으로
+   * 그려지므로(Structures.jsx [R10]), 기본이 ON이면 모든 구조가 알림 스타일이 되어
+   * 색이 아무 정보도 주지 못한다. 켜는 건 명시적 행동이어야 한다.
+   * (showChoch/showLegVol은 여전히 기본 ON — 그쪽은 "보이는 게 기본"이 맞다)
    *
    * 표시(showChoch)와 **독립**이다 — 화면은 깔끔하게 두고 알림만 받는 조합이
    * 성립해야 한다. 알림 대상은 진행 중 레그에서 나온 CHoCH뿐이라
    * 꼭짓점을 편집한다고 울리지는 않는다 (structRenderState.js 주석 참고).
    */
   const toggleStructChochAlert = useCallback((id) => {
-    store.update(id, item => ({ alertChoch: item.alertChoch === false }));
+    store.update(id, item => ({ alertChoch: !item.alertChoch }));
   }, [store]);
 
   /**

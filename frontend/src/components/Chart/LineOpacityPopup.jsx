@@ -151,7 +151,9 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
   // 새 필드 때문에 전부 꺼진 채로 뜨면 안 된다.
   // (근접 알림만 반대: 명시적으로 켜는 기능이라 기본 OFF)
   const isChoch = CHOCH_KINDS.has(kind);
-  const alert   = isChoch ? item?.alertChoch !== false : (item?.alert ?? false);
+  // CHoCH 알림은 수동 구조 = 기본 OFF(true일 때만 ON, Structures.jsx [R10]),
+  // 자동 ZZ = App.jsx가 이미 boolean으로 풀어서 넘긴다. 둘 다 !! 하나로 읽힌다
+  const alert   = isChoch ? !!item?.alertChoch : (item?.alert ?? false);
   const showMk  = item?.showChoch !== false;
   const showVol = item?.showLegVol !== false;
   // 개수 슬라이더 상한 — 렌더 경로의 모듈 상태를 직접 읽는다(팝업을 여는 시점의 스냅샷).

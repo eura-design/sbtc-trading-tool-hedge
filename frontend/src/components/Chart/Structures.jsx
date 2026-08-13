@@ -41,6 +41,12 @@ import { clipPolylineX, clipSegmentX, inViewX, VIEW_PAD } from "../../chart/svgG
 //      걸리는 별개 값이라, OFF로 저장해 두면 구조별 ON이 먹지 않는데 그 사실이
 //      구조 팝업 어디에도 드러나지 않았다. 켜고 끄는 곳은 팝업 하나로 족하다.
 //
+// [R10] CHoCH 발생 알림(alertChoch)은 **기본 OFF**다 (2026-08-13 사용자 결정).
+//      다른 구조별 플래그(showChoch/showLegVol)는 기본 ON인데 이것만 반대인 이유:
+//      알림 ON인 구조는 호박색 점선 + 글로우 + 🔔로 그려진다. 기본이 ON이면 **모든**
+//      구조가 알림 스타일이 되어 색이 아무것도 구분해주지 못한다 (실제로 그렇게 보였다).
+//      "undefined = ON이 이 파일의 관례"라며 되돌리지 말 것 — 표시와 묶인 플래그라 다르다.
+//
 // [R9] **그리기 전에 뷰포트로 자른다** (2026-08-13, 5m 렉 신고 → 실측으로 원인 확인).
 //      구조 좌표는 timestamp라, 로드된 캔들 범위보다 과거에 그린 구조는 tsToIdx가
 //      음수 bar index로 외삽한다. useCandles는 3000봉을 싣는데 5m면 **10.4일치뿐**이라
@@ -219,9 +225,9 @@ export const Structures = memo(function Structures({
       {visible.map(st => {
         const selected = st.id === selectedStructId;
         const opacity  = selected ? 0.95 : (st.opacity ?? 1.0);
-        // CHoCH 발생 알림 ON — undefined = ON (기존 구조가 새 필드 때문에 꺼지지 않게).
+        // CHoCH 발생 알림 — [R10] **기본 OFF** (true일 때만 ON).
         // 선택이 알림보다 우선한다 (트렌드라인과 동일) — 지금 뭘 조작 중인지가 먼저다
-        const alert    = st.alertChoch !== false;
+        const alert    = !!st.alertChoch;
         const color    = selected ? SEL_COLOR : alert ? ALERT_COLOR : ZZ_COLOR;
 
         // segments는 아래 polyline이 points로 직접 그리므로 여기선 chochs/liveSegment만 사용
