@@ -7,7 +7,7 @@ import { NotificationMenu }  from "./NotificationMenu";
 import { ShortcutMenu }      from "./ShortcutMenu";
 
 
-export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, srLoading, refreshSR, shortcuts, onShortcutUpdate, onShortcutReset }) {
+export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
@@ -47,7 +47,6 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
         indicators={indicators} onToggle={onIndicatorToggle}
         params={indicatorParams} setParam={setIndicatorParam}
         setEmaList={setEmaList} resetIndicator={resetIndicator}
-        srLoading={srLoading} refreshSR={refreshSR}
       />
 
       <button onClick={onLineModeToggle} style={{

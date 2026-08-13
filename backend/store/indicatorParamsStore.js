@@ -9,12 +9,12 @@ const DEFAULTS = {
   rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5 },
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },
   ob:  { swing_lb: 5, bos_window: 30, ob_lookback: 20, scan_from: 500, mitigation_pct: 50, max_display: 15, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false, use_wick: false },
-  // S/R — 6개 전부 유지한다(KDE.py로 그대로 전달). 단 **UI에 뜨는 건 3개뿐**:
-  // bandwidth_atr / peak_min_pers / top_n. 나머지는 프론트가 값만 들고 다닌다.
-  // 여기서 키를 빼면 load()가 통째로 버려 숨긴 값이 저장되지 않는다
-  // (프론트 INDICATOR_DEFAULTS.sr와 반드시 같은 값으로 유지 — 이유는 그쪽 주석 참고)
-  sr:  { kde_range: 20, persistence_atr: 2.0, bandwidth_atr: 0.6, peak_min_pers: 0.20, limit: 1000, top_n: 8 },
+  // ※ 구 S/R Levels(KDE.py)의 `sr` 키는 2026-08-13 지표째로 제거됐다 — Pivot Levels가 대체한다
   liq: { swing_lb: 5, tolerance_pct: 0.15, scan_from: 500, max_display: 10, min_touches: 2 },
+  // Pivot Levels (프론트 계산형 지지/저항) — 프론트 INDICATOR_DEFAULTS.pivot와 같은 값 유지.
+  // tfs = 레벨을 계산할 타임프레임(중복 선택). lookback은 UI에 없지만
+  // 여기 키가 없으면 load()가 버려서 저장이 안 된다
+  pivot: { tfs: ["1h", "4h", "1d"], pivot_bars: 8, merge_atr: 0.5, min_touch: 2, top_n: 3, lookback: 600 },
   // max_choch(표시 개수, null = 전체) / alert_choch / opacity는 ZZ 선 더블클릭 팝업에서 조작
   zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: true, opacity: 1.0 },
   pd:  { swing_lb: 5, lookback: 200 },

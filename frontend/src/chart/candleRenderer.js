@@ -1,7 +1,7 @@
 import * as d3 from "d3";
 import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
-import { renderFVG, renderOrderBlock, renderSRLines, renderEMA, renderStructureZigzag,
+import { renderFVG, renderOrderBlock, renderPivotLevels, renderEMA, renderStructureZigzag,
          computeRsiZones, clearRsiZones, renderRsiZones } from "./overlayRenderers";
 import { computeStructureZigzag } from "./structureZigzag";
 import { idxToTimestamp } from "../utils/coordUtils";
@@ -140,7 +140,8 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   if (!ov._panning) {
     if (ov.showFVG && ov.fvgData?.length)   renderFVG(ctx, ov.fvgData, xScale, yScale, IW, IH);
     if (ov.showOB  && ov.obData?.length)    renderOrderBlock(ctx, ov.obData, xScale, yScale, IW, IH);
-    if (ov.showSR  && ov.srLevels?.length)  renderSRLines(ctx, ov.srLevels, yScale, IW, IH, isDark);
+    // 멀티 TF라 레벨 좌표가 timestamp다 → 변환에 현재 차트 캔들이 필요
+    if (ov.showPivot && ov.pivotLevels?.length) renderPivotLevels(ctx, ov.pivotLevels, candles, xScale, yScale, IW, IH, isDark);
     if (ov.showEMA && ov.emaData?.length)   renderEMA(ctx, ov.emaData, xScale, yScale, IW, IH);
     // ZZ만 여기서 계산 — 진행 중 봉(candles 마지막 = candlesRef의 라이브 봉)까지 반영하기 위함
     if (ov.showZZ) {

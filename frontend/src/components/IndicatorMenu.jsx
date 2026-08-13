@@ -8,7 +8,9 @@ import { INTERVALS } from "../constants";
 export const INDICATORS = [
   { key: "vol", label: "Volume" },
   { key: "rsi", label: "RSI" },
-  { key: "sr",  label: "S/R Levels" },
+  // 지지/저항 — 구 "S/R Levels"(백엔드 KDE.py 밀도 기반)는 2026-08-13 **완전히 제거**됐고
+  // 스윙 터치 기반 Pivot Levels가 대신한다 (chart/pivotLevels.js)
+  { key: "pivot", label: "Pivot Levels" },
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
   { key: "zz",  label: "Structure Zigzag" },
@@ -58,28 +60,29 @@ const PARAMS_META = {
     // 전부 **ZZ 선 더블클릭 팝업**에 있다 (2026-08-12 사용자 요청으로 메뉴 쪽 중복 제거).
     // show_choch는 팝업과 **같은 값**(zz.show_choch)을 가리켜 두 곳에 둘 이유가 없었다.
   ],
-  // S/R은 원래 6개였다. 그중 4개(persistence/bandwidth/peak + top_n)가 전부
-  // "레벨이 몇 개 나오나"를 서로 다른 지점에서 건드려서, 사용자가 방향을 잡을 수 없었다
-  // (실제로 전부 최대로 둔 채 쓰고 있었고, 그러면 필터가 이겨서 레벨이 4개만 나왔다 —
-  //  올릴수록 늘어나는 top_n/limit/kde_range와 줄어드는 필터 3개가 서로 상쇄된다).
-  //
-  // ⚠ 아래 3개만 노출한다. 나머지 kde_range / limit / persistence_atr은
-  //   INDICATOR_DEFAULTS에 값으로 남아 KDE.py에 그대로 전달되지만 **UI에는 없다**.
-  //   숨긴 이유는 useIndicatorParams.js의 sr 주석 참고 — 특히 persistence_atr은
-  //   단조롭지 않아서(조이면 오히려 레벨이 늘어난다) 노브로 두면 안 된다.
-  sr: [
-    // bandwidth는 기존 상한(1.0) 유지 — 전부 최대에 붙어 있던 건 범위가 좁아서가 아니라
-    // 필터끼리 상쇄돼서였다. peak_min_pers만 0.30 → 0.50으로 넓혔다 (2026-08-13 사용자 요청):
-    // 필터가 2개로 정리되면서 "센 것만" 쪽 여유가 필요해졌다. KDE.py에는 상한이 없다
-    { key: "bandwidth_atr", label: "레벨 병합 폭", min: 0.1, max: 1.0, step: 0.05,
-      fmt: v => v.toFixed(2),
-      desc: "가까운 가격을 한 레벨로 합치는 폭. 올리면 촘촘한 레벨이 뭉쳐 개수가 준다" },
-    { key: "peak_min_pers", label: "약한 레벨 컷", min: 0.02, max: 0.50, step: 0.02,
-      fmt: v => v.toFixed(2),
-      desc: "가장 강한 레벨 대비 이만큼 못 미치는 레벨은 버린다. 올릴수록 센 것만 남는다" },
-    { key: "top_n", label: "표시 개수", min: 2, max: 12, step: 1,
+  // Pivot Levels — 노브 4개, **전부 단조롭다**: 앞의 3개는 올릴수록 레벨이 줄고
+  // top_n은 표시만 늘린다.
+  // ⚠ 제거된 S/R Levels(KDE)의 교훈이다 — 거기선 6개 중 4개가 서로 다른 지점에서
+  //   "레벨이 몇 개 나오나"를 건드렸고, 늘리는 노브와 줄이는 노브가 상쇄돼 사용자가
+  //   전부 최대로 둔 채 "레벨이 4개밖에 안 나온다" 상태로 쓰고 있었다.
+  //   여기에 노브를 더 붙일 때도 방향이 한쪽으로만 움직이는지 먼저 확인할 것
+  // lookback(600)은 숨김 — 이유는 INDICATOR_DEFAULTS.pivot 주석 참고.
+  // tfs(계산 타임프레임)는 슬라이더가 아니라 SettingsPanel의 TfGrid로 뜬다
+  // ※ 아래 값들은 **선택한 TF 각각에** 적용된다 (표시 개수 3 × TF 3개 = 최대 18줄).
+  //   TF를 늘렸는데 화면이 복잡하면 표시 개수부터 내리면 된다
+  pivot: [
+    { key: "pivot_bars", label: "피벗 감지(봉)", min: 2, max: 20, step: 1,
+      fmt: v => v + "봉",
+      desc: "좌우 이만큼의 봉보다 높은 고가(낮은 저가)만 스윙으로 본다. 올리면 큰 스윙만 남는다" },
+    { key: "merge_atr", label: "레벨 병합 폭", min: 0.1, max: 1.5, step: 0.05,
+      fmt: v => v.toFixed(2) + "×",
+      desc: "이 폭(ATR 배수) 안에 있는 스윙들을 한 레벨로 묶는다. 올리면 뭉쳐서 개수가 준다" },
+    { key: "min_touch", label: "최소 터치", min: 1, max: 5, step: 1,
+      fmt: v => v + "회",
+      desc: "이만큼 반복해서 반응한 자리만 남긴다. 1로 내리면 한 번 스친 곳까지 전부 나온다" },
+    { key: "top_n", label: "표시 개수", min: 1, max: 6, step: 1,
       fmt: v => v + "개",
-      desc: "위/아래 각각 현재가에서 가까운 순으로 이만큼만. 실제로는 위 두 필터를 통과한 만큼만 나온다" },
+      desc: "TF마다 현재가 위/아래 각각 가까운 순으로 이만큼만. 멀리 있는 레벨은 지금 거래에 쓸 일이 없다" },
   ],
 };
 
@@ -290,25 +293,21 @@ function EmaSettingsPanel({ emaList, setEmaList, resetIndicator, theme }) {
   );
 }
 
-// 수동 구조 설정 패널 — 표시 타임프레임 **전용**
-//
-// 표시 TF: 중복 선택, 기본 1h. 구조 데이터 자체는 전 TF 공유이고 여기서는
-// "어느 TF에서 보여줄지"만 거른다. 선택 안 된 TF에서는 렌더·히트 판정이 막힌다
-// (단, 지표 토글과 달리 그리기 버튼은 죽이지 않는다 — 구조 모드로 들어가면 TF가 자동 추가됨).
-//
-// CHoCH는 여기 없다 — 표시 on/off·개수·검출 개수 전부 구조별이라 각 구조의
-// 더블클릭 팝업에서 조작한다 (Structures.jsx [R6]). 위 STRUCT 주석 참고.
-function StructTfPanel({ structParams, setParam, resetIndicator, theme }) {
-  const list = Array.isArray(structParams?.tfs) ? structParams.tfs : [];
+/**
+ * 타임프레임 다중 선택 그리드 — 수동 구조(표시 TF)와 Pivot Levels(계산 TF)가 공유한다.
+ * 두 지표에서 **뜻이 다르다**(표시 필터 vs 계산 대상)므로 label로 구분해 붙인다.
+ *
+ * 저장은 항상 INTERVALS 순서로 정렬한다 — 클릭 순서대로 저장하면 같은 선택인데도
+ * 배열이 달라져 재조회·재계산이 헛돈다.
+ */
+function TfGrid({ label, list, onChange, theme, emptyWarn }) {
   const toggle = (val) => {
     const next = list.includes(val) ? list.filter(v => v !== val) : [...list, val];
-    // INTERVALS 순서로 정렬해 저장 — 클릭 순서에 따라 표시가 뒤섞이지 않게
-    setParam("struct", "tfs", INTERVALS.filter(i => next.includes(i.value)).map(i => i.value));
+    onChange(INTERVALS.filter(i => next.includes(i.value)).map(i => i.value));
   };
-
   return (
-    <div style={{ padding: "10px 12px", background: theme.bgCardAlt, borderTop: `1px solid ${theme.borderSec}` }}>
-      <div style={{ fontSize: 11, color: theme.textSec, marginBottom: 6 }}>표시 타임프레임</div>
+    <>
+      <div style={{ fontSize: 11, color: theme.textSec, marginBottom: 6 }}>{label}</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
         {INTERVALS.map(iv => {
           const on = list.includes(iv.value);
@@ -323,12 +322,36 @@ function StructTfPanel({ structParams, setParam, resetIndicator, theme }) {
             }}>{iv.label}</button>
           );
         })}
+        {/* ※ 여기 있던 표시/숨김 버튼은 2026-08-13 사용자 요청으로 제거했다 —
+            지표 행의 체크박스와 같은 값이라 중복이었다. 되살리지 말 것 */}
       </div>
-      {list.length === 0 && (
+      {list.length === 0 && emptyWarn && (
         <div style={{ fontSize: 10, color: "#f6465d", marginTop: 6, lineHeight: 1.4 }}>
-          선택된 타임프레임이 없어 구조가 어디에도 표시되지 않고 그리기도 막힙니다.
+          {emptyWarn}
         </div>
       )}
+    </>
+  );
+}
+
+// 수동 구조 설정 패널 — 표시 타임프레임 **전용**
+//
+// 표시 TF: 중복 선택, 기본 1h. 구조 데이터 자체는 전 TF 공유이고 여기서는
+// "어느 TF에서 보여줄지"만 거른다. 선택 안 된 TF에서는 렌더·히트 판정이 막힌다
+// (단, 지표 토글과 달리 그리기 버튼은 죽이지 않는다 — 구조 모드로 들어가면 TF가 자동 추가됨).
+//
+// CHoCH는 여기 없다 — 표시 on/off·개수·검출 개수 전부 구조별이라 각 구조의
+// 더블클릭 팝업에서 조작한다 (Structures.jsx [R6]). 위 STRUCT 주석 참고.
+function StructTfPanel({ structParams, setParam, resetIndicator, theme }) {
+  const list = Array.isArray(structParams?.tfs) ? structParams.tfs : [];
+
+  return (
+    <div style={{ padding: "10px 12px", background: theme.bgCardAlt, borderTop: `1px solid ${theme.borderSec}` }}>
+      <TfGrid
+        label="표시 타임프레임" list={list} theme={theme}
+        onChange={next => setParam("struct", "tfs", next)}
+        emptyWarn="선택된 타임프레임이 없어 구조가 어디에도 표시되지 않고 그리기도 막힙니다."
+      />
 
       <button
         onClick={() => resetIndicator("struct")}
@@ -366,12 +389,11 @@ function VolColorPanel({ colorMode, setParam, theme }) {
   );
 }
 
-function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoading, refreshSR }) {
-  const [srStatus, setSrStatus] = useState(null); // null | 'ok' | 'err'
+function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
   const metas   = PARAMS_META[indKey] || [];
-  const isSR    = indKey === "sr";
   const isZZ    = indKey === "zz";
   const isRSI   = indKey === "rsi";
+  const isPivot = indKey === "pivot";
   const indParams = params[indKey] || {};
 
   // ZZ: 검출된 CHoCH 개수 표시용 (모듈 상태 직접 조회 — 메뉴를 여는 시점의 값).
@@ -383,18 +405,6 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
   const zoneTotal = isRSI ? getRsiZoneCount() : 0;
   const zoneBgOn  = indParams.zone_bg !== false;
 
-  const handleRefresh = async () => {
-    setSrStatus(null);
-    try {
-      await refreshSR(indParams);
-      setSrStatus('ok');
-      setTimeout(() => setSrStatus(null), 3000);
-    } catch {
-      setSrStatus('err');
-      setTimeout(() => setSrStatus(null), 4000);
-    }
-  };
-
   return (
     <div style={{
       padding: "10px 12px",
@@ -403,6 +413,19 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
     }}>
       {isZZ  && <DetectedCountRow label="CHoCH"        total={zzTotal}   theme={theme} />}
       {isRSI && <DetectedCountRow label="과매수/과매도" total={zoneTotal} theme={theme} />}
+      {/* Pivot: TF 선택은 "표시 필터"가 아니라 **계산 대상**이다 — 여기서 고른 TF의
+          레벨이 차트 TF와 무관하게 전 프레임에 똑같이 뜬다 (선 오른쪽 끝에 TF 태그) */}
+      {isPivot && (
+        <div style={{ marginBottom: 10 }}>
+          <TfGrid
+            label="레벨 계산 타임프레임 (모든 프레임에 함께 표시)"
+            list={Array.isArray(indParams.tfs) ? indParams.tfs : []}
+            theme={theme}
+            onChange={next => setParam("pivot", "tfs", next)}
+            emptyWarn="선택된 타임프레임이 없어 표시할 레벨이 없습니다."
+          />
+        </div>
+      )}
       {metas.map(m => (
         <ParamSlider
           key={m.key}
@@ -433,35 +456,14 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, srLoad
         >
           초기화
         </button>
-        {isSR && (
-          <button
-            onClick={handleRefresh}
-            disabled={srLoading}
-            style={{
-              flex: 2, padding: "4px 0", borderRadius: 4,
-              border: "none",
-              background: srLoading ? theme.borderSec
-                        : srStatus === 'ok'  ? "#0ecb81"
-                        : srStatus === 'err' ? "#f6465d"
-                        : "#c084fc",
-              color: srLoading ? theme.textMuted : "#000",
-              fontSize: 11, fontWeight: 700, cursor: srLoading ? "not-allowed" : "pointer",
-              fontFamily: "inherit",
-              transition: "background 0.2s",
-            }}
-          >
-            {srLoading        ? "계산 중..."
-             : srStatus === 'ok'  ? "완료!"
-             : srStatus === 'err' ? "실패 (콘솔 확인)"
-             : "적용 (KDE 재실행)"}
-          </button>
-        )}
+        {/* ※ 구 S/R Levels의 "적용 (KDE 재실행)" 버튼은 지표째로 제거됐다 (2026-08-13).
+            남은 지표는 전부 프론트에서 즉시 계산되므로 수동 재실행이 필요 없다 */}
       </div>
     </div>
   );
 }
 
-export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaList, resetIndicator, srLoading, refreshSR }) {
+export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaList, resetIndicator }) {
   const { theme } = useTheme();
   const [open,        setOpen]        = useState(false);
   const [openSetting, setOpenSetting] = useState(null); // 열린 설정 패널 key
@@ -585,8 +587,6 @@ export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaLi
                         setParam={setParam}
                         resetIndicator={resetIndicator}
                         theme={theme}
-                        srLoading={srLoading}
-                        refreshSR={refreshSR}
                       />
                 )}
               </div>

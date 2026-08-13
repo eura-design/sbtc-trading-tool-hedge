@@ -25,15 +25,13 @@ backend/
 │   ├── stats.js               ← GET /api/stats?startTime= (거래 통계: 승률, PnL, 수수료, 펀딩비) + statsCache 사용
 │   ├── dailyloss.js           ← GET /api/daily-loss (총자본 4% 한도, UTC 0시 리셋) + checkDailyLoss() export
 │   ├── indicatorparams.js     ← GET/POST /api/indicator-params (보조지표 파라미터 영속화)
-│   ├── health.js              ← GET /api/health (서버 상태 + API 키 등록 여부)
-│   └── sr.js                  ← GET /api/sr-levels (KDE 캐시 반환)
+│   └── health.js              ← GET /api/health (서버 상태 + API 키 등록 여부)
 ├── services/
 │   ├── binanceClient.js       ← sign(), binance(), roundPrice(), placeTPSL(), checkExistingTPSL(), syncServerTime()
 │   ├── orderWatcher.js        ← Binance User Data Stream (WebSocket 체결 감지) + reconcileWithBinance(60초)
 │   ├── recoveryService.js     ← 서버 재시작 시 미체결/체결 주문 복구
 │   ├── pushService.js         ← 프론트엔드 WebSocket 실시간 푸시 (update/alert)
-│   ├── statsCache.js          ← /api/stats 캐시 상태 공유 (orderWatcher가 체결 시 invalidate)
-│   └── srService.js           ← KDE.py 실행(15분 주기) + 캐시
+│   └── statsCache.js          ← /api/stats 캐시 상태 공유 (orderWatcher가 체결 시 invalidate)
 ├── store/
 │   ├── pendingOrders.js       ← PendingOrderStore 클래스 (Map + 비동기 debounce 저장, 7일 자동 정리)
 │   ├── indicatorParamsStore.js ← 보조지표 파라미터 파일 영속화 (indicator_params.json)
@@ -51,7 +49,8 @@ backend/
 frontend/src/
 ├── constants.js               ← DARK/LIGHT 테마, SIDEBAR_W, M, HIT, MIN_QTY, QTY_STEP, VOL_H, VOL_GAP,
 │                                 API_BASE(localhost:3002), BN_PUBLIC, BN_WS(demo-fstream), INTERVALS, RSI_H, RSI_GAP,
-│                                 POLLING(폴링 주기 상수), CANVAS_C(캔버스 색상 토큰: BULL/BEAR/RSI_ZONE/AXIS/XTICK/YTICK)
+│                                 POLLING(폴링 주기 상수), CANVAS_C(캔버스 색상 토큰:
+│                                 BULL/BEAR/RSI_ZONE_OB·OS/PIVOT_SUP·RES/AXIS/XTICK/YTICK)
 ├── ThemeContext.jsx           ← ThemeProvider + useTheme() — 다크/라이트 전환 (localStorage 동기화)
 ├── store/
 │   ├── index.js               ← Zustand 스토어 조립(4개 slice 통합) — `useStore` export
@@ -83,7 +82,8 @@ frontend/src/
 │   ├── useStats.js            ← 거래 통계 조회 (/api/stats, 날짜 필터)
 │   ├── useMarketInfo.js       ← 펀딩비(1분 폴링) + 펀딩 카운트다운 + 공포·탐욕 지수
 │   ├── useChartSize.js        ← ResizeObserver로 차트 컨테이너 크기 추적
-│   ├── useSRLevels.js         ← S/R 레벨 조회 (4시간 폴링)
+│   ├── usePivotLevels.js      ← Pivot Levels — 스윙 피벗 기반 지지/저항 (유일한 S/R 지표)
+│   │                             계산은 chart/pivotLevels.js, 여기선 useMemo 래핑만
 │   ├── useRSI.js              ← RSI(14) 계산 (Wilder's smoothing, candles 기반)
 │   ├── useFVG.js              ← FVG(Fair Value Gap) 검출 (최근 400캔들, 50% 이상 채워지면 소멸)
 │   ├── useOrderBlock.js       ← 오더블록 검출 (BOS 기반 스윙 탐지, 최근 500캔들)
@@ -117,11 +117,14 @@ frontend/src/
 │   ├── candleRenderer.js      ← renderCandles() (캔들+축+오버레이 호출)
 │   │                             renderVolumeCanvas/renderRSICanvas는 각 파일에서 re-export
 │   ├── canvasUtils.js         ← initCanvas(DPR 대응), withClip(클리핑 헬퍼), getVisibleRange(가시 인덱스)
-│   ├── overlayRenderers.js    ← renderFVG, renderOrderBlock, renderSRLines, renderEMA,
-│   │                             renderStructureZigzag, renderRsiZones (전부 캔버스 렌더)
+│   ├── overlayRenderers.js    ← renderFVG, renderOrderBlock, renderPivotLevels,
+│   │                             renderEMA, renderStructureZigzag, renderRsiZones (전부 캔버스 렌더)
 │   │                             renderRsiZones만 캔들 **뒤**(배경)에 그린다 — 나머지는 캔들 위
 │   │                             computeRsiZones/getRsiZoneCount/clearRsiZones — 구간 목록
 │   │                               모듈 캐시 (지표 메뉴의 "검출된 과매수/과매도 N개"가 읽음)
+│   ├── pivotLevels.js         ← computePivotLevels() — Pivot Levels 계산 (순수 함수)
+│   │                             usePivotLevels가 감싸 쓴다. 순수 함수로 뺀 이유는
+│   │                             실제 캔들로 기본값을 실측 검증하기 위함 (node에서 바로 import)
 │   ├── structureZigzag.js     ← computeStructureZigzag() — ZZ 지표 계산 (훅 아님, 순수 함수)
 │   │                             유일하게 렌더 경로에서 계산되는 지표 — 틱마다 라이브 봉 반영
 │   │                             forward-only 누적 상태(모듈 레벨 _st) — 기록은 추가만, 제거 없음
@@ -160,7 +163,7 @@ frontend/src/
 │   ├── ChartArea.jsx          ← 차트 전체 영역 조합 (hooks + ChartSvg + RSI/Volume 패널 + LineOpacityPopup)
 │   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원 모드 버튼,
 │   │                             로그 스케일 토글, 지표 메뉴, 알림 메뉴, 단축키 메뉴, 테마 토글
-│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/S·R/OB/FVG/EMA/ZZ/Custom ZZ)
+│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/S·R/**Pivot**/OB/FVG/EMA/ZZ/Custom ZZ)
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
 │   │                             StructTfPanel: Custom ZZ 표시 타임프레임 다중 선택 (struct.tfs, 기본 1h) **전용**
 │   │                               ※ CHoCH 관련은 여기 없다 — 표시 on/off·개수·검출 개수 전부
@@ -213,8 +216,8 @@ frontend/src/
 ```
 
 ### 기타 파일
-- `기타/KDE.py` — S/R 레벨 계산용 Python 스크립트 (srService가 15분 주기로 실행)
 - `start.bat` — 백엔드·프론트엔드 동시 실행
+- ※ `기타/KDE.py`(구 S/R 레벨 계산 파이썬)는 2026-08-13 제거 — 백엔드에 **파이썬 의존성이 없다**
 
 ## 핵심 설계
 
@@ -539,9 +542,10 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS/**zone_bg/zone_max**), FVG(lookback/mitigation), OB(swing/bos), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
-- ※ `sr`은 **6개를 저장하지만 UI에는 3개만 뜬다** (2026-08-13) — 숨긴 `kde_range`/`limit`/
-  `persistence_atr`도 값은 그대로 KDE.py에 전달된다. 이유는 "S/R 레벨 시스템" 절 참고
+- 대상: RSI(period/OB/OS/**zone_bg/zone_max**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
+- ※ `pivot`은 **6개를 저장하고 UI에는 5개**(TF 그리드 + 슬라이더 4개) — 숨긴 건 `lookback`(600).
+  이유는 "Pivot Levels" 절 참고
+- ※ 구 S/R Levels의 `sr` 키는 지표째로 제거됐다 (2026-08-13) — 저장 파일에서도 지웠다
 - ※ `zz`의 **show_choch·max_choch·alert_choch·opacity는 전부 ZZ 선 더블클릭 팝업**에서 조작한다
   (PARAMS_META.zz에 없음). `show_choch`는 예전에 IndicatorMenu에도 있었지만 **같은 값을 가리키는
   중복이라 2026-08-12 제거**했다 — 되살리지 말 것
@@ -610,54 +614,80 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **프론트엔드**: useRealtimeData가 연결 관리, 메시지 타입별 refetch 트리거
 - UDS 실패 시: 폴링(30초 간격) + reconcileWithBinance(60초)로 보완
 
-### S/R 레벨 시스템
-- `기타/KDE.py`를 백엔드에서 `python KDE.py --json`으로 직접 실행 (15분 주기)
-- 캔버스 렌더(`overlayRenderers.js::renderSRLines`): **보라색 점선**, **강도는 opacity로만** 표현
-  (`SR_OPACITY` ★4→0.90 / ★3→0.70 / ★2→0.52 / ★1→0.38)
-- ⚠ **점선 색은 테마별로 다르다** (`CANVAS_C.SR_LINE_DARK` `#c4b5fd` / `SR_LINE_LIGHT` `#7c3aed`).
-  단일 색으로 통일하지 말 것 — 밝은 보라는 흰 배경에서, 진한 보라는 검은 배경에서 반드시 묻힌다
-  - EMA 기본색 `#c084fc`와 일부러 다른 값이다 — 같으면 S/R 가로 점선과 EMA 곡선이 한 지표로 보인다
-- ⚠ `SR_OPACITY`를 다시 내리지 말 것 (2026-08-13 상향, 이전 `0.55/0.40/0.28/0.16`).
-  ★1이 0.16이라 사실상 안 보였다. 가장 약한 레벨도 보여야 "약한 레벨 컷"을 얼마나 걸지 판단할 수 있다.
-  다만 4단계 차이는 유지한다 — 전부 같게 만들면 ★가 의미를 잃는다
-  - ※ 대시 패턴도 `[3,5]` → `[4,3]`으로 촘촘하게 했다. 1px 선은 굵기를 못 키운다(캔들을 가림)
-- ⚠ 오른쪽 끝 **밀도 `42%` 라벨과 배경 박스는 제거됐다** (2026-08-13 사용자 요청) — 되살리지 말 것.
-  강도가 이미 선 불투명도로 나타나므로 같은 정보를 숫자로 또 적으면 가격축 옆이 지저분해진다.
-  라벨 색 때문에 받던 `isDark` 인자도 같이 뺐다 (점선은 테마와 무관)
+### ~~S/R 레벨 시스템 (KDE)~~ — 2026-08-13 **완전 제거**
+사용자 요청("마음에 안 든다")으로 지표·백엔드 서비스·파이썬 스크립트까지 전부 지웠다.
+지지/저항은 아래 **Pivot Levels** 하나로 일원화됐다. 되살리지 말 것.
 
-#### ⚠ 파라미터는 6개지만 **UI에는 3개만** 노출한다 (2026-08-13 확정)
-`KDE.py`에는 6개가 전부 전달되고 `INDICATOR_DEFAULTS.sr`/백엔드 `DEFAULTS.sr`에도 6개가 다 있다.
-`PARAMS_META.sr`(IndicatorMenu)에만 3개가 있다.
+지워진 것: `backend/routes/sr.js` · `backend/services/srService.js` · `기타/KDE.py` ·
+`frontend/src/hooks/useSRLevels.js` · `renderSRLines` · `CANVAS_C.SR_LINE_*` ·
+`POLLING.SR_LEVELS_MS` · `indicator_params`의 `sr` 키(프론트·백엔드 DEFAULTS + 저장 파일) ·
+지표 메뉴의 "적용 (KDE 재실행)" 버튼과 `srLoading`/`refreshSR` prop 체인.
+→ **백엔드에 파이썬 의존성이 없다.** `/api/sr-levels` 엔드포인트도 없다.
 
-| | 키 | 뜻 |
-|---|---|---|
-| **노출** | `bandwidth_atr` | 레벨 병합 폭 — 가까운 가격을 한 레벨로 합치는 범위 |
-| **노출** | `peak_min_pers` | 약한 레벨 컷 — 최강 레벨 대비 이만큼 못 미치면 버림 |
-| **노출** | `top_n` | 표시 개수 — 위/아래 각각 현재가에서 가까운 순 |
-| 숨김 | `kde_range` (20) / `limit` (1000) | top_n이 가까운 순으로 자르므로 화면에 거의 영향 없음 |
-| 숨김 | `persistence_atr` (2.0) | 아래 이유로 노브가 될 수 없음 |
+교훈 하나만 남긴다: **노브가 서로 상쇄되면 안 된다.** 구 S/R은 6개 파라미터 중 4개가
+서로 다른 지점에서 "레벨이 몇 개 나오나"를 건드렸고(늘리는 쪽 3 + 줄이는 쪽 3),
+사용자가 전부 최대로 둔 채 "레벨이 4개밖에 안 나온다"로 쓰고 있었다. 심지어
+`persistence_atr`은 **조일수록 레벨이 늘어나는**(단조롭지 않은) 값이었다.
+Pivot Levels에 노브를 추가할 때는 방향이 한쪽으로만 움직이는지 먼저 확인할 것.
 
-- **왜 줄였나**: 6개 중 4개(`persistence_atr`/`bandwidth_atr`/`peak_min_pers`/`top_n`)가 전부
-  "레벨이 몇 개 나오나"를 서로 다른 지점에서 건드린다. 앞의 3개는 올릴수록 **줄이는** 필터고
-  `top_n`·`limit`·`kde_range`는 올릴수록 **늘리는** 쪽이라, 사용자가 전부 최대로 두면 서로 상쇄된다.
-  실제로 그 상태로 쓰고 있었고 **레벨이 4개만 나왔다**(필터가 이김) — `top_n=15`는 아무 일도 안 했다
-- ⚠ **`persistence_atr`을 다시 UI로 꺼내지 말 것 — 단조롭지 않다.**
-  0.5 → 2.0으로 필터를 **조였는데 레벨이 7개 → 10개로 늘어난다**(실측). 노이즈 스윙이 한 곳에
-  뭉쳐 만들던 초강력 피크가 사라지면서, 상대 강도 기준인 `peak_min_pers`를 나머지 피크들이
-  통과하게 되기 때문. 조였는데 늘어나는 슬라이더는 사용자가 방향을 잡을 수 없다
-- ⚠ **`peak_min_pers`는 별점(stars)과 같은 축이 아니다.** `peak_min_pers`는 밀도 피크의
-  *persistence*(peak−saddle)를 최대 **밀도**와 비교하고, 별점은 피크의 *밀도*를 최대 밀도와
-  비교한다. 0.30/0.50/0.75가 ★★/★★★/★★★★ 경계와 같아 보이지만 **다른 양이다** —
-  "최소 별점" 슬라이더로 바꾸지 말 것
-- **범위(min/max)는 원칙적으로 넓히지 않았다.** 전부 상한에 붙어 있던 건 범위가 좁아서가 아니라
-  위의 상쇄 때문이다. `bandwidth`는 상한 1.0 유지, `top_n`은 15 → 12로 **낮췄다**
-  (필터를 풀면 15×2=30줄이 차트를 덮는다)
-  - 예외: **`peak_min_pers`만 0.30 → 0.50으로 넓혔다** (2026-08-13 사용자 요청). 필터가
-    2개로 정리되면서 "센 것만 남기기" 쪽 여유가 필요해졌다. `KDE.py`에는 상한이 없다
-- **기본값은 실측으로 잡았다** — BTC 1h 기준 `bw 0.6` / `peak 0.20` / `top_n 8` → 레벨 10개.
-  구 기본값(0.3/0.08)은 26개라 차트를 덮었고, 전부 최대(1.0/0.30)는 4개였다
-- 슬라이더에는 `meta.desc`(회색 한 줄 설명)를 붙인다 — `bandwidth`·`persistence` 같은 이름만으로는
-  뭘 하는 건지 알 수 없다는 사용자 피드백. `ParamDesc`는 다른 지표에서도 쓸 수 있다(옵션)
+### Pivot Levels — 스윙 터치 기반 지지/저항 (2026-08-13, 유일한 S/R 지표)
+KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(체류 시간)가 아니라
+**스윙 피벗의 터치 횟수**라, 화면에 보이는 고/저점이 곧 레벨의 근거라서 눈으로 검산된다.
+
+- **계산** (`computePivotLevels`, 순수 함수):
+  ① 좌우 `pivot_bars` 봉보다 높은 고가/낮은 저가 = 스윙 피벗
+  ② `merge_atr × ATR(100)` 폭 안의 피벗을 한 레벨로 묶음 — **가장 붐비는 가격을 먼저 집는
+     greedy**다. 정렬 후 순서대로 자르면 경계가 임의로 정해져 한 덩어리가 둘로 쪼개진다
+  ③ 고점 피벗·저점 피벗을 **섞어서 센다** — 저항이었다가 지지로 쓰인 자리(flip)가 가장 강한데,
+     나눠 세면 약한 레벨 둘로 보인다
+  ④ `min_touch` 미만 탈락 → 현재가 위/아래로 나눠 **가까운 순 `top_n`개**
+- **강도 = 터치 횟수**, 표현은 선 진하기뿐 (`PIVOT_OPACITY` 1→0.35 / 2→0.55 / 3→0.75 / 4+→0.9).
+  ⚠ 강도를 숫자로 적지 말 것 — 진하기가 이미 말하는 정보라 가격축 옆이 지저분해지기만 한다
+  (구 S/R의 밀도 % 라벨을 뺀 것과 같은 이유)
+- ⚠ **돌파된 레벨을 지우지 않는다.** 현재가 기준으로 지지↔저항 **역할만 바뀐다** — 뚫린 저항이
+  지지가 되는 게 실제 동작이고, 지우면 그 정보가 사라진다
+- ⚠ **선 시작점은 그 레벨이 처음 생긴 시점**(`firstT`). 전 구간 가로선으로 깔면 오래된 레벨과
+  방금 생긴 레벨이 똑같아 보이고 화면 왼쪽이 선으로 덮인다
+- ⚠ 색은 캔들의 `BULL/BEAR`와 **일부러 다르다** (`CANVAS_C.PIVOT_SUP_*` `#2dd4bf`/`#0d9488`,
+  `PIVOT_RES_*` `#fb7185`/`#e11d48`). 같은 색이면 포지션 라인(진입/TP/SL)과 구분이 안 된다.
+  **테마별 2색** — 단일 색은 한쪽 테마에서 묻힌다
+- **파라미터 4개 + 숨김 1개**, 전부 **단조롭다**:
+  `pivot_bars`·`merge_atr`·`min_touch`는 올릴수록 레벨이 줄고, `top_n`은 표시만 늘린다
+  - 숨김 `lookback`(600봉): 최악 조합(`bars=2`,`merge=0.1`)에서 1500봉이면 계산이
+    3.3ms → **26ms**로 뛴다(실측). 이 지표가 답하려는 건 "최근 구간의 반응 지점"이다
+- **기본값은 실측** (BTC 5m/15m/1h/4h/1d 각 1500봉): `bars 8` / `merge 0.5` / `touch 2` / `top_n 3`
+  → TF당 **4~6줄**. `min_touch`를 1로 내리면 통과 레벨이 약 3배(30개)로 늘어난다
+
+#### 멀티 타임프레임 (2026-08-13 사용자 요청)
+**차트 TF와 무관하게** `pivot.tfs`에서 고른 TF들의 레벨이 **모든 프레임에 똑같이** 뜬다.
+(예: 1h·4h·1d를 체크하면 5m 차트에서도 그 세 TF의 지지/저항이 같은 가격에 보인다)
+
+- 설정 위치: 지표 메뉴 `Pivot Levels` ⚙ → **레벨 계산 타임프레임** (`TfGrid`, 중복 선택)
+  - ⚠ TF 그리드 옆에 **표시/숨김 버튼을 넣지 말 것** (2026-08-13 넣었다가 사용자 요청으로 제거).
+    지표 행의 체크박스와 같은 값(`indicators.pivot`)이라 중복이다.
+    지표를 끄고 켜는 곳은 체크박스 하나뿐이다 — `TfGrid`가 수동 구조와 공유 컴포넌트라
+    한쪽에 붙이면 양쪽에 다 생기는 문제도 있다
+  - ⚠ 수동 구조의 `struct.tfs`와 **뜻이 다르다**. 저쪽은 "어느 TF에서 보여줄지"(표시 필터)고
+    이쪽은 **계산 대상 TF**다. 컴포넌트(`TfGrid`)만 공유한다
+- 각 TF의 캔들은 `usePivotLevels`가 **Binance REST로 직접** 받아 온다(TF당 700봉).
+  차트는 한 번에 한 TF만 들고 있어서 차트 캔들로는 불가능하다
+  - 재조회는 그 TF의 **다음 봉 마감 직후**, 최대 30분 간격(`MAX_REFETCH_MS`).
+    1d·1w를 봉 길이대로 두면 페이지를 켜 둔 채 며칠이 지나도 갱신되지 않는다
+  - 선택에서 뺀 TF의 캔들도 캐시에 남긴다 — 다시 체크할 때 네트워크 없이 즉시 뜬다
+  - 파라미터만 바꾸면 재조회 없이 계산만 다시 한다
+- ⚠ 그래서 레벨 좌표가 **봉 인덱스가 아니라 timestamp**(`firstT`)다. 렌더러가 `tsToIdx`로
+  현재 차트 기준 인덱스로 바꾼다 (수동 구조가 전 TF 공유되는 방식과 같다).
+  `renderPivotLevels`가 캔들 배열을 인자로 받는 이유
+- ⚠ **겹치면 상위 TF만 남긴다** (`combineTfLevels`). 1h와 4h가 사실상 같은 가격을 짚는 일이
+  흔한데(실측: 1h·4h·1d 14개 → 10개), 그대로 두면 몇 px 차이로 선과 라벨이 겹쳐 못 읽는다.
+  판정 기준은 **하위 TF 자신의 병합 폭(`tol`)** — 애초에 같은 레벨로 묶였을 거리다
+- **선 오른쪽 끝의 작은 TF 태그**(`4h` 등)는 이것 때문에 필요하다 — 여러 TF가 섞이면 색·진하기
+  만으로 출처를 알 수 없다. "강도는 숫자로 적지 않는다"와 상충하지 않는다(그건 진하기가 이미
+  말하는 정보였고, TF는 다른 단서가 없다). 스타일은 EMA 우측 라벨과 같은 규칙
+- 기본 `tfs = ["1h","4h","1d"]`. 전 TF(7개)를 켜면 중복 제거 후에도 19줄까지 나오지만,
+  상위 TF 레벨 대부분은 y 범위 밖이라 실제로 화면에 그려지는 건 그보다 훨씬 적다
+- ⚠ 계산은 **봉마감 기준**이다(의도). 피벗은 오른쪽 확인봉이 필요해 마지막 `pivot_bars` 봉에서
+  어차피 안 생기고, 틱마다 돌리면 현재가가 레벨을 스칠 때 지지↔저항 색이 깜빡인다
 
 ### 트렌드 라인 / 채널 / 원
 - `useTrendLines.js`가 lines/channels/circles를 각각 `useDrawableStore`로 관리 → localStorage 영구 저장
@@ -670,6 +700,9 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **Volume**: 거래량 캔버스 (가시 범위 maxVol 정규화, useVolResize로 높이 조절)
   - 바 색상 `vol.colorMode`: `neutral`(단색) / `candle`(양봉·음봉 색). 실시간 색 전환은 `candle`에서만 보인다
 - **EMA**: 다중 EMA (id/period/color/enabled 속성, useMemo 캐시로 무한루프 방지)
+- **Pivot Levels**: 스윙 피벗을 가격대로 묶은 지지/저항 — 위 "Pivot Levels" 절 참고
+  (`chart/pivotLevels.js` 순수 함수 + `usePivotLevels` 훅). **멀티 TF** — 선택한 TF들의
+  캔들을 REST로 따로 받아 계산하므로, 여기서만 차트 캔들을 쓰지 않는다
 - **FVG**: 3캔들 패턴으로 갭 검출, 중간값 50% 진입 시 소멸
 - **오더블록**: 스윙 감지 → BOS 탐지 → 직전 역방향 캔들을 OB로 등록, 미티게이션 시 소멸
 - **Structure Zigzag (ZZ)**: `기타/structure_zigzag.pine` 포팅 — 왼쪽 left_bars 봉만 보는 피벗(오른쪽 확인봉 없음),
@@ -712,10 +745,15 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   ※ RSI 다이버전스 지표는 제거됨 (2026-08-12) — 지표/알림/파라미터(`div`)/`DivergenceLines.jsx`/
     `utils/rsi.js::buildRSIArray` 전부 삭제. RSI 패널에는 더 이상 SVG 오버레이가 없다
 - **RSI 과매수/과매도 구간 배경** (2026-08-13, `overlayRenderers.js::renderRsiZones`)
-  - RSI가 과매수(≥ob) / 과매도(≤os)인 봉 구간을 **메인 차트**에 파란 세로 밴드로 칠한다
-  - **메인 차트에만.** RSI 패널은 선 색으로 이미 구분되므로 건드리지 않는다 (사용자 선택)
-  - **과매수·과매도 같은 파랑** (`CANVAS_C.RSI_ZONE` `#60a5fa` — RSI 선·기준선과 같은 색).
-    어느 쪽인지는 RSI 패널을 보면 되고, 메인 차트에는 "지금 극단 구간"만 알면 된다는 판단
+  - RSI가 과매수(≥ob) / 과매도(≤os)인 봉 구간을 **메인 차트**에 세로 밴드로 칠한다
+  - **메인 차트에만.** RSI 패널에는 밴드를 넣지 않는다 (사용자 선택)
+  - **과매수 = 빨강 / 과매도 = 파랑** (`CANVAS_C.RSI_ZONE_OB` `#f6465d` / `RSI_ZONE_OS` `#60a5fa`)
+    — 2026-08-13 사용자 요청으로 변경. 그전에는 둘 다 파랑이었고 "어느 쪽인지는 RSI 패널이
+    답한다"였는데, 과매수는 붉은 계열이 직관적이라는 판단으로 나눴다. 되돌리지 말 것
+    - ⚠ **RSI 패널의 선 색도 같은 토큰**이다 (`rsiRenderer.js`의 `RSI_OB_C`/`RSI_OS_C`).
+      한쪽만 바꾸면 같은 조건인데 패널은 파랑, 배경은 빨강처럼 어긋난다
+    - ⚠ 그래서 `computeRsiZones`는 구간에 `kind`(`"ob"`/`"os"`)를 달고, **종류가 바뀌면
+      구간을 끊는다**. 안 끊으면 사각형 하나가 두 상태를 덮어 색을 정할 수 없다
   - **봉 단위로 끊는다** — RSI 선처럼 임계값 교차점을 보간하지 않는다. 밴드는 캔들과
     나란히 놓이는 배경이라 봉 경계에서 끊겨야 어느 봉이 과매수였는지 눈으로 맞아떨어진다
   - **연속 구간은 사각형 하나로 합친다** — 봉마다 fillRect하면 경계에서 알파가 겹쳐

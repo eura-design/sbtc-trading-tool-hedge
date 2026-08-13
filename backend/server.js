@@ -4,7 +4,6 @@ const cors    = require("cors");
 
 const { recoverPendingOrders }   = require("./services/recoveryService");
 const { stop: stopWatcher }      = require("./services/orderWatcher");
-const { start: startSR, stop: stopSR } = require("./services/srService");
 const { syncServerTime }         = require("./services/binanceClient");
 const store                      = require("./store/pendingOrders");
 const push                       = require("./services/pushService");
@@ -27,7 +26,6 @@ app.use("/api/order",    require("./routes/order"));
 app.use("/api/close",    require("./routes/close"));
 app.use("/api/orders",   require("./routes/orders"));
 app.use("/api/tpsl",      require("./routes/tpsl"));
-app.use("/api/sr-levels", require("./routes/sr"));
 app.use("/api/stats",     require("./routes/stats"));
 app.use("/api/scale-in",   require("./routes/scalein"));
 app.use("/api/indicator-params", require("./routes/indicatorparams"));
@@ -44,7 +42,6 @@ const server = app.listen(PORT, async () => {
     console.log("[서버] API 키 확인됨\n");
     await syncServerTime();
     await recoverPendingOrders();
-    startSR();
   }
 });
 
@@ -52,7 +49,6 @@ const server = app.listen(PORT, async () => {
 async function shutdown() {
   console.log("\n[서버] 종료 중...");
   stopWatcher();
-  stopSR();
   await store.flush();
   server.close(() => {
     console.log("[서버] 종료 완료");

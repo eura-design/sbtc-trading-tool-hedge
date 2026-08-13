@@ -12,7 +12,7 @@ import { useBalance }                from "./hooks/useBalance";
 import { usePosition }               from "./hooks/usePosition";
 import { useTpsl }                   from "./hooks/useTpsl";
 import { useRSI }                    from "./hooks/useRSI";
-import { useSRLevels }               from "./hooks/useSRLevels";
+import { usePivotLevels }            from "./hooks/usePivotLevels";
 import { useTrendLines }             from "./hooks/useTrendLines";
 import { useStructures }             from "./hooks/useStructures";
 import { useOrderFlow }              from "./hooks/useOrderFlow";
@@ -64,7 +64,8 @@ export default function App() {
 
   // ── 지표 표시 여부 ────────────────────────────────────────────────────────
   const showRsi = indicators.rsi !== false;
-  const showSR  = indicators.sr  !== false;
+  // Pivot Levels — 지지/저항 지표 (구 S/R Levels(KDE) 대체). chart/pivotLevels.js 참고
+  const showPivot = indicators.pivot !== false;
   const showOB  = indicators.ob  !== false;
   const showFVG = indicators.fvg !== false;
   const showVol = indicators.vol !== false;
@@ -186,7 +187,8 @@ export default function App() {
   const fvgData = useFVG(candles, indicatorParams.fvg);
   const obData  = useOrderBlock(candles, indicatorParams.ob);
   // ZZ(Structure Zigzag)는 진행 중 봉까지 반영해야 하므로 candleRenderer가 candlesRef로 직접 계산 — 여기서 계산하지 않음
-  const { srLevels, srLoading, refreshSR } = useSRLevels();
+  // 멀티 TF — 차트 캔들이 아니라 pivot.tfs에서 고른 TF들을 직접 받아 계산한다
+  const pivotLevels = usePivotLevels(indicatorParams.pivot);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
   const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp } = useOrderFlow();
@@ -329,7 +331,6 @@ export default function App() {
           indicators={indicators} onIndicatorToggle={toggleIndicator}
           indicatorParams={indicatorParams} setIndicatorParam={setIndicatorParam}
           setEmaList={setEmaList} resetIndicator={resetIndicator}
-          srLoading={srLoading} refreshSR={refreshSR}
           notifSettings={notifSettings} onNotifToggle={notifToggle}
           isLog={isLog} onLogToggle={() => setIsLog(v => {
             const next = !v; localStorage.setItem("chart_isLog", next); return next;
@@ -351,8 +352,9 @@ export default function App() {
         <ChartArea
           candles={candles} candlesRef={candlesRef} candleLoading={candleLoading}
           onTickRef={onTickRef} interval_={interval_} isDark={isDark} isLog={isLog}
-          rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData} srData={srLevels}
-          showRsi={showRsi} showSR={showSR} showOB={showOB} showFVG={showFVG}
+          rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData}
+          pivotLevels={pivotLevels}
+          showRsi={showRsi} showPivot={showPivot} showOB={showOB} showFVG={showFVG}
           showVol={showVol} showEMA={showEMA}
           showZZ={showZZ} showStruct={showStruct} zzSelected={zzSelected}
           indicatorParams={indicatorParams}

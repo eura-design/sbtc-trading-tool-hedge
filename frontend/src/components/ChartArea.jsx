@@ -43,9 +43,9 @@ export function ChartArea({
   // 캔들 데이터
   candles, candlesRef, candleLoading, onTickRef, interval_, isDark, isLog,
   // 오버레이 데이터
-  rsiData, emaData, fvgData, obData, srData: srLevels,
+  rsiData, emaData, fvgData, obData, pivotLevels,
   // 지표 표시 여부
-  showRsi, showSR, showOB, showFVG, showVol, showEMA, showZZ, showStruct, zzSelected,
+  showRsi, showPivot, showOB, showFVG, showVol, showEMA, showZZ, showStruct, zzSelected,
   // 지표 파라미터
   indicatorParams,
   // 드로잉 상태 (useTrendLines)
@@ -182,7 +182,7 @@ export function ChartArea({
   // ── 오버레이 ref (틱마다 React 상태 없이 최신값 반영) ─────────────────────
   const overlaysRef = useRef({});
   overlaysRef.current = {
-    fvgData, showFVG, obData, showOB, srLevels, showSR, emaData, showEMA,
+    fvgData, showFVG, obData, showOB, pivotLevels, showPivot, emaData, showEMA,
     showZZ, zzParams: indicatorParams.zz, zzSelected,   // ZZ는 candleRenderer가 라이브 캔들로 직접 계산
     showVol, volH: effectiveVolH, volColorMode: indicatorParams.vol?.colorMode ?? "neutral",
     rsiData, showRsi, rsiH: effectiveRsiH, rsiParams: indicatorParams.rsi,
@@ -203,7 +203,7 @@ export function ChartArea({
   // ── 오버레이 변경 시 캔버스 재렌더 ────────────────────────────────────────
   // candles.length 가드: 타임프레임 전환 중 candles=[] 상태에서 forceUpdate가 불려
   // scales=null이 되면 SVG 오버레이가 순간 사라지는 들썩임이 발생하므로 방지
-  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, srLevels, showFVG, showOB, showSR, showEMA, emaData, showZZ, indicatorParams.zz, zzSelected]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (candles.length) redrawChart(); }, [fvgData, obData, pivotLevels, showFVG, showOB, showPivot, showEMA, emaData, showZZ, indicatorParams.zz, zzSelected]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { redrawVolume(); }, [showVol, effectiveVolH, indicatorParams.vol?.colorMode]); // eslint-disable-line react-hooks/exhaustive-deps
   // RSI는 패널뿐 아니라 **메인 캔버스**에도 그려진다 (과매수/과매도 구간 배경) →
   // 데이터·파라미터가 바뀌면 두 캔버스를 같이 갱신해야 밴드가 즉시 따라온다.

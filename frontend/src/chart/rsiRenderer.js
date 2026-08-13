@@ -4,8 +4,8 @@ import { initCanvas } from "./canvasUtils";
 
 // 메인 차트의 과매수/과매도 구간 배경(renderRsiZones)과 **같은 토큰**을 쓴다 —
 // 한쪽만 바꾸면 패널의 선과 배경 밴드 색이 어긋난다
-const RSI_OB_C  = CANVAS_C.RSI_ZONE;
-const RSI_OS_C  = CANVAS_C.RSI_ZONE;
+const RSI_OB_C  = CANVAS_C.RSI_ZONE_OB;   // 과매수 = 빨강 (2026-08-13)
+const RSI_OS_C  = CANVAS_C.RSI_ZONE_OS;   // 과매도 = 파랑
 const RSI_MID_C = "#888888";
 
 function getRsiColor(v, ob, os) {

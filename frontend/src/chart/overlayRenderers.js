@@ -1,12 +1,6 @@
 import { M, CANVAS_C } from "../constants";
 import { withClip } from "./canvasUtils";
-
-// S/R 점선 진하기 — ★ 개수가 곧 강도다 (라벨을 없앴으므로 **이게 유일한 강도 표현**).
-// ⚠ 2026-08-13 상향: 이전 값 { 0.55, 0.40, 0.28, 0.16 }은 ★1이 0.16이라 사실상 안 보였고
-//   사용자가 "점선이 잘 안 보인다"고 지적했다. 아래로 더 내리지 말 것 —
-//   가장 약한 레벨도 보이긴 해야 필터(약한 레벨 컷)를 얼마나 걸지 판단할 수 있다.
-//   4단계 차이는 유지한다 (다 똑같이 진하면 ★가 의미를 잃는다)
-const SR_OPACITY = { 4: 0.90, 3: 0.70, 2: 0.52, 1: 0.38 };
+import { tsToIdx } from "./scales";
 
 // RSI 과매수/과매도 구간 배경의 진하기 (2026-08-13 사용자 요청으로 0.13/0.10 → 상향).
 // 캔들이 globalAlpha 0.7로 그려지므로 여기를 더 올리면 캔들이 파랗게 물들기 시작한다.
@@ -19,7 +13,10 @@ const RSI_ZONE_ALPHA = { dark: 0.22, light: 0.17 };
 let _zoneCache = { data: null, ob: null, os: null, zones: [] };
 
 /**
- * RSI가 과매수(≥ob) / 과매도(≤os)인 **연속 봉 구간** 목록 `[{ s, e }]` (bar index).
+ * RSI가 과매수(≥ob) / 과매도(≤os)인 **연속 봉 구간** 목록 `[{ s, e, kind }]` (bar index).
+ * `kind`는 `"ob"`(과매수) | `"os"`(과매도) — 2026-08-13부터 색이 달라 구분이 필요하다.
+ * 과매수 구간과 과매도 구간이 봉 하나 차이로 붙어도 **다른 구간으로 끊는다**
+ * (안 끊으면 한 사각형이 두 상태를 덮어 색을 정할 수 없다).
  *
  * **화면 범위가 아니라 로드된 전 구간**을 훑는다 — "최근 N개"가 뷰포트에 따라
  * 달라지면 안 되기 때문이다. 스크롤해서 과거를 보다가 돌아왔을 때 밴드가 다른 데
@@ -35,16 +32,18 @@ export function computeRsiZones(rsiData, rsiParams = {}) {
   }
 
   const zones = [];
-  let s = null, e = null;
+  let s = null, e = null, kind = null;
   for (const d of rsiData) {
-    if (d.rsi >= ob || d.rsi <= os) {
-      if (s !== null && d.i === e + 1) e = d.i;             // 바로 다음 봉이면 같은 구간
-      else { if (s !== null) zones.push({ s, e }); s = d.i; e = d.i; }
+    const k = d.rsi >= ob ? "ob" : d.rsi <= os ? "os" : null;
+    if (k) {
+      // 바로 다음 봉이면서 **같은 종류**일 때만 이어 붙인다
+      if (s !== null && d.i === e + 1 && k === kind) e = d.i;
+      else { if (s !== null) zones.push({ s, e, kind }); s = d.i; e = d.i; kind = k; }
     } else if (s !== null) {
-      zones.push({ s, e }); s = null;
+      zones.push({ s, e, kind }); s = null;
     }
   }
-  if (s !== null) zones.push({ s, e });
+  if (s !== null) zones.push({ s, e, kind });
 
   _zoneCache = { data: rsiData, ob, os, zones };
   return zones;
@@ -66,14 +65,17 @@ export function getRsiZoneCount() { return _zoneCache.zones.length; }
  * 설계 메모 (2026-08-13, 사용자 요청 — 되돌리기 전에 확인할 것):
  * - **메인 차트에만** 칠한다. RSI 패널은 선 색으로 이미 구분되므로 건드리지 않는다
  *   (사용자가 "메인 차트만"을 명시적으로 선택했다)
- * - 과매수·과매도 **같은 파란색**(CANVAS_C.RSI_ZONE). 어느 쪽인지는 RSI 패널이 답한다
+ * - **과매수 = 빨강 / 과매도 = 파랑** (2026-08-13 사용자 요청으로 변경).
+ *   그전에는 둘 다 파랑이었고 "어느 쪽인지는 RSI 패널이 답한다"였는데, 과매수는 붉은
+ *   계열이 직관적이라 색을 나눴다. RSI 패널의 선 색도 같은 토큰이라 함께 바뀐다
+ *   (`CANVAS_C.RSI_ZONE_OB` / `RSI_ZONE_OS` — 한쪽만 바꾸면 패널과 배경이 어긋난다)
  * - **봉 단위로 끊는다** — RSI 선처럼 임계값 교차점을 보간하지 않는다.
  *   밴드는 캔들과 나란히 놓이는 배경이라 봉 경계에서 끊겨야 어느 봉이 과매수였는지가
  *   눈으로 맞아떨어진다. 보간하면 밴드 경계가 봉 중간을 가르며 반 칸씩 어긋나 보인다
  * - 연속 구간을 하나의 사각형으로 합친다(computeRsiZones) — 봉마다 fillRect하면
  *   경계에서 알파가 겹쳐 세로 줄무늬가 생긴다 (반투명 사각형을 이어 붙일 때의 고전적 문제)
  * - **최근 N개 제한은 화면이 아니라 전체 목록 기준**(zones.slice(-max)).
- *   기본 5개 — 과거 구간이 온통 파래지면 배경이 아니라 노이즈가 된다는 사용자 요청
+ *   기본 5개 — 과거 구간까지 온통 물들면 배경이 아니라 노이즈가 된다는 사용자 요청
  * - ⚠ rsiData는 React `candles` 기반이라 **진행 중 봉은 반영되지 않는다**(봉마감 시 갱신).
  *   RSI 패널도 같은 데이터를 쓰므로 둘은 항상 일치한다 — 여기만 candlesRef로 앞서가게
  *   만들면 패널의 선과 배경이 어긋나 보인다
@@ -87,10 +89,11 @@ export function renderRsiZones(ctx, zones, xScale, IW, IH, isDark, max = null) {
 
   withClip(ctx, M.left, M.top, IW, IH, () => {
     ctx.globalAlpha = isDark ? RSI_ZONE_ALPHA.dark : RSI_ZONE_ALPHA.light;
-    ctx.fillStyle   = CANVAS_C.RSI_ZONE;
 
     for (const z of list) {
       if (z.e < iMin - 1 || z.s > iMax + 1) continue;
+      // 과매수 = 빨강 / 과매도 = 파랑 (kind 없는 옛 캐시는 파랑으로 폴백)
+      ctx.fillStyle = z.kind === "ob" ? CANVAS_C.RSI_ZONE_OB : CANVAS_C.RSI_ZONE_OS;
       const x = xScale(z.s) - half;
       ctx.fillRect(x, 0, Math.max(xScale(z.e) + half - x, 1), IH);
     }
@@ -153,30 +156,63 @@ export function renderOrderBlock(ctx, obData, xScale, yScale, IW, IH) {
   });
 }
 
-// ⚠ 오른쪽 끝 라벨(밀도 `42%` / 폴백 `3★`)과 그 배경 박스는 **제거됐다** (2026-08-13 사용자 요청).
-//   되살리지 말 것 — 강도는 이미 선 불투명도(SR_OPACITY)로 표현된다.
-//   같은 정보를 숫자로 또 적으면 가격축 옆이 지저분해지기만 한다.
-//   ※ 라벨과 함께 뺐던 isDark는 **되돌렸다** — 점선 색이 테마별로 달라졌기 때문(2026-08-13).
-//     단일 색은 한쪽 테마에서 반드시 묻힌다. CANVAS_C.SR_LINE_* 주석 참고
-export function renderSRLines(ctx, srLevels, yScale, IW, IH, isDark) {
+// ※ 구 S/R Levels(KDE 밀도 기반, 보라 점선)의 renderSRLines는 지표째로 제거됐다 (2026-08-13).
+//   지지/저항은 아래 Pivot Levels가 담당한다
+
+// Pivot Levels 진하기 — 터치 횟수가 곧 강도다 (숫자 라벨 없이 진하기로만 표현).
+// 2터치가 최소 기본값이라 그 아래(1터치)는 보조 취급으로 확실히 옅게 둔다.
+const PIVOT_OPACITY = { 1: 0.35, 2: 0.55, 3: 0.75, 4: 0.9 };
+
+/**
+ * Pivot Levels — 스윙 피벗이 뭉친 가격대를 가로선으로 (chart/pivotLevels.js 계산).
+ * 청록/장미 **실선**, **레벨이 처음 생긴 봉부터** 오른쪽 끝까지, 현재가 기준 지지/저항 구분.
+ *
+ * [P3] 시작점을 그 레벨이 처음 생긴 시점(`firstT`)으로 두는 건 "언제 생긴 레벨인지"가
+ *      선 길이로 보이게 하려는 것. 전 구간 가로선이면 오래된 레벨과 방금 생긴 레벨이
+ *      똑같아 보인다.
+ * [P5] 오른쪽 끝의 작은 TF 태그(`4h` 등)는 **멀티 TF라서 필요하다** — 여러 TF의 선이
+ *      한 화면에 섞이면 색·진하기만으로는 어느 TF 레벨인지 알 수 없다.
+ *      강도(터치 수)를 숫자로 적지 않는 것과 상충하지 않는다: 저건 진하기가 이미 말하는
+ *      정보였고, TF는 다른 단서가 없다. 라벨 스타일은 EMA 우측 라벨과 같은 규칙
+ *
+ * ⚠ 좌표 변환에 **차트 캔들(candles)** 이 필요하다 — 레벨은 다른 TF에서 계산돼 봉 인덱스가
+ *   아니라 timestamp를 들고 오기 때문 (수동 구조가 tsToIdx를 쓰는 것과 같다)
+ */
+export function renderPivotLevels(ctx, levels, candles, xScale, yScale, IW, IH, isDark) {
+  if (!levels?.length || !candles?.length) return;
+
+  const supColor = isDark ? CANVAS_C.PIVOT_SUP_DARK : CANVAS_C.PIVOT_SUP_LIGHT;
+  const resColor = isDark ? CANVAS_C.PIVOT_RES_DARK : CANVAS_C.PIVOT_RES_LIGHT;
+
   withClip(ctx, M.left, M.top, IW, IH, () => {
-    ctx.strokeStyle = isDark ? CANVAS_C.SR_LINE_DARK : CANVAS_C.SR_LINE_LIGHT;
-    // 1px 점선은 굵기로는 더 못 키운다(캔들을 가린다) — 대신 대시를 촘촘하게 해
-    // 선이 끊겨 보이지 않게 한다. [3,5]는 빈칸이 길어 얇은 선에서 흐릿하게 읽혔다
-    ctx.lineWidth   = 1;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.font         = "600 9px 'JetBrains Mono','Fira Code','Courier New',monospace";
+    ctx.textAlign    = "right";
+    ctx.textBaseline = "middle";
 
-    for (const lv of srLevels) {
-      const px = yScale(lv.price);
-      if (px < -20 || px > IH + 20) continue;
+    for (const lv of levels) {
+      const y = yScale(lv.price);
+      if (y < -20 || y > IH + 20) continue;          // 화면 밖 (상위 TF 레벨에서는 흔하다)
+      // 레벨이 생긴 시점이 화면 왼쪽 밖이면 왼쪽 끝부터 그린다
+      const x0 = Math.max(0, xScale(tsToIdx(lv.firstT, candles)));
+      if (x0 >= IW) continue;
 
-      ctx.globalAlpha = SR_OPACITY[lv.stars] ?? 0.38;
-      ctx.setLineDash([4, 3]);
+      const color = lv.type === "sup" ? supColor : resColor;
+      ctx.globalAlpha = PIVOT_OPACITY[Math.min(lv.touches, 4)] ?? 0.9;
+      ctx.strokeStyle = color;
       ctx.beginPath();
-      ctx.moveTo(0,  px);
-      ctx.lineTo(IW, px);
+      ctx.moveTo(x0, y);
+      ctx.lineTo(IW, y);
       ctx.stroke();
-      ctx.setLineDash([]);
+
+      if (lv.tf) {
+        ctx.fillStyle = color;
+        ctx.fillText(lv.tf, IW - 2, y - 6);
+      }
     }
+
+    ctx.globalAlpha = 1;
   });
 }
 

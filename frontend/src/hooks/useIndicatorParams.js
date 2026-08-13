@@ -9,19 +9,17 @@ export const INDICATOR_DEFAULTS = {
   rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5 },
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },
   ob:  { swing_lb: 5, bos_window: 30, ob_lookback: 20, scan_from: 500, mitigation_pct: 50, max_display: 15, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false, use_wick: false },
-  // S/R — 6개 중 **3개만 지표 메뉴에 노출한다** (2026-08-13, PARAMS_META.sr 참고).
-  //   노출: bandwidth_atr(레벨 병합 폭) / peak_min_pers(약한 레벨 컷) / top_n(표시 개수)
-  //   숨김: kde_range / limit / persistence_atr — 값은 여기 남아 KDE.py로 그대로 전달된다
-  //
-  // ⚠ persistence_atr을 다시 UI로 꺼내지 말 것 — **단조롭지 않다.**
-  //   0.5 → 2.0으로 필터를 조였는데 레벨이 7개 → 10개로 오히려 **늘어난다**
-  //   (노이즈 스윙이 한 곳에 뭉쳐 만들던 초강력 피크가 사라지면서, 상대 강도 기준인
-  //    peak_min_pers를 나머지 피크들이 통과하게 된다). 조였는데 늘어나는 슬라이더는
-  //    사용자가 방향을 잡을 수 없다. 2.0 = "ATR 2배 미만 스윙은 구조가 아니다"로 고정
-  //
-  // ⚠ 기본값은 실측으로 잡았다 (BTC 1h 기준, bw 0.6 / peak 0.20 / top_n 8 → 레벨 10개).
-  //   구 기본값(0.3 / 0.08)은 26개가 나와 차트를 덮었고, 전부 최대(1.0 / 0.30)는 4개였다
-  sr:  { kde_range: 20, persistence_atr: 2.0, bandwidth_atr: 0.6, peak_min_pers: 0.20, limit: 1000, top_n: 8 },
+  // Pivot Levels — 스윙 피벗 터치 기반 지지/저항 (구 S/R Levels(KDE)를 대체, 2026-08-13)
+  //   tfs — **레벨을 계산할 타임프레임** (중복 선택). 차트 TF와 무관하게 전 프레임에서
+  //     여기 고른 TF들의 레벨이 똑같이 보인다 (수동 구조의 struct.tfs는 "표시 필터"라
+  //     의미가 다르다 — 이쪽은 계산 대상 자체다)
+  //   노출 4개: pivot_bars / merge_atr / min_touch / top_n — 전부 단조로운 노브다
+  //   숨김  1개: lookback(600) — 훑는 구간. 늘려도 몇 달 전 레벨이 후보로 붙을 뿐인데,
+  //     최악 조합(bars=2, merge=0.1)에서 1500봉이면 계산이 3.3ms → 26ms로 뛴다 (실측).
+  //     600봉이 성능·의미 양쪽의 안전선
+  // ⚠ 기본값은 실측으로 잡았다 (BTC 5m/15m/1h/4h/1d 각 1500봉 → 화면에 4~6줄).
+  //   min_touch를 1로 내리면 통과 레벨이 3배(약 30개)로 늘어 아무 데나 선이 생긴다
+  pivot: { tfs: ["1h", "4h", "1d"], pivot_bars: 8, merge_atr: 0.5, min_touch: 2, top_n: 3, lookback: 600 },
   // max_choch(표시 개수, null = 전체) / alert_choch(CHoCH 발생 알림) / opacity(투명도)는
   // 지표 메뉴가 아니라 **ZZ 선 클릭 → 더블클릭 팝업**에서 조작한다 (수동 구조와 같은 조작감).
   // max_choch 기본이 숫자면 낮춰둔 걸 잊고 "CHoCH가 안 뜬다"고 오해한다 → 기본은 전체
