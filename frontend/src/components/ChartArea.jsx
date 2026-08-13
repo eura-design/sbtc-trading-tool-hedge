@@ -228,6 +228,7 @@ export function ChartArea({
     useChartInteraction({
       candles, candlesRef, IW, IH, rsiH: effectiveRsiH, volH: effectiveVolH,
       updateCrosshair, hideCrosshair, showLegPct, showZZ,
+      zzShowVol: indicatorParams.zz?.show_legvol !== false,
       scalesRef,
       onLineDoubleClick: (id, type, x, y) => setOpacityPopup({ id, type, x, y }),
       xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,

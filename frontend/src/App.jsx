@@ -233,6 +233,7 @@ export default function App() {
         opacity:    indicatorParams.zz?.opacity ?? 1.0,
         alertChoch: indicatorParams.zz?.alert_choch !== false,
         showChoch:  indicatorParams.zz?.show_choch  !== false,
+        showLegVol: indicatorParams.zz?.show_legvol !== false,
         maxChoch:   indicatorParams.zz?.max_choch ?? null,   // null = 전체
       }],
       setSelectedId: (id) => setZzSelected(id != null),
@@ -241,6 +242,8 @@ export default function App() {
       // 구조와 마찬가지로 toggleAlert = **CHoCH 발생 알림**(근접 알림이 아니다)
       toggleAlert: () => setIndicatorParam("zz", "alert_choch", indicatorParams.zz?.alert_choch === false),
       toggleChoch: () => setIndicatorParam("zz", "show_choch",  indicatorParams.zz?.show_choch  === false),
+      // 레그 hover의 거래량 비교 3줄 — 수동 구조(structures[].showLegVol)와 같은 자리·같은 뜻
+      toggleLegVol: () => setIndicatorParam("zz", "show_legvol", indicatorParams.zz?.show_legvol === false),
       setOpacity:  (_id, opacity) => setIndicatorParam("zz", "opacity", opacity),
       setMaxChoch: (_id, n) => setIndicatorParam("zz", "max_choch", n),
     },
@@ -256,6 +259,7 @@ export default function App() {
       setOpacity:    structs.setStructOpacity,
       toggleChoch:   structs.toggleStructChoch,   // CHoCH 마크 표시
       setMaxChoch:   structs.setStructMaxChoch,   // CHoCH 표시 개수 (구조별)
+      toggleLegVol:  structs.toggleStructLegVol,  // 레그 hover 거래량 비교 3줄 (구조별)
     },
   }), [
     trendLines.selectedLineId, trendLines.lines, trendLines.setSelectedLineId,
@@ -266,7 +270,8 @@ export default function App() {
     trendLines.deleteCircle, trendLines.toggleCircleAlert, trendLines.toggleCircleLock, trendLines.setCircleOpacity,
     structs.selectedStructId, structs.structures, structs.setSelectedStructId,
     structs.deleteStructSelection, structs.toggleStructLock, structs.setStructOpacity,
-    structs.toggleStructChoch, structs.toggleStructChochAlert,
+    structs.toggleStructChoch, structs.toggleStructChochAlert, structs.toggleStructLegVol,
+    structs.setStructMaxChoch,
     zzSelected, indicatorParams.zz, setIndicatorParam,
   ]);
 

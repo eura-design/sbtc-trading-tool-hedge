@@ -15,8 +15,9 @@ const DEFAULTS = {
   // tfs = 레벨을 계산할 타임프레임(중복 선택). lookback은 UI에 없지만
   // 여기 키가 없으면 load()가 버려서 저장이 안 된다
   pivot: { tfs: ["1h", "4h", "1d"], pivot_bars: 8, merge_atr: 0.5, min_touch: 2, top_n: 3, lookback: 600 },
-  // max_choch(표시 개수, null = 전체) / alert_choch / opacity는 ZZ 선 더블클릭 팝업에서 조작
-  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: true, opacity: 1.0 },
+  // max_choch(표시 개수, null = 전체) / alert_choch / show_legvol / opacity는 ZZ 선 더블클릭 팝업에서 조작
+  // show_legvol = 레그 hover의 거래량 비교 3줄 (수동 구조는 구조마다 localStorage의 showLegVol)
+  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: true, show_legvol: true, opacity: 1.0 },
   pd:  { swing_lb: 5, lookback: 200 },
   // 수동 구조(Custom Structure Zigzag) — tfs: 표시 타임프레임(중복 선택, 기본 1h)
   // ※ CHoCH 표시 on/off·개수는 구조마다 localStorage에 들고 있다 (st.showChoch/st.maxChoch)

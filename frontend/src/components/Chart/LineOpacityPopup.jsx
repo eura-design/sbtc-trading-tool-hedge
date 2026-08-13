@@ -113,6 +113,7 @@ function CountRow({ value, detected, onChange, theme }) {
  *   🔒 잠금 — 드래그 가능한 도형만. 자동 ZZ는 움직일 대상이 아니라 없다(죽은 버튼을 두지 않음)
  *   CHoCH 표시 — **아이콘이 아니라 슬라이더 아래 라벨+ON/OFF 행**.
  *     👁 아이콘으로 바꿨다가 "무슨 표시인지 모르겠다"는 이유로 사용자가 되돌렸다. 되살리지 말 것
+ *   거래량 비교 — 레그 hover의 거래량 3줄(피크/상위3/평균). 같은 라벨+ON/OFF 행 (2026-08-13)
  *
  * **자동 ZZ와 수동 구조는 이름도 "구조"로 같고, 팝업 구성도 같다**(잠금 유무만 다름).
  * 사용자에게는 둘 다 "구조"다 — 이름이 갈리면 같은 팝업인데 다른 기능처럼 보인다.
@@ -152,6 +153,7 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
   const isChoch = CHOCH_KINDS.has(kind);
   const alert   = isChoch ? item?.alertChoch !== false : (item?.alert ?? false);
   const showMk  = item?.showChoch !== false;
+  const showVol = item?.showLegVol !== false;
   // 개수 슬라이더 상한 — 렌더 경로의 모듈 상태를 직접 읽는다(팝업을 여는 시점의 스냅샷).
   // 수동 구조는 구조별, 자동 ZZ는 지표 전체가 리스트 하나다.
   const chochCount = !isChoch ? 0
@@ -159,8 +161,8 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
 
   // 팝업이 화면 밖으로 나가지 않도록 위치 조정.
   // 슬라이더가 브라우저 기본 최소 너비(~129px)를 갖고 좌우 여백 24px가 빠지므로
-  // 폭은 넉넉히 잡는다. 높이는 구조/ZZ일 때 CHoCH 두 블록만큼 더 크다.
-  const W = 210, H = isChoch ? 172 : 80;
+  // 폭은 넉넉히 잡는다. 높이는 구조/ZZ일 때 CHoCH 두 블록 + 거래량 비교 행만큼 더 크다.
+  const W = 210, H = isChoch ? 210 : 80;
   const x = Math.min(popup.x, window.innerWidth  - W - 8);
   const y = Math.min(popup.y, window.innerHeight - H - 8);
 
@@ -222,6 +224,16 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
           <CountRow
             value={item?.maxChoch ?? null} detected={chochCount}
             onChange={n => d.setMaxChoch?.(popup.id, n)}
+            theme={theme}
+          />
+          {/* 레그 hover의 거래량 비교 3줄(피크/상위3/평균).
+              등락률(%)은 이 설정과 무관하게 계속 뜬다 — 끄고 싶은 건 거래량 쪽이고,
+              등락률까지 사라지면 "hover가 통째로 죽었다"로 보인다 */}
+          <ToggleRow
+            label="거래량 비교" on={showVol}
+            onClick={() => d.toggleLegVol?.(popup.id)}
+            title={showVol ? "레그 hover 시 거래량 비교 표시 중 — 클릭하여 숨김"
+                           : "레그 hover 시 거래량 비교 숨김 — 클릭하여 표시"}
             theme={theme}
           />
         </>

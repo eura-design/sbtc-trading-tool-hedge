@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { tsToIdx } from "../../chart/scales";
+import { clipSegmentX, VIEW_PAD } from "../../chart/svgGeom";
 
 const CHANNEL_COLOR = "#888888";
 
@@ -40,21 +41,26 @@ export const Channels = memo(function Channels({
         const color    = selected ? "#f0b90b" : alert ? "#fbbf24" : CHANNEL_COLOR;
         const opacity  = ch.opacity ?? 1.0;
         const sw       = selected || alert ? 1.5 : 1;
-        const mx       = (a1.x + b1.x) / 2;
-        const my       = (a1.y + b1.y) / 2;
+        // 뷰포트로 자른다 — 알림 ON이면 점선이라, 화면 밖 수만 px까지 뻗은 선이
+        // 그 길이만큼 점선 조각으로 펼쳐진다 (chart/svgGeom.js 주석의 5m 실측 참고)
+        const s1 = clipSegmentX(a1.x, a1.y, b1.x, b1.y, -VIEW_PAD, IW + VIEW_PAD);
+        const s2 = clipSegmentX(a2.x, a2.y, b2.x, b2.y, -VIEW_PAD, IW + VIEW_PAD);
+        if (!s1 && !s2) return null;                    // 완전히 화면 밖
+        const mx       = s1 ? (s1.x1 + s1.x2) / 2 : 0;
+        const my       = s1 ? (s1.y1 + s1.y2) / 2 : 0;
 
         return (
           <g key={ch.id}>
             {/* 메인 라인 */}
-            <line x1={a1.x} y1={a1.y} x2={b1.x} y2={b1.y}
+            {s1 && <line x1={s1.x1} y1={s1.y1} x2={s1.x2} y2={s1.y2}
               stroke={color} strokeWidth={sw} opacity={opacity}
-              strokeDasharray={alert && !selected ? "6,3" : undefined} />
+              strokeDasharray={alert && !selected ? "6,3" : undefined} />}
             {/* 미러 라인 */}
-            <line x1={a2.x} y1={a2.y} x2={b2.x} y2={b2.y}
+            {s2 && <line x1={s2.x1} y1={s2.y1} x2={s2.x2} y2={s2.y2}
               stroke={color} strokeWidth={sw} opacity={opacity}
-              strokeDasharray={alert && !selected ? "6,3" : undefined} />
+              strokeDasharray={alert && !selected ? "6,3" : undefined} />}
             {/* 알림 아이콘 */}
-            {alert && !selected && (
+            {alert && !selected && s1 && (
               <text x={mx} y={my - 7} textAnchor="middle"
                 fontSize="11" fill="#fbbf24" opacity={opacity}
                 style={{ pointerEvents: "none" }}>🔔</text>

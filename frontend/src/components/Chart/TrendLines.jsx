@@ -1,18 +1,19 @@
 import { memo } from "react";
 import { useTheme } from "../../ThemeContext";
 import { tsToIdx } from "../../chart/scales";
+import { clipPolylineX, clipSegmentX, VIEW_PAD } from "../../chart/svgGeom";
 
-// 로그 모드: bar index 기반 지수 보간 폴리라인
+// 로그 모드: bar index 기반 지수 보간 폴리라인 → [{ x, y }]
+// (문자열이 아니라 좌표 배열로 낸다 — 그려지기 전에 뷰포트로 잘라야 하므로)
 function logPoints(i1, p1, i2, p2, xScale, yScale, N = 50) {
   const pts = [];
   for (let k = 0; k <= N; k++) {
     const a = k / N;
-    const x = xScale(i1 + (i2 - i1) * a);
-    const y = yScale(p1 * Math.pow(p2 / p1, a));
-    pts.push(`${x},${y}`);
+    pts.push({ x: xScale(i1 + (i2 - i1) * a), y: yScale(p1 * Math.pow(p2 / p1, a)) });
   }
-  return pts.join(" ");
+  return pts;
 }
+const toPolyStr = pts => pts.map(q => `${q.x},${q.y}`).join(" ");
 
 export const TrendLines = memo(function TrendLines({ lines, selectedLineId, lineStart, linePreview, scales, IW, IH, isLog, candles }) {
   const { isDark } = useTheme();
@@ -37,22 +38,32 @@ export const TrendLines = memo(function TrendLines({ lines, selectedLineId, line
         const alert    = !!ln.alert;
         const color    = selected ? "#f0b90b" : alert ? "#fbbf24" : lineColor;
         const opacity  = selected ? 0.9 : (ln.opacity ?? 1.0);
-        const mx       = (a.x + b.x) / 2;
-        const my       = (a.y + b.y) / 2;
-        const pts      = isLog ? logPoints(i1, ln.p1, i2, ln.p2, xScale, yScale) : null;
+        // 뷰포트로 자른다 — 좌표가 timestamp라 로드 범위보다 과거에 그린 선은
+        // 화면 밖 수만 px에 찍히고, 알림 ON의 점선이 그 길이만큼 조각으로 펼쳐진다
+        // (5m에서 8,000조각 넘게 나온다 — chart/svgGeom.js 주석의 실측 참고)
+        const seg = clipSegmentX(a.x, a.y, b.x, b.y, -VIEW_PAD, IW + VIEW_PAD);
+        const vis = isLog
+          ? clipPolylineX(logPoints(i1, ln.p1, i2, ln.p2, xScale, yScale), IW)
+          : null;
+        if (isLog ? vis.length < 2 : !seg) return null;      // 완전히 화면 밖
+        const pts = isLog ? toPolyStr(vis) : null;
+        const A   = isLog ? vis[0] : { x: seg.x1, y: seg.y1 };
+        const Bp  = isLog ? vis[vis.length - 1] : { x: seg.x2, y: seg.y2 };
+        const mx  = (A.x + Bp.x) / 2;
+        const my  = (A.y + Bp.y) / 2;
         return (
           <g key={ln.id}>
             {(alert || selected) && (
               isLog
                 ? <polyline points={pts} fill="none" stroke={color} strokeWidth={6} opacity={0.18} />
-                : <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={6} opacity={0.18} />
+                : <line x1={A.x} y1={A.y} x2={Bp.x} y2={Bp.y} stroke={color} strokeWidth={6} opacity={0.18} />
             )}
             {isLog
               ? <polyline points={pts} fill="none" stroke={color}
                   strokeWidth={selected ? 1.5 : alert ? 1.5 : 1}
                   opacity={opacity}
                   strokeDasharray={alert && !selected ? "6,3" : undefined} />
-              : <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+              : <line x1={A.x} y1={A.y} x2={Bp.x} y2={Bp.y}
                   stroke={color}
                   strokeWidth={selected ? 1.5 : alert ? 1.5 : 1}
                   opacity={opacity}
@@ -77,12 +88,14 @@ export const TrendLines = memo(function TrendLines({ lines, selectedLineId, line
         const b = toXY(linePreview.t, linePreview.p);
         const i1 = tsToIdx(lineStart.t, candles);
         const i2 = tsToIdx(linePreview.t, candles);
-        const pts = isLog ? logPoints(i1, lineStart.p, i2, linePreview.p, xScale, yScale) : null;
+        // 프리뷰도 점선이라 자른다 (한쪽 끝이 과거 도형 위에 스냅되면 멀리 나갈 수 있다)
+        const vis = isLog ? clipPolylineX(logPoints(i1, lineStart.p, i2, linePreview.p, xScale, yScale), IW) : null;
+        const seg = isLog ? null : clipSegmentX(a.x, a.y, b.x, b.y, -VIEW_PAD, IW + VIEW_PAD);
         return (
           <g>
             {isLog
-              ? <polyline points={pts} fill="none" stroke={lineColor} strokeWidth={1} opacity={0.4} strokeDasharray="4,3" />
-              : <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={lineColor} strokeWidth={1} opacity={0.4} strokeDasharray="4,3" />
+              ? vis.length >= 2 && <polyline points={toPolyStr(vis)} fill="none" stroke={lineColor} strokeWidth={1} opacity={0.4} strokeDasharray="4,3" />
+              : seg && <line x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} stroke={lineColor} strokeWidth={1} opacity={0.4} strokeDasharray="4,3" />
             }
             <circle cx={a.x} cy={a.y} r={3} fill={lineColor} opacity={0.7} />
           </g>

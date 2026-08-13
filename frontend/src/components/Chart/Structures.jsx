@@ -4,6 +4,7 @@ import { useStore } from "../../store";
 import { tsToIdx } from "../../chart/scales";
 import { deriveStructure, normalizeStructurePoints } from "../../chart/deriveStructure";
 import { setStructChochCounts, setStructLiveSegment, setStructLiveChochs } from "../../chart/structRenderState";
+import { clipPolylineX, clipSegmentX, inViewX, VIEW_PAD } from "../../chart/svgGeom";
 
 // 수동 구조 SVG 렌더 — 지그재그 + CHoCH 마크 + 꼭짓점 핸들
 //
@@ -40,6 +41,16 @@ import { setStructChochCounts, setStructLiveSegment, setStructLiveChochs } from 
 //      걸리는 별개 값이라, OFF로 저장해 두면 구조별 ON이 먹지 않는데 그 사실이
 //      구조 팝업 어디에도 드러나지 않았다. 켜고 끄는 곳은 팝업 하나로 족하다.
 //
+// [R9] **그리기 전에 뷰포트로 자른다** (2026-08-13, 5m 렉 신고 → 실측으로 원인 확인).
+//      구조 좌표는 timestamp라, 로드된 캔들 범위보다 과거에 그린 구조는 tsToIdx가
+//      음수 bar index로 외삽한다. useCandles는 3000봉을 싣는데 5m면 **10.4일치뿐**이라
+//      한 달 전 구조가 x = -80,000px에 찍힌다(1h는 -6,720px — 12배 차이).
+//      점선은 클리핑 **전에** 조각으로 펼쳐지므로 폴리라인 하나에 점선 8,960개가 되고,
+//      Structures는 liveClose 구독이라 그 페인트가 틱마다(최대 60fps) 반복된다.
+//      → clipPolylineX/clipSegmentX로 자른다. 화면 안 형상은 완전히 동일하다(실측 오차 1e-14).
+//      **되돌리지 말 것** — "클리핑은 SVG가 알아서 한다"는 말은 길이에는 맞지만
+//      dasharray에는 틀리다. 자세한 근거는 chart/svgGeom.js 주석.
+//
 // [R7] **선분(몸통) 부분 선택은 없다** (2026-08-12 사용자 요청으로 제거).
 //      몸통을 클릭했을 때 선이 파랗게 물드는 게 거슬린다는 이유였다.
 //      파란색은 이제 꼭짓점 부분 선택 전용이다. 선분 강조 레이어를 되살리지 말 것.
@@ -49,6 +60,10 @@ const ZZ_COLOR   = CANVAS_C.NEUTRAL;      // #888888
 const BULL_COLOR = CANVAS_C.BULL_DARK;    // #0ecb81
 const BEAR_COLOR = CANVAS_C.BEAR_DARK;    // #f6465d
 const SEL_COLOR  = "#f0b90b";           // 구조 전체 선택 = 금색
+// 알림 ON = 호박색 + 점선 + 굵기 1.5 + 글로우 + 🔔 — **트렌드라인/채널/원과 같은 규칙**
+// (TrendLines.jsx의 alert 스타일을 그대로 옮긴 것. 한쪽만 바꾸면 같은 🔔인데
+//  선 종류마다 다르게 보인다. 뜻만 다르다 — 선·채널·원 = 근접 알림 / 구조·ZZ = CHoCH 발생 알림)
+const ALERT_COLOR = "#fbbf24";
 // 구조 안에서 다시 고른 꼭짓점 = 파랑. 금색과 확실히 구분돼야
 // "지금 Delete를 누르면 이것만 지워진다"가 한눈에 보인다 (사용자 요구사항)
 const PART_COLOR = PALETTE.info;        // #60a5fa
@@ -162,9 +177,19 @@ export const Structures = memo(function Structures({
     ? draftDerived?.liveSegment
     : derived.get(liveOwnerId)?.liveSegment) ?? null;
   const n = liveOwnerPts?.length ?? 0;
+  // 소유 구조의 `거래량 비교` 설정도 같이 실어 보낸다 — 진행 중 레그는 구조 목록에 없어서
+  // hitDetection이 st.showLegVol을 직접 읽을 수 없다 (prev를 여기서 넘기는 것과 같은 이유).
+  // draft(그리는 중)는 아직 구조가 아니므로 ON.
+  const liveShowVol = liveOwnerId === DRAFT_ID
+    ? true
+    : visible.find(st => st.id === liveOwnerId)?.showLegVol !== false;
   setStructLiveSegment(
-    liveSeg && n >= 3
-      ? { ...liveSeg, prev: { t1: liveOwnerPts[n - 3].t, t2: liveOwnerPts[n - 2].t } }
+    liveSeg
+      ? {
+          ...liveSeg,
+          showVol: liveShowVol,
+          ...(n >= 3 ? { prev: { t1: liveOwnerPts[n - 3].t, t2: liveOwnerPts[n - 2].t } } : {}),
+        }
       : liveSeg,
   );
 
@@ -194,7 +219,10 @@ export const Structures = memo(function Structures({
       {visible.map(st => {
         const selected = st.id === selectedStructId;
         const opacity  = selected ? 0.95 : (st.opacity ?? 1.0);
-        const color    = selected ? SEL_COLOR : ZZ_COLOR;
+        // CHoCH 발생 알림 ON — undefined = ON (기존 구조가 새 필드 때문에 꺼지지 않게).
+        // 선택이 알림보다 우선한다 (트렌드라인과 동일) — 지금 뭘 조작 중인지가 먼저다
+        const alert    = st.alertChoch !== false;
+        const color    = selected ? SEL_COLOR : alert ? ALERT_COLOR : ZZ_COLOR;
 
         // segments는 아래 polyline이 points로 직접 그리므로 여기선 chochs/liveSegment만 사용
         const { chochs, liveSegment } = derived.get(st.id);
@@ -204,21 +232,44 @@ export const Structures = memo(function Structures({
         // 선분 부분 선택은 없다 — [R7] 참고.
         const partPt = selected && structPart?.kind === "point" ? structPart.idx : -1;
 
+        // [R9] **뷰포트로 잘라서 그린다.** 5m처럼 짧은 TF에서는 예전에 그린 구조가
+        // x = -80,000px 밖에 찍히는데, 점선(알림 ON)은 클리핑 전에 조각으로 펼쳐져서
+        // 폴리라인 하나에 점선 8,960개가 생긴다 → 틱마다 리렌더라 그대로 렉이 된다.
+        // 자세한 실측은 chart/svgGeom.js 주석. 화면 안 형상은 그대로다.
+        const vis  = clipPolylineX(pts, IW);
+        const poly = vis.map(q => `${q.x},${q.y}`).join(" ");
+        // 🔔 아이콘 위치 — **보이는** 부분의 가운데 선분 중점
+        // (자르기 전 좌표로 잡으면 화면 밖에 달려서 안 보인다)
+        const midK = Math.max(1, Math.floor(vis.length / 2));
+        const bell = vis.length >= 2
+          ? { x: (vis[midK - 1].x + vis[midK].x) / 2, y: (vis[midK - 1].y + vis[midK].y) / 2 }
+          : null;
+
         return (
           <g key={st.id}>
-            {/* 지그재그 선 */}
-            <polyline
-              points={pts.map(q => `${q.x},${q.y}`).join(" ")}
-              fill="none" stroke={color}
-              strokeWidth={selected ? 1.5 : 1}
-              opacity={0.8 * opacity}
-            />
+            {/* 알림/선택 글로우 — 트렌드라인과 같은 굵기 6 / 불투명도 0.18 */}
+            {(alert || selected) && vis.length >= 2 && (
+              <polyline points={poly} fill="none" stroke={color} strokeWidth={6} opacity={0.18} />
+            )}
 
-            {/* 진행 중 레그 — 마지막 꼭짓점에서 현재가까지 */}
+            {/* 지그재그 선 */}
+            {vis.length >= 2 && (
+              <polyline
+                points={poly}
+                fill="none" stroke={color}
+                strokeWidth={selected || alert ? 1.5 : 1}
+                opacity={0.8 * opacity}
+                strokeDasharray={alert && !selected ? "6,3" : undefined}
+              />
+            )}
+
+            {/* 진행 중 레그 — 마지막 꼭짓점에서 현재가까지 (점선이라 [R9] 클리핑 필수) */}
             {liveSegment && (() => {
               const a = toXY(liveSegment.t1, liveSegment.p1);
               const b = toXY(liveSegment.t2, liveSegment.p2);
-              return <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+              const s = clipSegmentX(a.x, a.y, b.x, b.y, -VIEW_PAD, IW + VIEW_PAD);
+              if (!s) return null;
+              return <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
                 stroke={color} strokeWidth={1} opacity={0.45 * opacity}
                 strokeDasharray="4,3" />;
             })()}
@@ -226,14 +277,21 @@ export const Structures = memo(function Structures({
             <ChochMarks chochs={shown(chochs, st)} candles={candles}
               xScale={xScale} yScale={yScale} IW={IW} />
 
+            {/* 알림 아이콘 — 선택 중일 땐 안 단다 (핸들과 겹쳐 지저분해진다) */}
+            {alert && !selected && bell && (
+              <text x={bell.x} y={bell.y - 7} textAnchor="middle"
+                fontSize="11" fill={ALERT_COLOR} opacity={opacity}>🔔</text>
+            )}
+
             {/* 꼭짓점 — 선택 시 드래그 핸들, 평소엔 위치 표시용 점.
                 다시 클릭해 고른 꼭짓점만 파랑 (Delete 대상) */}
             {pts.map((q, k) => {
+              if (!inViewX(q.x, IW)) return null;      // [R9] 화면 밖 꼭짓점은 노드도 만들지 않는다
               const isPart = k === partPt;
               return (
                 <circle key={k} cx={q.x} cy={q.y}
                   r={isPart ? 6 : (selected ? 5 : 2)}
-                  fill={isPart ? PART_COLOR : (selected ? SEL_COLOR : ZZ_COLOR)}
+                  fill={isPart ? PART_COLOR : color}
                   opacity={isPart ? 1 : (selected ? 0.9 : 0.7 * opacity)} />
               );
             })}
@@ -246,19 +304,23 @@ export const Structures = memo(function Structures({
         const pts = structDraft.points.map(pt => toXY(pt.t, pt.p));
         const prev = pts[pts.length - 1];
         const nextXY = structPreview ? toXY(structPreview.t, structPreview.p) : null;
+        // [R9] draft도 자른다 — 이어 그리기(startExtendStruct)는 원본 꼭짓점을 통째로
+        // seed하므로 draft 폴리라인도 화면 밖 수만 px까지 뻗을 수 있다
+        const vis = clipPolylineX(pts, IW);
         return (
           <g>
-            {pts.length >= 2 && (
-              <polyline points={pts.map(q => `${q.x},${q.y}`).join(" ")}
+            {vis.length >= 2 && (
+              <polyline points={vis.map(q => `${q.x},${q.y}`).join(" ")}
                 fill="none" stroke={ZZ_COLOR} strokeWidth={1} opacity={0.8} />
             )}
             <ChochMarks chochs={shown(draftDerived?.chochs ?? [])} candles={candles}
               xScale={xScale} yScale={yScale} IW={IW} />
-            {nextXY && (
-              <line x1={prev.x} y1={prev.y} x2={nextXY.x} y2={nextXY.y}
-                stroke={ZZ_COLOR} strokeWidth={1} opacity={0.45} strokeDasharray="4,3" />
-            )}
-            {pts.map((q, k) => (
+            {nextXY && (() => {
+              const s = clipSegmentX(prev.x, prev.y, nextXY.x, nextXY.y, -VIEW_PAD, IW + VIEW_PAD);
+              return s && <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+                stroke={ZZ_COLOR} strokeWidth={1} opacity={0.45} strokeDasharray="4,3" />;
+            })()}
+            {pts.map((q, k) => inViewX(q.x, IW) && (
               <circle key={k} cx={q.x} cy={q.y} r={3} fill={ZZ_COLOR} opacity={0.8} />
             ))}
             {nextXY && (

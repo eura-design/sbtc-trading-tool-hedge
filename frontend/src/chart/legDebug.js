@@ -6,9 +6,8 @@
 // 복제하면 실제 동작과 어긋난 설명을 하게 된다 — structDebug.js와 같은 원칙.
 
 import { tsToIdx } from "./scales";
-import { findPrevSameDirLeg } from "./hitDetection";
 import { normalizeStructurePoints } from "./deriveStructure";
-import { legPeakVolume, fmtVol, volChangePct } from "./legVolume";
+import { legPeakVolume, fmtVol, volChangePct, LEG_VOL_METRICS } from "./legVolume";
 import { getStructLiveSegment } from "./structRenderState";
 import { getZzSegments } from "./structureZigzag";
 
@@ -23,21 +22,28 @@ function judge(candles, i1, i2, prev, pct) {
     방향: isUp ? "상승" : "하락",
     "등락률": pct == null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`,
     "봉범위": `${Math.round(i1)}→${Math.round(i2)}`,
-    피크: cur?.[key] ? fmtVol(cur[key].peak) : "—",
+    "같은방향봉": cur?.[key]?.n ?? "—",
     "직전범위": prev ? `${Math.round(prev.i1)}→${Math.round(prev.i2)}` : "—",
-    "직전피크": prv?.[key] ? fmtVol(prv[key].peak) : "—",
   };
+  // 화면과 같은 세 지표를 나란히 — 어느 줄이 왜 안 뜨는지 보려면 값도 같이 보여야 한다
+  for (const { key: m, label } of LEG_VOL_METRICS) {
+    row[label]        = cur?.[key] ? fmtVol(cur[key][m]) : "—";
+    row[`직전${label}`] = prv?.[key] ? fmtVol(prv[key][m]) : "—";
+  }
 
   const dir = isUp ? "양봉" : "음봉";
   if (cur == null)        row.판정 = "레그 봉 범위 없음 (1봉 이하이거나 캔들 범위 밖) → 줄 전체 숨김";
   else if (!cur[key])     row.판정 = `이 레그에 ${dir}이 하나도 없음 → 줄 전체 숨김`;
-  else if (prev == null)  row.판정 = "직전 동일방향 레그가 아예 없음 (다른 구조까지 찾아봐도) → 비교만 숨김";
+  else if (prev == null)  row.판정 = "이 구조의 첫 상승/첫 하락 → 비교 대상 없음 (정상, 비교만 숨김)";
   else if (prv == null)   row.판정 = "직전 레그 봉 범위 없음 → 비교만 숨김";
   else if (!prv[key])     row.판정 = `직전 레그에 ${dir}이 하나도 없음 → 비교만 숨김`;
   else {
-    const d = volChangePct(cur[key].peak, prv[key].peak);
-    row.판정 = d == null ? "직전 피크가 0 → 비교만 숨김"
-                        : `정상 ${d >= 0 ? "↑" : "↓"}${Math.abs(d).toFixed(0)}%`;
+    // 세 지표의 증감을 한 칸에 — 부호가 갈리는 게 정상이다 (legVolume.js [LV8])
+    const parts = LEG_VOL_METRICS.map(({ key: m, label }) => {
+      const d = volChangePct(cur[key][m], prv[key][m]);
+      return d == null ? `${label} —` : `${label} ${d >= 0 ? "↑" : "↓"}${Math.abs(d).toFixed(0)}%`;
+    });
+    row.판정 = prv[key].sum > 0 ? `정상  ${parts.join("  ")}` : "직전 레그 거래량이 0 → 비교만 숨김";
   }
   return row;
 }
@@ -56,10 +62,10 @@ export function legDebug(structures, candles) {
     const rows = [];
     for (let k = 1; k < pts.length; k++) {
       const p1 = pts[k - 1].p, p2 = pts[k].p;
-      // findHoveredLeg와 같은 규칙 — 두 칸 앞(k-2), 없으면 다른 구조에서 찾는다 ([LV7])
+      // findHoveredLeg와 같은 규칙 — 두 칸 앞(k-2)뿐. 없으면(첫 상승/첫 하락) 비교 없음 [LV7]
       const prev = k >= 3
         ? { i1: tsToIdx(pts[k - 3].t, candles), i2: tsToIdx(pts[k - 2].t, candles) }
-        : findPrevSameDirLeg(structures, pts[k - 1].t, p2 > p1, candles);
+        : null;
       rows.push({
         "#": k,
         ...judge(candles, tsToIdx(pts[k - 1].t, candles), tsToIdx(pts[k].t, candles),
@@ -81,7 +87,7 @@ export function legDebug(structures, candles) {
       candles, tsToIdx(live.t1, candles), tsToIdx(live.t2, candles),
       live.prev
         ? { i1: tsToIdx(live.prev.t1, candles), i2: tsToIdx(live.prev.t2, candles) }
-        : findPrevSameDirLeg(structures, live.t1, live.p2 > live.p1, candles),
+        : null,
       ((live.p2 - live.p1) / live.p1) * 100,
     );
     console.log("%c진행 중 레그(점선)", "color:#f0b90b;font-weight:700");

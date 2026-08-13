@@ -1,5 +1,6 @@
 import { useRef, useCallback } from "react";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
+import { LEG_VOL_METRICS } from "../chart/legVolume";
 
 function fmtPrice(p) {
   return (p / 1000).toFixed(1) + "k";
@@ -9,6 +10,13 @@ function fmtPrice(p) {
 // 일반 공백을 없애버려서 숫자들이 붙어 버린다
 const NB = " ";
 const UP = "#0ecb81", DN = "#f6465d";
+
+// 레그 hover 라벨의 거래량 줄 간격 (fontSize 11 기준)
+const LEG_ROW_H = 13;
+
+function hideLegRows(L) {
+  for (const { key } of LEG_VOL_METRICS) L[`${key}Text`]?.setAttribute("display", "none");
+}
 
 export function useCrosshair() {
   const vLineRef      = useRef(null);
@@ -21,10 +29,11 @@ export function useCrosshair() {
   // 크로스헤어와 같은 imperative 레이어에 둔다 — 마우스 이동마다 React 상태를
   // 갱신하면 SVG 오버레이 전체가 리렌더된다.
   //
-  // 요소가 6개라 **ref 하나에 모아 담는다** (prop을 그만큼 ChartArea →
+  // 요소가 16개라 **ref 하나에 모아 담는다** (prop을 그만큼 ChartArea →
   // ChartSvg로 내려보내지 않으려고). ChartSvg가 콜백 ref로 채운다.
-  //   pct                            등락률
-  //   volText / vol{Up,UpD,Dn,DnD}   캔들 색 기준 피크 줄
+  //   pct                                        등락률
+  //   {key}Text / {key}{Up,UpD,Dn,DnD}           거래량 줄 — key는 LEG_VOL_METRICS
+  //                                              (top3 / mean / sum, 위→아래 순서도 그 배열)
   // ※ 테이커 기준 줄(tkr*)은 2026-08-13 제거 — legVolume.js [LV5]
   //
   // tspan 4개인 이유 — 색이 **두 축으로** 갈리기 때문이다:
@@ -95,7 +104,7 @@ export function useCrosshair() {
       // RSI 패널엔 지그재그가 없다
       const L = legRefs.current;
       L.pct?.setAttribute("display", "none");
-      L.volText?.setAttribute("display", "none");
+      hideLegRows(L);
     }
   }, []);
 
@@ -103,11 +112,17 @@ export function useCrosshair() {
    * 지그재그 레그 hover 라벨 — 커서 아래쪽에 작게. pct가 null이면 숨긴다.
    * 가격 라벨(priceText)보다 한 줄 아래에 두어 겹치지 않게 한다.
    *
-   *   +2.41%   피크 ▲3.2K ↓63%     ← 상승 레그면 ▲만 / 하락 레그면 ▼만 ([LV6])
-   *   └등락률       └직전 동일방향 레그의 같은 쪽 피크 대비
+   *   +2.41%   상위3 ▲2.1K ↓41%    ← 상승 레그면 ▲만 / 하락 레그면 ▼만 ([LV6])
+   *            평균  ▲1.4K ↑12%    └직전 동일방향 레그의 **같은 지표** 대비
+   *            총량  ▲9.8K ↑37%
+   *   └등락률
    *
-   * **합계가 아니라 피크**다 (legVolume.js [LV2]). "피크"라고 써 붙이는 이유도
-   * 그것 — 숫자만 있으면 합계로 읽힌다.
+   * 줄 이름을 반드시 써 붙인다 — 숫자만 있으면 무엇의 값인지 알 수 없다.
+   *
+   * [LV8][LV9] 세 줄인 이유: 한 값만 보면 그 값의 약점에 그대로 걸린다.
+   *   평균·상위3은 레그 길이와 무관하고(상관계수 0.00 / 0.10), 총량은 길이에 휘둘린다(0.29).
+   *   **셋이 갈리는 것 자체가 정보**다. 줄 수를 줄이지 말 것.
+   *   ※ 피크(봉 하나) 줄은 2026-08-13 사용자가 뺐다 — 되살리지 말 것 (legVolume.js [LV9])
    *
    * [LV5] 한때 아래에 **테이커(체결 주체) 기준** 줄을 나란히 두고 비교했다.
    *   2026-08-13 사용자 요청으로 제거 — 캔들 색 기준 한 줄만 남긴다. 되살리지 말 것.
@@ -116,27 +131,33 @@ export function useCrosshair() {
    *   **값**(▲3.2K)   = 매수 쪽인가 매도 쪽인가  — 초록 / 빨강 (JSX 고정)
    *   **증감률**(↓63%) = 직전 대비 늘었나 줄었나  — 증가 초록 / 감소 빨강 (매번 설정)
    * 그래서 `▼1.8K ↑12%`처럼 **한 쌍 안에서 색이 갈리는 게 정상**이다
-   * (매도 쪽 피크인데 직전보다 늘었다는 뜻). 실측 126쌍 중 62개(49%)가 갈린다.
-   * 해석은 글자로 단정하지 않는다 — 상승 레그인데 매수 피크 ↓면 동력 약화지만,
+   * (매도 쪽 값인데 직전보다 늘었다는 뜻). 실측 126쌍 중 62개(49%)가 갈린다.
+   * 해석은 글자로 단정하지 않는다 — 상승 레그인데 매수 거래량 ↓면 동력 약화지만,
    * 그 판단은 사용자 몫이다.
    *
-   * 해당 봉이 없는 레그는 그쪽을 **비운다** (0으로 채우면 "피크 0"으로 읽힌다).
+   * 해당 봉이 없는 레그는 그쪽을 **비운다** (0으로 채우면 "거래량 0"으로 읽힌다).
    */
-  const showLegPct = useCallback(({ x, y, pct, row }) => {
+  const showLegPct = useCallback(({ x, y, IH, pct, rows }) => {
     const L  = legRefs.current;
     const el = L.pct;
     if (!el) return;
     if (pct == null) {
       el.setAttribute("display", "none");
-      L.volText?.setAttribute("display", "none");
+      hideLegRows(L);
       return;
     }
+    // 세 줄이라 커서가 아래쪽에 있으면 패널 밖으로 넘친다 → 커서 **위**로 뒤집는다
+    // (한 줄이던 시절엔 없던 문제. IH를 안 넘겨주면 뒤집지 않고 예전처럼 아래로만 간다)
+    const span = (LEG_VOL_METRICS.length - 1) * LEG_ROW_H;
+    const flip = IH != null && y + 30 + span > IH;
+    const y0   = M.top + y + (flip ? -10 - span : 30);
+
     const sign = pct >= 0 ? "+" : "";
     const text = `${sign}${pct.toFixed(2)}%`;
     el.textContent = text;
     el.setAttribute("fill", pct >= 0 ? UP : DN);
     el.setAttribute("x", M.left + x + 8);
-    el.setAttribute("y", M.top  + y + 30);
+    el.setAttribute("y", y0);
     el.setAttribute("display", "inline");
 
     // 거래량 줄의 x는 등락률 폭에서 계산한다
@@ -162,14 +183,18 @@ export function useCrosshair() {
       return true;
     };
 
-    const textEl = L.volText;
-    if (!textEl) return;
-    const hasUp = fillSide(L.volUp, L.volUpD, row?.up, "▲", "");
-    const hasDn = fillSide(L.volDn, L.volDnD, row?.dn, "▼", hasUp ? NB + NB : "");
-    if (!hasUp && !hasDn) { textEl.setAttribute("display", "none"); return; }
-    textEl.setAttribute("x", rowX);
-    textEl.setAttribute("y", M.top + y + 30);
-    textEl.setAttribute("display", "inline");
+    // 줄 순서는 LEG_VOL_METRICS 그대로 (상위3 → 평균 → 총량)
+    LEG_VOL_METRICS.forEach(({ key }, i) => {
+      const textEl = L[`${key}Text`];
+      if (!textEl) return;
+      const row   = rows?.[key];
+      const hasUp = fillSide(L[`${key}Up`], L[`${key}UpD`], row?.up, "▲", "");
+      const hasDn = fillSide(L[`${key}Dn`], L[`${key}DnD`], row?.dn, "▼", hasUp ? NB + NB : "");
+      if (!hasUp && !hasDn) { textEl.setAttribute("display", "none"); return; }
+      textEl.setAttribute("x", rowX);
+      textEl.setAttribute("y", y0 + i * LEG_ROW_H);
+      textEl.setAttribute("display", "inline");
+    });
   }, []);
 
   const hide = useCallback(() => {
@@ -180,7 +205,7 @@ export function useCrosshair() {
     bodyPctRef.current?.setAttribute("display", "none");
     const L = legRefs.current;
     L.pct?.setAttribute("display", "none");
-    L.volText?.setAttribute("display", "none");
+    hideLegRows(L);
   }, []);
 
   return {

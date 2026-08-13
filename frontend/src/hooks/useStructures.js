@@ -10,9 +10,10 @@ export const STRUCT_DEFAULT_OPACITY = 0.5;
 /**
  * 수동 구조(Structure) 도형 스토어
  *
- * 데이터: { id, points: [{ t, p, type:"H"|"L" }], opacity, locked, showChoch, alertChoch, maxChoch }
+ * 데이터: { id, points: [{ t, p, type:"H"|"L" }], opacity, locked,
+ *          showChoch, alertChoch, maxChoch, showLegVol }
  *   maxChoch: 표시할 CHoCH 개수(최신 N개). undefined = 제한 없음 (기본)
- *   showChoch / alertChoch 모두 **undefined = ON** (기본값). 이미 저장된 구조가
+ *   showChoch / alertChoch / showLegVol 모두 **undefined = ON** (기본값). 이미 저장된 구조가
  *   새 필드 때문에 전부 꺼진 채로 뜨면 안 되므로 false만 OFF로 읽는다.
  *
  * ╔════════════════════════════════════════════════════════════════════════╗
@@ -47,6 +48,18 @@ export const STRUCT_DEFAULT_OPACITY = 0.5;
  *      "꼭짓점 제거만 있으면 된다" — 몸통을 클릭했을 때 선이 파랗게 물드는 게
  *      거슬린다는 이유였다. removeStructSegment / structPart.kind==="segment" 경로를
  *      되살리지 말 것. 지금 몸통 클릭은 구조 전체 선택, 더블클릭은 팝업이다.
+ *
+ * [SL1] **잠금(locked)은 꼭짓점을 바꾸는 모든 경로를 막는다** (2026-08-13 사용자 요청).
+ *      막는 것 세 가지:
+ *        ① 꼭짓점 드래그 이동          (moveStructPoint / normalizeStruct)
+ *        ② 다른 구조와 붙이기(흡수)     (mergeStructIntoDraft — 흡수는 원본을 삭제한다)
+ *        ③ 자기 구조에 선 이어 붙이기   (startExtendStruct)
+ *      **소유자(이 훅)에서 막는 게 기준이다.** hitDetection의 findStructEndpointHit도
+ *      잠긴 구조를 후보에서 빼지만, 그건 커서 편의(끝점에 안 걸리게)일 뿐이고
+ *      잠금의 보장은 여기서 선다. 히트 판정만 믿고 여기 가드를 빼지 말 것 —
+ *      경로가 하나 늘어날 때마다 잠금이 조용히 뚫린다.
+ *      ※ 삭제(Delete)는 막지 않는다 — 트렌드라인/채널/원도 잠긴 채로 지워진다.
+ *        잠금은 "모양이 변하지 않는다"는 보장이지 "지울 수 없다"가 아니다.
  */
 export function useStructures() {
   const store = useDrawableStore("structures");
@@ -93,7 +106,9 @@ export function useStructures() {
    */
   const startExtendStruct = useCallback((id, fromStart = false) => {
     const item = store.items.find(x => x.id === id);
-    if (!item) return;
+    // 잠긴 구조는 이어 그릴 수 없다 — [SL1] 참고 (히트 판정에서도 걸러지지만,
+    // 잠금은 "이 구조의 꼭짓점은 변하지 않는다"는 보장이라 소유자 쪽에서도 막는다)
+    if (!item || item.locked) return;
     const pts = fromStart ? [...item.points].reverse() : [...item.points];
     setStructDraft({ points: pts, extendId: id, mergeIds: [] });
     setStructPreview(null);
@@ -111,7 +126,8 @@ export function useStructures() {
    */
   const mergeStructIntoDraft = useCallback((id, fromStart = false) => {
     const item = store.items.find(x => x.id === id);
-    if (!item?.points?.length) return;
+    // 잠긴 구조는 흡수 대상이 아니다 — 흡수는 원본을 **삭제**하므로 잠금과 정면으로 충돌한다 [SL1]
+    if (!item?.points?.length || item.locked) return;
     setStructDraft(prev => {
       if (!prev) return prev;
       if (prev.extendId === id || prev.mergeIds?.includes(id)) return prev;
@@ -134,15 +150,21 @@ export function useStructures() {
     if (opts.dropLast) pts = pts.slice(0, -1);
     pts = normalizeStructurePoints(pts);
 
+    // [SL1] 그리는 도중에 대상이 잠겼을 수 있다 (팝업·단축키 `l`은 draft와 무관하게 동작).
+    // 잠긴 구조는 손대지 않는다 — 연장 대상이 잠겼으면 새 구조로 저장하고,
+    // 잠긴 흡수 대상은 지우지 않는다. 조용히 덮어쓰는 것보다 하나 더 생기는 편이 낫다.
+    const lockedNow = id => !!store.items.find(x => x.id === id)?.locked;
+    const extendTo  = extendId != null && !lockedNow(extendId) ? extendId : null;
+
     if (pts.length >= 2) {
-      if (extendId != null) store.update(extendId, { points: pts });
+      if (extendTo != null) store.update(extendTo, { points: pts });
       // 지그재그는 배경처럼 깔리는 게 낫다 (CHoCH 마크는 투명도와 무관하게 항상 100%)
       else                  store.add({ points: pts, opacity: STRUCT_DEFAULT_OPACITY });
       // 흡수된 구조 제거 — 남겨두면 같은 꼭짓점이 두 벌이 된다
-      for (const id of mergeIds) store.remove(id);
-    } else if (extendId != null) {
+      for (const id of mergeIds) if (!lockedNow(id)) store.remove(id);
+    } else if (extendTo != null) {
       // 이어 그리기를 시작해놓고 점이 다 지워진 비정상 상태 — 원본을 지운다
-      store.remove(extendId);
+      store.remove(extendTo);
     }
     setStructDraft(null); setStructMode(false); setStructPreview(null);
   }, [structDraft, store]);
@@ -151,13 +173,13 @@ export function useStructures() {
   // 드래그 중에는 순서를 건드리지 않는다 (커서 아래에서 점이 튀는 걸 방지).
   // 시간순 정렬·동일타입 병합은 드래그 종료 시 normalizeStruct에서 한 번에 처리.
   const moveStructPoint = useCallback((id, idx, t, p) => {
-    store.update(id, item => ({
+    store.update(id, item => (item.locked ? {} : {          // [SL1] 잠금 = 꼭짓점 고정
       points: item.points.map((pt, k) => (k === idx ? { ...pt, t, p } : pt)),
     }));
   }, [store]);
 
   const normalizeStruct = useCallback((id) => {
-    store.update(id, item => ({ points: normalizeStructurePoints(item.points) }));
+    store.update(id, item => (item.locked ? {} : { points: normalizeStructurePoints(item.points) }));
   }, [store]);
 
   // 선분 중간 삽입은 제공하지 않는다 — 고/저 교대 구조라 점 하나를 끼우면
@@ -209,6 +231,17 @@ export function useStructures() {
   }, [store]);
 
   /**
+   * 이 구조의 레그에 마우스를 올렸을 때 **거래량 비교 3줄**(피크/상위3/평균)을 띄울지.
+   * 더블클릭 팝업의 `거래량 비교` 행. 기본 ON (undefined = ON).
+   *
+   * 등락률(%)은 이 설정과 무관하게 항상 뜬다 — 끄고 싶은 건 거래량 쪽이고,
+   * 등락률까지 사라지면 "레그 hover가 통째로 죽었다"로 보인다.
+   */
+  const toggleStructLegVol = useCallback((id) => {
+    store.update(id, item => ({ showLegVol: item.showLegVol === false }));
+  }, [store]);
+
+  /**
    * 이 구조에서 표시할 CHoCH 개수(최신 N개). null = 제한 없음(전체).
    *
    * **구조마다 따로** 두는 이유는 Structures.jsx [R6] 참고 — 전역 값 하나로 두면
@@ -230,6 +263,6 @@ export function useStructures() {
     deleteStruct, deleteStructSelection,
     setStructOpacity:  store.setOpacity,
     toggleStructLock:  store.toggleLock,
-    toggleStructChoch, toggleStructChochAlert, setStructMaxChoch,
+    toggleStructChoch, toggleStructChochAlert, setStructMaxChoch, toggleStructLegVol,
   };
 }

@@ -6,11 +6,19 @@ import { Circles }      from "./Circles";
 import { Structures }   from "./Structures";
 import { PositionLines } from "./PositionLines";
 import { BoxOverlay, DrawingCurrent, BoxLabels } from "./BoxOverlay";
+import { LEG_VOL_METRICS } from "../../chart/legVolume";
 
-// 지그재그 레그 hover 라벨의 거래량 줄 머리말. 공백은 U+00A0 —
-// 일반 공백은 SVG 기본 공백 처리에서 사라진다 (useCrosshair 참고).
+// 지그재그 레그 hover 라벨의 거래량 줄 머리말 (상위3 / 평균 / 총량 — legVolume.js [LV9]).
+// 공백은 U+00A0 — 일반 공백은 SVG 기본 공백 처리에서 사라진다 (useCrosshair 참고).
+//
+// 세 줄의 **값 시작 위치를 맞추려면** 머리말 폭이 같아야 한다. 모노스페이스라도 한글은
+// 폴백 폰트라 반각 2칸을 차지해서("평균" 4칸 vs "상위3" 5칸) 글자 수로는 안 맞는다.
+// → 반각 환산 폭을 재서 가장 넓은 것에 맞춘 뒤, 구분 공백을 하나 더 붙인다.
 // ※ 아래에 있던 "테이커"(체결 주체 기준) 줄은 2026-08-13 제거 — legVolume.js [LV5]
-const LEG_VOL_LABEL = "피크 ";
+const NB = " ";
+const halfWidth = s => [...s].reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2000 ? 2 : 1), 0);
+const LABEL_W   = Math.max(...LEG_VOL_METRICS.map(m => halfWidth(m.label)));
+const legLabel  = label => label + NB.repeat(LABEL_W - halfWidth(label) + 1);
 
 export function ChartSvg({
   svgRef,
@@ -96,7 +104,7 @@ export function ChartSvg({
           strokeWidth={3} paintOrder="stroke"
         />
         {/* 지그재그 레그 hover 라벨 — 캔들 등락률(bodyPct)보다 작게, 한 줄 아래.
-            요소가 11개라 ref를 객체 하나(legRefs)에 콜백으로 모은다 (useCrosshair 참고) */}
+            요소가 16개라 ref를 객체 하나(legRefs)에 콜백으로 모은다 (useCrosshair 참고) */}
         <text ref={el => (legRefs.current.pct = el)} display="none" x={0} y={0}
           fontSize={11} fontWeight={700}
           fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
@@ -104,22 +112,25 @@ export function ChartSvg({
           stroke={isDark ? "#0d1117" : "#f9fafb"}
           strokeWidth={3} paintOrder="stroke"
         />
-        {/* 오른쪽 한 줄 — 캔들 색 기준 피크 거래량.
+        {/* 오른쪽 세 줄 — 캔들 색 기준 거래량 (상위3봉 평균 / 봉당 평균 / 총량).
             값의 초록/빨강 = 양봉 쪽/음봉 쪽(고정), 증감률 색 = 증가/감소(매번 설정).
-            tspan으로 나눠야 색을 달리하면서도 가로 위치가 자동으로 이어진다 */}
-        <text ref={el => (legRefs.current.volText = el)}
-          display="none" x={0} y={0}
-          fontSize={11} fontWeight={600}
-          fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
-          stroke={isDark ? "#0d1117" : "#f9fafb"}
-          strokeWidth={3} paintOrder="stroke"
-        >
-          <tspan fill={isDark ? "#94a3b8" : "#64748b"}>{LEG_VOL_LABEL}</tspan>
-          <tspan ref={el => (legRefs.current.volUp  = el)} fill="#0ecb81" />
-          <tspan ref={el => (legRefs.current.volUpD = el)} />
-          <tspan ref={el => (legRefs.current.volDn  = el)} fill="#f6465d" />
-          <tspan ref={el => (legRefs.current.volDnD = el)} />
-        </text>
+            tspan으로 나눠야 색을 달리하면서도 가로 위치가 자동으로 이어진다.
+            줄 순서·개수는 LEG_VOL_METRICS 하나가 정한다 — 여기서 따로 늘리지 말 것 */}
+        {LEG_VOL_METRICS.map(({ key, label }) => (
+          <text key={key} ref={el => (legRefs.current[`${key}Text`] = el)}
+            display="none" x={0} y={0}
+            fontSize={11} fontWeight={600}
+            fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
+            stroke={isDark ? "#0d1117" : "#f9fafb"}
+            strokeWidth={3} paintOrder="stroke"
+          >
+            <tspan fill={isDark ? "#94a3b8" : "#64748b"}>{legLabel(label)}</tspan>
+            <tspan ref={el => (legRefs.current[`${key}Up`]  = el)} fill="#0ecb81" />
+            <tspan ref={el => (legRefs.current[`${key}UpD`] = el)} />
+            <tspan ref={el => (legRefs.current[`${key}Dn`]  = el)} fill="#f6465d" />
+            <tspan ref={el => (legRefs.current[`${key}DnD`] = el)} />
+          </text>
+        ))}
       </g>
 
       {/* 거래량 구분선 드래그 히트 영역 */}

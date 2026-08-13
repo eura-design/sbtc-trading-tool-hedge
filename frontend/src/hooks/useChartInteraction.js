@@ -6,7 +6,7 @@ import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
 import { getCursor } from "../chart/cursorRules";
 import { buildHitChain, findHitChannel, findHitCircle, findHitStructure, findHitZzLeg, findHoveredLeg, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
-import { legPeakVolume, fmtVol, volChangePct } from "../chart/legVolume";
+import { legPeakVolume, fmtVol, volChangePct, LEG_VOL_METRICS } from "../chart/legVolume";
 import { getZzSegments } from "../chart/structureZigzag";
 import { getStructLiveSegment } from "../chart/structRenderState";
 import { ZZ_ID } from "../chart/drawables";
@@ -41,6 +41,7 @@ export function useChartInteraction({
   moveStructPoint, normalizeStruct, structPart, selectStructPart, clearStructPart,
   // 레그 등락률 hover 표시 — 자동 ZZ는 모듈 상태에서 읽으므로 on/off 여부만 받는다
   showZZ = false,
+  zzShowVol = true,   // 자동 ZZ의 레그 hover 거래량 3줄 (indicatorParams.zz.show_legvol)
   // 도형 통합 인터페이스
   drawables,
   overlaysRef,
@@ -280,20 +281,24 @@ export function useChartInteraction({
           structures, liveSegment: getStructLiveSegment(),
           zzSegments: showZZ ? getZzSegments() : null,
           xScale: scales.xScale, yScale: scales.yScale, candles,
+          zzShowVol,
         });
         // 거래량은 **candlesRef**로 — React candles는 봉마감 때만 갱신돼서
         // 진행 중 레그의 마지막 봉 거래량이 낡아 있다 (구조 지표와 같은 함정)
-        const src = candlesRef?.current?.length ? candlesRef.current : candles;
-        const cur = leg ? legPeakVolume(src, leg.i1, leg.i2) : null;
-        const prv = leg?.prev ? legPeakVolume(src, leg.prev.i1, leg.prev.i2) : null;
-        // 피크를 각각 **같은 쪽끼리** 비교한다 (매수↔매수, 매도↔매도).
-        // 섞으면 "이번 상승의 매수 피크가 직전 상승의 매도 피크보다 크다" 같은
-        // 의미 없는 값이 나온다
-        const side = (c, p) => c == null ? null
-          : { vol: fmtVol(c.peak), delta: p == null ? null : volChangePct(c.peak, p.peak) };
+        const src     = candlesRef?.current?.length ? candlesRef.current : candles;
+        const wantVol = leg != null && leg.showVol !== false;   // 구조별 `거래량 비교` 토글
+        const cur = wantVol ? legPeakVolume(src, leg.i1, leg.i2) : null;
+        const prv = wantVol && leg.prev ? legPeakVolume(src, leg.prev.i1, leg.prev.i2) : null;
+        // 각각 **같은 쪽끼리** 비교한다 (매수↔매수, 매도↔매도).
+        // 섞으면 "이번 상승의 양봉 값이 직전 상승의 음봉 값보다 크다" 같은
+        // 의미 없는 값이 나온다.
+        // 지표(상위3/평균/총량)도 **같은 지표끼리만** 비교한다 — 총량과 평균을
+        // 맞대면 "여러 봉 합이 봉당 평균보다 크다"는 당연한 말밖에 안 나온다
+        const side = (c, p, key) => c == null ? null
+          : { vol: fmtVol(c[key]), delta: p == null ? null : volChangePct(c[key], p[key]) };
 
         // [LV6] **레그 방향에 해당하는 쪽만 보여준다** (사용자 요청):
-        //   상승 레그 → ▲(양봉 피크)만 / 하락 레그 → ▼(음봉 피크)만
+        //   상승 레그 → ▲(양봉 거래량)만 / 하락 레그 → ▼(음봉 거래량)만
         // 지금 보고 있는 선이 상승인데 하락 쪽 숫자까지 깔면 읽을 게 두 배가 된다.
         // 비교도 어차피 "직전 동일방향 레그의 같은 쪽"이라 반대쪽은 비교선이 없다.
         // ※ 잃는 것: 상승 레그 안의 최대 되돌림 봉(▼)이 안 보인다.
@@ -302,14 +307,21 @@ export function useChartInteraction({
         // ※ 테이커(체결 주체) 기준 줄은 2026-08-13 제거 — legVolume.js [LV5]
         const isUp = (leg?.pct ?? 0) >= 0;
 
-        showLegPct?.({
-          x: pos.x, y: pos.y,
-          pct: leg?.pct ?? null,
-          // 캔들 색 기준 (양봉 최대 / 음봉 최대)
-          row: isUp
-            ? { up: side(cur?.up, prv?.up) }
-            : { dn: side(cur?.dn, prv?.dn) },
-        });
+        // [LV9] 세 줄 — 상위3봉 평균 / 봉당 평균 / 총량 (전부 그 방향 봉만).
+        // 판정이 갈리는 게 정보다 (총량만 레그 길이에 휘둘린다 — 상관계수 0.29 vs 평균 0.00)
+        // ※ 구조별 `거래량 비교` OFF면 세 줄만 빼고 **등락률은 그대로 띄운다**
+        //   (전부 사라지면 hover가 죽은 것처럼 보인다 — 더블클릭 팝업의 토글)
+        const rows = {};
+        if (leg?.showVol !== false) {
+          for (const { key } of LEG_VOL_METRICS) {
+            rows[key] = isUp
+              ? { up: side(cur?.up, prv?.up, key) }   // 캔들 색 기준 (양봉 쪽)
+              : { dn: side(cur?.dn, prv?.dn, key) };  //              (음봉 쪽)
+          }
+        }
+
+        // IH는 라벨(3줄)이 패널 아래로 넘칠 때 커서 위로 뒤집는 데 쓴다
+        showLegPct?.({ x: pos.x, y: pos.y, IH, pct: leg?.pct ?? null, rows });
       } else {
         showLegPct?.({ pct: null });
       }
@@ -347,7 +359,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
+  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ, zzShowVol]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
