@@ -540,6 +540,8 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
 - 대상: RSI(period/OB/OS/**zone_bg/zone_max**), FVG(lookback/mitigation), OB(swing/bos), SR(KDE 파라미터), EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
+- ※ `sr`은 **6개를 저장하지만 UI에는 3개만 뜬다** (2026-08-13) — 숨긴 `kde_range`/`limit`/
+  `persistence_atr`도 값은 그대로 KDE.py에 전달된다. 이유는 "S/R 레벨 시스템" 절 참고
 - ※ `zz`의 **show_choch·max_choch·alert_choch·opacity는 전부 ZZ 선 더블클릭 팝업**에서 조작한다
   (PARAMS_META.zz에 없음). `show_choch`는 예전에 IndicatorMenu에도 있었지만 **같은 값을 가리키는
   중복이라 2026-08-12 제거**했다 — 되살리지 말 것
@@ -611,6 +613,38 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### S/R 레벨 시스템
 - `기타/KDE.py`를 백엔드에서 `python KDE.py --json`으로 직접 실행 (15분 주기)
 - 캔버스 렌더(`overlayRenderers.js::renderSRLines`): 저항=빨강, 지지=초록, stars 수에 따라 opacity 차등 (4→0.9, 1→0.3)
+
+#### ⚠ 파라미터는 6개지만 **UI에는 3개만** 노출한다 (2026-08-13 확정)
+`KDE.py`에는 6개가 전부 전달되고 `INDICATOR_DEFAULTS.sr`/백엔드 `DEFAULTS.sr`에도 6개가 다 있다.
+`PARAMS_META.sr`(IndicatorMenu)에만 3개가 있다.
+
+| | 키 | 뜻 |
+|---|---|---|
+| **노출** | `bandwidth_atr` | 레벨 병합 폭 — 가까운 가격을 한 레벨로 합치는 범위 |
+| **노출** | `peak_min_pers` | 약한 레벨 컷 — 최강 레벨 대비 이만큼 못 미치면 버림 |
+| **노출** | `top_n` | 표시 개수 — 위/아래 각각 현재가에서 가까운 순 |
+| 숨김 | `kde_range` (20) / `limit` (1000) | top_n이 가까운 순으로 자르므로 화면에 거의 영향 없음 |
+| 숨김 | `persistence_atr` (2.0) | 아래 이유로 노브가 될 수 없음 |
+
+- **왜 줄였나**: 6개 중 4개(`persistence_atr`/`bandwidth_atr`/`peak_min_pers`/`top_n`)가 전부
+  "레벨이 몇 개 나오나"를 서로 다른 지점에서 건드린다. 앞의 3개는 올릴수록 **줄이는** 필터고
+  `top_n`·`limit`·`kde_range`는 올릴수록 **늘리는** 쪽이라, 사용자가 전부 최대로 두면 서로 상쇄된다.
+  실제로 그 상태로 쓰고 있었고 **레벨이 4개만 나왔다**(필터가 이김) — `top_n=15`는 아무 일도 안 했다
+- ⚠ **`persistence_atr`을 다시 UI로 꺼내지 말 것 — 단조롭지 않다.**
+  0.5 → 2.0으로 필터를 **조였는데 레벨이 7개 → 10개로 늘어난다**(실측). 노이즈 스윙이 한 곳에
+  뭉쳐 만들던 초강력 피크가 사라지면서, 상대 강도 기준인 `peak_min_pers`를 나머지 피크들이
+  통과하게 되기 때문. 조였는데 늘어나는 슬라이더는 사용자가 방향을 잡을 수 없다
+- ⚠ **`peak_min_pers`는 별점(stars)과 같은 축이 아니다.** `peak_min_pers`는 밀도 피크의
+  *persistence*(peak−saddle)를 최대 **밀도**와 비교하고, 별점은 피크의 *밀도*를 최대 밀도와
+  비교한다. 0.30/0.50/0.75가 ★★/★★★/★★★★ 경계와 같아 보이지만 **다른 양이다** —
+  "최소 별점" 슬라이더로 바꾸지 말 것
+- **범위(min/max)는 넓히지 않았다.** 전부 상한에 붙어 있던 건 범위가 좁아서가 아니라 위의
+  상쇄 때문이다. 기존 상한(`bandwidth 1.0`/`peak 0.30`)이면 이미 레벨이 4개까지 줄어든다.
+  `top_n`만 15 → 12로 **낮췄다**(필터를 풀면 15×2=30줄이 차트를 덮는다)
+- **기본값은 실측으로 잡았다** — BTC 1h 기준 `bw 0.6` / `peak 0.20` / `top_n 8` → 레벨 10개.
+  구 기본값(0.3/0.08)은 26개라 차트를 덮었고, 전부 최대(1.0/0.30)는 4개였다
+- 슬라이더에는 `meta.desc`(회색 한 줄 설명)를 붙인다 — `bandwidth`·`persistence` 같은 이름만으로는
+  뭘 하는 건지 알 수 없다는 사용자 피드백. `ParamDesc`는 다른 지표에서도 쓸 수 있다(옵션)
 
 ### 트렌드 라인 / 채널 / 원
 - `useTrendLines.js`가 lines/channels/circles를 각각 `useDrawableStore`로 관리 → localStorage 영구 저장

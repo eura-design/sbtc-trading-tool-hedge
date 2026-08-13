@@ -9,7 +9,19 @@ export const INDICATOR_DEFAULTS = {
   rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5 },
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },
   ob:  { swing_lb: 5, bos_window: 30, ob_lookback: 20, scan_from: 500, mitigation_pct: 50, max_display: 15, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false, use_wick: false },
-  sr:  { kde_range: 20, persistence_atr: 0.5, bandwidth_atr: 0.3, peak_min_pers: 0.08, limit: 1000, top_n: 5 },
+  // S/R — 6개 중 **3개만 지표 메뉴에 노출한다** (2026-08-13, PARAMS_META.sr 참고).
+  //   노출: bandwidth_atr(레벨 병합 폭) / peak_min_pers(약한 레벨 컷) / top_n(표시 개수)
+  //   숨김: kde_range / limit / persistence_atr — 값은 여기 남아 KDE.py로 그대로 전달된다
+  //
+  // ⚠ persistence_atr을 다시 UI로 꺼내지 말 것 — **단조롭지 않다.**
+  //   0.5 → 2.0으로 필터를 조였는데 레벨이 7개 → 10개로 오히려 **늘어난다**
+  //   (노이즈 스윙이 한 곳에 뭉쳐 만들던 초강력 피크가 사라지면서, 상대 강도 기준인
+  //    peak_min_pers를 나머지 피크들이 통과하게 된다). 조였는데 늘어나는 슬라이더는
+  //    사용자가 방향을 잡을 수 없다. 2.0 = "ATR 2배 미만 스윙은 구조가 아니다"로 고정
+  //
+  // ⚠ 기본값은 실측으로 잡았다 (BTC 1h 기준, bw 0.6 / peak 0.20 / top_n 8 → 레벨 10개).
+  //   구 기본값(0.3 / 0.08)은 26개가 나와 차트를 덮었고, 전부 최대(1.0 / 0.30)는 4개였다
+  sr:  { kde_range: 20, persistence_atr: 2.0, bandwidth_atr: 0.6, peak_min_pers: 0.20, limit: 1000, top_n: 8 },
   // max_choch(표시 개수, null = 전체) / alert_choch(CHoCH 발생 알림) / opacity(투명도)는
   // 지표 메뉴가 아니라 **ZZ 선 클릭 → 더블클릭 팝업**에서 조작한다 (수동 구조와 같은 조작감).
   // max_choch 기본이 숫자면 낮춰둔 걸 잊고 "CHoCH가 안 뜬다"고 오해한다 → 기본은 전체

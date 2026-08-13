@@ -58,13 +58,27 @@ const PARAMS_META = {
     // 전부 **ZZ 선 더블클릭 팝업**에 있다 (2026-08-12 사용자 요청으로 메뉴 쪽 중복 제거).
     // show_choch는 팝업과 **같은 값**(zz.show_choch)을 가리켜 두 곳에 둘 이유가 없었다.
   ],
+  // S/R은 원래 6개였다. 그중 4개(persistence/bandwidth/peak + top_n)가 전부
+  // "레벨이 몇 개 나오나"를 서로 다른 지점에서 건드려서, 사용자가 방향을 잡을 수 없었다
+  // (실제로 전부 최대로 둔 채 쓰고 있었고, 그러면 필터가 이겨서 레벨이 4개만 나왔다 —
+  //  올릴수록 늘어나는 top_n/limit/kde_range와 줄어드는 필터 3개가 서로 상쇄된다).
+  //
+  // ⚠ 아래 3개만 노출한다. 나머지 kde_range / limit / persistence_atr은
+  //   INDICATOR_DEFAULTS에 값으로 남아 KDE.py에 그대로 전달되지만 **UI에는 없다**.
+  //   숨긴 이유는 useIndicatorParams.js의 sr 주석 참고 — 특히 persistence_atr은
+  //   단조롭지 않아서(조이면 오히려 레벨이 늘어난다) 노브로 두면 안 된다.
   sr: [
-    { key: "kde_range",       label: "분석 범위(%)",  min: 5,    max: 40,   step: 1,    fmt: v => v + "%" },
-    { key: "persistence_atr", label: "스윙 최소크기", min: 0.1,  max: 2.0,  step: 0.1,  fmt: v => v.toFixed(1) },
-    { key: "bandwidth_atr",   label: "커널 폭",       min: 0.05, max: 1.0,  step: 0.05, fmt: v => v.toFixed(2) },
-    { key: "peak_min_pers",   label: "피크 필터",     min: 0.01, max: 0.30, step: 0.01, fmt: v => v.toFixed(2) },
-    { key: "limit",           label: "데이터량(봉)",  min: 200,  max: 1500, step: 100 },
-    { key: "top_n",           label: "표시 레벨수",   min: 3,    max: 15,   step: 1   },
+    // 범위는 넓히지 않았다 — 기존 상한(1.0 / 0.30)이면 레벨이 4개까지 줄어든다.
+    // 전부 최대에 붙어 있던 건 범위가 좁아서가 아니라 필터끼리 상쇄돼서였다
+    { key: "bandwidth_atr", label: "레벨 병합 폭", min: 0.1, max: 1.0, step: 0.05,
+      fmt: v => v.toFixed(2),
+      desc: "가까운 가격을 한 레벨로 합치는 폭. 올리면 촘촘한 레벨이 뭉쳐 개수가 준다" },
+    { key: "peak_min_pers", label: "약한 레벨 컷", min: 0.02, max: 0.30, step: 0.02,
+      fmt: v => v.toFixed(2),
+      desc: "가장 강한 레벨 대비 이만큼 못 미치는 레벨은 버린다. 올릴수록 센 것만 남는다" },
+    { key: "top_n", label: "표시 개수", min: 2, max: 12, step: 1,
+      fmt: v => v + "개",
+      desc: "위/아래 각각 현재가에서 가까운 순으로 이만큼만. 실제로는 위 두 필터를 통과한 만큼만 나온다" },
   ],
 };
 
@@ -139,10 +153,25 @@ function RecentCountSlider({ label, value, detected, onChange, theme }) {
   );
 }
 
+// meta.desc — 슬라이더 아래 회색 한 줄 설명. "올리면 어떻게 되는가"를 쓴다.
+// 파라미터 이름(bandwidth, persistence…)만으로는 뭘 하는 건지 알 수 없어서 붙였다.
+function ParamDesc({ desc, theme }) {
+  if (!desc) return null;
+  return (
+    <div style={{
+      fontSize: 10, color: theme.textMuted, lineHeight: 1.4,
+      margin: "-2px 0 7px 106px",   // 라벨 폭(100) + gap(6)에 맞춰 값 영역 아래로 들여쓴다
+    }}>
+      {desc}
+    </div>
+  );
+}
+
 function ParamSlider({ meta, value, onChange, theme }) {
   if (meta.type === "toggle") {
     const on = !!value;
     return (
+      <>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
         <span style={{ fontSize: 11, color: theme.textSec, width: 100, flexShrink: 0 }}>
           {meta.label}
@@ -161,10 +190,13 @@ function ParamSlider({ meta, value, onChange, theme }) {
           {on ? "ON" : "OFF"}
         </button>
       </div>
+      <ParamDesc desc={meta.desc} theme={theme} />
+      </>
     );
   }
   const fmt = meta.fmt ?? (v => String(v));
   return (
+    <>
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
       <span style={{ fontSize: 11, color: theme.textSec, width: 100, flexShrink: 0 }}>
         {meta.label}
@@ -188,6 +220,8 @@ function ParamSlider({ meta, value, onChange, theme }) {
         {fmt(value)}
       </span>
     </div>
+    <ParamDesc desc={meta.desc} theme={theme} />
+    </>
   );
 }
 

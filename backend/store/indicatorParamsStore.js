@@ -9,7 +9,11 @@ const DEFAULTS = {
   rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5 },
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },
   ob:  { swing_lb: 5, bos_window: 30, ob_lookback: 20, scan_from: 500, mitigation_pct: 50, max_display: 15, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false, use_wick: false },
-  sr:  { kde_range: 20, persistence_atr: 0.5, bandwidth_atr: 0.3, peak_min_pers: 0.08, limit: 1000, top_n: 5 },
+  // S/R — 6개 전부 유지한다(KDE.py로 그대로 전달). 단 **UI에 뜨는 건 3개뿐**:
+  // bandwidth_atr / peak_min_pers / top_n. 나머지는 프론트가 값만 들고 다닌다.
+  // 여기서 키를 빼면 load()가 통째로 버려 숨긴 값이 저장되지 않는다
+  // (프론트 INDICATOR_DEFAULTS.sr와 반드시 같은 값으로 유지 — 이유는 그쪽 주석 참고)
+  sr:  { kde_range: 20, persistence_atr: 2.0, bandwidth_atr: 0.6, peak_min_pers: 0.20, limit: 1000, top_n: 8 },
   liq: { swing_lb: 5, tolerance_pct: 0.15, scan_from: 500, max_display: 10, min_touches: 2 },
   // max_choch(표시 개수, null = 전체) / alert_choch / opacity는 ZZ 선 더블클릭 팝업에서 조작
   zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: true, opacity: 1.0 },
