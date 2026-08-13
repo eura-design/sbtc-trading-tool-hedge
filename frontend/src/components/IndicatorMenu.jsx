@@ -68,12 +68,13 @@ const PARAMS_META = {
   //   숨긴 이유는 useIndicatorParams.js의 sr 주석 참고 — 특히 persistence_atr은
   //   단조롭지 않아서(조이면 오히려 레벨이 늘어난다) 노브로 두면 안 된다.
   sr: [
-    // 범위는 넓히지 않았다 — 기존 상한(1.0 / 0.30)이면 레벨이 4개까지 줄어든다.
-    // 전부 최대에 붙어 있던 건 범위가 좁아서가 아니라 필터끼리 상쇄돼서였다
+    // bandwidth는 기존 상한(1.0) 유지 — 전부 최대에 붙어 있던 건 범위가 좁아서가 아니라
+    // 필터끼리 상쇄돼서였다. peak_min_pers만 0.30 → 0.50으로 넓혔다 (2026-08-13 사용자 요청):
+    // 필터가 2개로 정리되면서 "센 것만" 쪽 여유가 필요해졌다. KDE.py에는 상한이 없다
     { key: "bandwidth_atr", label: "레벨 병합 폭", min: 0.1, max: 1.0, step: 0.05,
       fmt: v => v.toFixed(2),
       desc: "가까운 가격을 한 레벨로 합치는 폭. 올리면 촘촘한 레벨이 뭉쳐 개수가 준다" },
-    { key: "peak_min_pers", label: "약한 레벨 컷", min: 0.02, max: 0.30, step: 0.02,
+    { key: "peak_min_pers", label: "약한 레벨 컷", min: 0.02, max: 0.50, step: 0.02,
       fmt: v => v.toFixed(2),
       desc: "가장 강한 레벨 대비 이만큼 못 미치는 레벨은 버린다. 올릴수록 센 것만 남는다" },
     { key: "top_n", label: "표시 개수", min: 2, max: 12, step: 1,

@@ -1,7 +1,12 @@
 import { M, CANVAS_C } from "../constants";
 import { withClip } from "./canvasUtils";
 
-const SR_OPACITY = { 4: 0.55, 3: 0.40, 2: 0.28, 1: 0.16 };
+// S/R 점선 진하기 — ★ 개수가 곧 강도다 (라벨을 없앴으므로 **이게 유일한 강도 표현**).
+// ⚠ 2026-08-13 상향: 이전 값 { 0.55, 0.40, 0.28, 0.16 }은 ★1이 0.16이라 사실상 안 보였고
+//   사용자가 "점선이 잘 안 보인다"고 지적했다. 아래로 더 내리지 말 것 —
+//   가장 약한 레벨도 보이긴 해야 필터(약한 레벨 컷)를 얼마나 걸지 판단할 수 있다.
+//   4단계 차이는 유지한다 (다 똑같이 진하면 ★가 의미를 잃는다)
+const SR_OPACITY = { 4: 0.90, 3: 0.70, 2: 0.52, 1: 0.38 };
 
 // RSI 과매수/과매도 구간 배경의 진하기 (2026-08-13 사용자 요청으로 0.13/0.10 → 상향).
 // 캔들이 globalAlpha 0.7로 그려지므로 여기를 더 올리면 캔들이 파랗게 물들기 시작한다.
@@ -149,20 +154,23 @@ export function renderOrderBlock(ctx, obData, xScale, yScale, IW, IH) {
 }
 
 // ⚠ 오른쪽 끝 라벨(밀도 `42%` / 폴백 `3★`)과 그 배경 박스는 **제거됐다** (2026-08-13 사용자 요청).
-//   되살리지 말 것 — 강도는 이미 선 불투명도(SR_OPACITY, ★4→0.9 … ★1→0.3)로 표현된다.
+//   되살리지 말 것 — 강도는 이미 선 불투명도(SR_OPACITY)로 표현된다.
 //   같은 정보를 숫자로 또 적으면 가격축 옆이 지저분해지기만 한다.
-//   ※ isDark는 라벨 색에만 쓰던 인자라 함께 뺐다 — 점선은 테마와 무관한 단일 색이다
-export function renderSRLines(ctx, srLevels, yScale, IW, IH) {
+//   ※ 라벨과 함께 뺐던 isDark는 **되돌렸다** — 점선 색이 테마별로 달라졌기 때문(2026-08-13).
+//     단일 색은 한쪽 테마에서 반드시 묻힌다. CANVAS_C.SR_LINE_* 주석 참고
+export function renderSRLines(ctx, srLevels, yScale, IW, IH, isDark) {
   withClip(ctx, M.left, M.top, IW, IH, () => {
-    ctx.strokeStyle = CANVAS_C.SR_LINE;
+    ctx.strokeStyle = isDark ? CANVAS_C.SR_LINE_DARK : CANVAS_C.SR_LINE_LIGHT;
+    // 1px 점선은 굵기로는 더 못 키운다(캔들을 가린다) — 대신 대시를 촘촘하게 해
+    // 선이 끊겨 보이지 않게 한다. [3,5]는 빈칸이 길어 얇은 선에서 흐릿하게 읽혔다
     ctx.lineWidth   = 1;
 
     for (const lv of srLevels) {
       const px = yScale(lv.price);
       if (px < -20 || px > IH + 20) continue;
 
-      ctx.globalAlpha = SR_OPACITY[lv.stars] ?? 0.2;
-      ctx.setLineDash([3, 5]);
+      ctx.globalAlpha = SR_OPACITY[lv.stars] ?? 0.38;
+      ctx.setLineDash([4, 3]);
       ctx.beginPath();
       ctx.moveTo(0,  px);
       ctx.lineTo(IW, px);
