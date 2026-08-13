@@ -62,7 +62,32 @@ export const STRUCT_DEFAULT_OPACITY = 0.5;
  *      경로가 하나 늘어날 때마다 잠금이 조용히 뚫린다.
  *      ※ 삭제(Delete)는 막지 않는다 — 트렌드라인/채널/원도 잠긴 채로 지워진다.
  *        잠금은 "모양이 변하지 않는다"는 보장이지 "지울 수 없다"가 아니다.
+ *
+ * [S8] **이어 붙여도 기존 구조의 설정을 물려받는다** (2026-08-13 버그 수정).
+ *      연장(extendId)은 store.update라 설정이 그대로지만, 흡수(mergeIds)는
+ *      store.add로 **새 구조를 만들고 원본을 지우는** 경로라 CHoCH 표시·거래량 비교를
+ *      꺼 뒀어도 기본값(ON)으로 되돌아갔다. 사용자가 실제로 겪은 증상이다:
+ *      "구조를 그려두고 나중에 새로 그려서 이어 붙이면 off가 on으로 바뀐다".
+ *      → 흡수 대상 중 **처음 붙인 구조**(absorbIds[0])의 설정을 새 구조가 승계한다.
+ *      설정이 다른 두 구조를 이으면 하나가 이겨야 하므로 규칙은
+ *      **"먼저 잡은 기존 구조가 기준"** 하나로 통일한다 (연장도 같은 규칙 —
+ *      연장 대상 A가 B를 흡수하면 A가 남는다).
+ *      ⚠ 승계 목록에 `locked`를 넣지 말 것 — 잠긴 구조는 애초에 흡수·연장 대상이
+ *        아니고(위 [SL1]), 넣으면 새로 그린 선이 잠긴 채로 태어난다.
  */
+
+// [S8] 이어 붙일 때 승계하는 필드. undefined인 값은 넘기지 않는다 —
+// maxChoch/showChoch는 undefined 자체가 "제한 없음 / ON"이라 명시적으로 실어 보낼 필요가 없고,
+// store.add의 기본값(opacity 등)을 undefined로 덮어쓰면 안 되기 때문.
+const INHERITED_KEYS = ["opacity", "showChoch", "alertChoch", "showLegVol", "maxChoch"];
+
+function inheritSettings(item) {
+  const out = {};
+  if (!item) return out;
+  for (const k of INHERITED_KEYS) if (item[k] !== undefined) out[k] = item[k];
+  return out;
+}
+
 export function useStructures() {
   const store = useDrawableStore("structures");
 
@@ -157,13 +182,20 @@ export function useStructures() {
     // 잠긴 흡수 대상은 지우지 않는다. 조용히 덮어쓰는 것보다 하나 더 생기는 편이 낫다.
     const lockedNow = id => !!store.items.find(x => x.id === id)?.locked;
     const extendTo  = extendId != null && !lockedNow(extendId) ? extendId : null;
+    const absorbIds = mergeIds.filter(id => !lockedNow(id));
 
     if (pts.length >= 2) {
       if (extendTo != null) store.update(extendTo, { points: pts });
       // 지그재그는 배경처럼 깔리는 게 낫다 (CHoCH 마크는 투명도와 무관하게 항상 100%)
-      else                  store.add({ points: pts, opacity: STRUCT_DEFAULT_OPACITY });
+      // [S8] 흡수한 기존 구조가 있으면 그 설정을 승계한다 — 안 그러면 CHoCH 표시·거래량
+      //      비교를 꺼 둔 구조를 이어 붙였을 때 기본값(ON)으로 되돌아간다
+      else store.add({
+        points: pts,
+        opacity: STRUCT_DEFAULT_OPACITY,
+        ...inheritSettings(absorbIds.length ? store.items.find(x => x.id === absorbIds[0]) : null),
+      });
       // 흡수된 구조 제거 — 남겨두면 같은 꼭짓점이 두 벌이 된다
-      for (const id of mergeIds) if (!lockedNow(id)) store.remove(id);
+      for (const id of absorbIds) store.remove(id);
     } else if (extendTo != null) {
       // 이어 그리기를 시작해놓고 점이 다 지워진 비정상 상태 — 원본을 지운다
       store.remove(extendTo);

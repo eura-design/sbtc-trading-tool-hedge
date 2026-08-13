@@ -7,6 +7,7 @@ export const INDICATOR_DEFAULTS = {
   // zone_max — 그중 **최근 몇 개만** 칠할지. 기본 5, `null`이면 전체
   //   (과거까지 온통 파래지면 배경이 아니라 노이즈가 된다는 사용자 요청)
   rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5 },
+  // ※ RSI 다이버전스(`rsidiv`)는 2026-08-13 지표째로 제거됐다 — 키를 되살리지 말 것
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },
   ob:  { swing_lb: 5, bos_window: 30, ob_lookback: 20, scan_from: 500, mitigation_pct: 50, max_display: 15, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false, use_wick: false },
   // Pivot Levels — 스윙 피벗 터치 기반 지지/저항 (구 S/R Levels(KDE)를 대체, 2026-08-13)

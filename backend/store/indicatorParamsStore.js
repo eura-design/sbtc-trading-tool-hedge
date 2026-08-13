@@ -7,6 +7,8 @@ const DEFAULTS = {
   vol: { colorMode: "neutral" },
   // zone_bg/zone_max — 과매수·과매도 구간 배경(메인 차트) 표시 여부 / 최근 N개(null = 전체)
   rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5 },
+  // ※ RSI 다이버전스(`rsidiv`)는 2026-08-13 지표째로 제거됐다 — 키를 되살리지 말 것
+  //   (load()는 여기 있는 키만 통과시키므로, 저장 파일에 남은 rsidiv는 자연히 버려진다)
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },
   ob:  { swing_lb: 5, bos_window: 30, ob_lookback: 20, scan_from: 500, mitigation_pct: 50, max_display: 15, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false, use_wick: false },
   // ※ 구 S/R Levels(KDE.py)의 `sr` 키는 2026-08-13 지표째로 제거됐다 — Pivot Levels가 대체한다
