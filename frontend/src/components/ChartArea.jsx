@@ -213,7 +213,7 @@ export function ChartArea({
   const splitTps = [...(tpsl?.long?.splitTps ?? []), ...(tpsl?.short?.splitTps ?? [])];
 
   // ── 크로스헤어 ────────────────────────────────────────────────────────────
-  const { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, legPctRef,
+  const { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, legRefs,
           updateCrosshair, hideCrosshair, showLegPct } = useCrosshair();
 
   // ── 차트 인터랙션 ─────────────────────────────────────────────────────────
@@ -299,7 +299,7 @@ export function ChartArea({
         rsiH={effectiveRsiH} onDividerMouseDown={onDividerMouseDown}
         showVol={showVol} volH={effectiveVolH} onVolDividerMouseDown={onVolDividerMouseDown}
         vLineRef={vLineRef} hLineMainRef={hLineMainRef} hLineRsiRef={hLineRsiRef}
-        priceTextRef={priceTextRef} bodyPctRef={bodyPctRef} legPctRef={legPctRef}
+        priceTextRef={priceTextRef} bodyPctRef={bodyPctRef} legRefs={legRefs}
         hasPos={hasPos} hasLong={hasLong} hasShort={hasShort} position={position} tpsl={tpsl} dragTpsl={dragTpsl} tpslSaving={tpslSaving}
         scaleInOrders={position?.scaleInOrders} dragScaleIn={dragScaleIn}
         splitTps={splitTps} dragSplitTp={dragSplitTp}

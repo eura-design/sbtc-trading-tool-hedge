@@ -144,7 +144,13 @@ export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
 }
 
 /**
- * 지그재그 레그 위에 마우스를 올렸을 때 보여줄 등락률(%) — 없으면 null.
+ * 지그재그 레그 위에 마우스를 올렸을 때 보여줄 정보 — 없으면 null.
+ *
+ *   { pct, i1, i2, prev: { i1, i2 } | null }
+ *     pct  : 그 레그의 등락률(%)
+ *     i1,i2: 레그의 bar index 범위 (거래량 합산용 — chart/legVolume.js)
+ *     prev : **직전 동일방향 레그**의 범위. 지그재그는 상승·하락이 반드시 교대하므로
+ *            두 칸 앞이 곧 같은 방향이다 → 방향 판정 없이 정확하다
  *
  * 수동 구조와 자동 ZZ를 **같은 규칙**으로 훑는다. 좌표계만 다르다:
  *   - 수동 구조: 꼭짓점이 timestamp → tsToIdx로 bar index 변환 (structureXYs)
@@ -154,10 +160,45 @@ export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
  *
  * 진행 중 레그(수동 구조의 점선 / ZZ의 마지막 세그먼트)도 포함한다. "지금 이 레그가
  * 몇 % 왔나"가 확정 레그보다 오히려 자주 보고 싶은 값이다.
+ * ※ 진행 중 레그는 구조와 별개 객체(마지막 꼭짓점 → 현재가 투영)라 확정 레그 목록에
+ *   없다. 그래서 **prev를 Structures.jsx가 liveSegment에 실어 보낸다**(`[R8]`) —
+ *   예전엔 여기서 null로 두는 바람에 진행 중 레그만 거래량 비교가 안 떴다.
  *
  * threshold는 클릭 판정(8)보다 좁은 6 — hover는 잘못 걸리면 라벨이 깜빡여서 거슬린다.
  */
-export function findHoveredLegPct({
+/**
+ * [LV7] **구조를 넘어서 찾는 직전 동일방향 레그** (2026-08-13, 사용자 지적).
+ *
+ * 기본 규칙은 "같은 구조의 두 칸 앞(k-2)"이다. 그런데 사용자는 비교하려는 임펄스 레그를
+ * **꼭짓점 2개짜리 구조로 하나씩 따로** 그린다(실제 저장 데이터: 6개 중 4개가 레그 1개짜리).
+ * 그런 구조는 두 칸 앞이 있을 수 없어 비교가 통째로 안 떴다 — 화면엔 비교할 상승 레그가
+ * 여러 개 나란히 보이는데도. "비교할 게 분명 있는데 왜 안 뜨냐"는 지적이 이것이다.
+ *
+ * 그래서 **k-2가 없을 때만** 모든 구조의 레그를 훑어 "같은 방향이면서 이 레그 시작 전에
+ * 끝난 것 중 가장 최근"을 고른다. k-2가 있으면 그대로 쓴다 —
+ * 이어진 지그재그 안에서는 k-2가 곧 가장 최근 동일방향 레그라 결과가 같고,
+ * 겹쳐 그린 다른 구조에 끌려가지 않는다.
+ *
+ * ※ 자동 ZZ 레그는 후보에서 뺀다. 손으로 그린 레그와 섞으면 무엇과 비교한 값인지 알 수 없다.
+ * ※ 시간 제한은 두지 않는다 — 한 달 전 레그와 비교하는 게 목적인 사용법이다.
+ */
+export function findPrevSameDirLeg(structures, startT, up, candles) {
+  let best = null;
+  for (const st of structures ?? []) {
+    const pts = st.points ?? [];
+    for (let k = 1; k < pts.length; k++) {
+      const a = pts[k - 1], b = pts[k];
+      if ((b.p > a.p) !== up) continue;              // 방향이 다름
+      if (b.t > startT) continue;                    // 이 레그 시작 뒤 → 과거가 아님 (자기 자신도 여기서 걸러진다)
+      if (best == null || b.t > best.t2) best = { t1: a.t, t2: b.t };
+    }
+  }
+  return best
+    ? { i1: tsToIdx(best.t1, candles), i2: tsToIdx(best.t2, candles) }
+    : null;
+}
+
+export function findHoveredLeg({
   px, py, structures, liveSegment, zzSegments, xScale, yScale, candles, threshold = 6,
 }) {
   const pct = (p1, p2) => (p1 ? ((p2 - p1) / p1) * 100 : null);
@@ -166,20 +207,54 @@ export function findHoveredLegPct({
     const xy = structureXYs(st, candles, xScale, yScale);
     for (let k = 1; k < xy.length; k++) {
       if (distToSeg(px, py, xy[k - 1].x, xy[k - 1].y, xy[k].x, xy[k].y) < threshold) {
-        return pct(st.points[k - 1].p, st.points[k].p);
+        const pts = st.points;
+        // 레그 k는 pts[k-1]→pts[k]. 두 칸 앞 레그(k-2)가 같은 방향이다.
+        // 없으면(구조의 앞 2개 레그) 다른 구조까지 통틀어 찾는다 — [LV7]
+        const prev = k >= 3
+          ? { i1: tsToIdx(pts[k - 3].t, candles), i2: tsToIdx(pts[k - 2].t, candles) }
+          : findPrevSameDirLeg(structures, pts[k - 1].t, pts[k].p > pts[k - 1].p, candles);
+        return {
+          pct: pct(pts[k - 1].p, pts[k].p),
+          i1: tsToIdx(pts[k - 1].t, candles),
+          i2: tsToIdx(pts[k].t, candles),
+          prev,
+        };
       }
     }
   }
 
   if (liveSegment) {
-    const { t1, p1, t2, p2 } = liveSegment;
+    const { t1, p1, t2, p2, prev } = liveSegment;
     const ax = xScale(tsToIdx(t1, candles)), ay = yScale(p1);
     const bx = xScale(tsToIdx(t2, candles)), by = yScale(p2);
-    if (distToSeg(px, py, ax, ay, bx, by) < threshold) return pct(p1, p2);
+    if (distToSeg(px, py, ax, ay, bx, by) < threshold) {
+      return {
+        pct: pct(p1, p2),
+        i1: tsToIdx(t1, candles), i2: tsToIdx(t2, candles),
+        // 진행 중 레그의 직전 동일방향 레그 — Structures.jsx가 timestamp로 넘겨준다([R8]).
+        // 여기서 bar index로 바꾼다. 꼭짓점이 3개 미만이면 다른 구조에서 찾는다 ([LV7])
+        prev: prev
+          ? { i1: tsToIdx(prev.t1, candles), i2: tsToIdx(prev.t2, candles) }
+          : findPrevSameDirLeg(structures, t1, p2 > p1, candles),
+      };
+    }
   }
 
-  const zz = findHitZzLeg(px, py, zzSegments, xScale, yScale, threshold);
-  return zz ? pct(zz.p1, zz.p2) : null;
+  const segs = zzSegments ?? [];
+  for (let k = 0; k < segs.length; k++) {
+    const sg = segs[k];
+    const ax = xScale(sg.i1), bx = xScale(sg.i2);
+    if (Math.max(ax, bx) < px - threshold || Math.min(ax, bx) > px + threshold) continue;
+    if (distToSeg(px, py, ax, yScale(sg.p1), bx, yScale(sg.p2)) < threshold) {
+      const p = k >= 2 ? segs[k - 2] : null;
+      return {
+        pct: pct(sg.p1, sg.p2),
+        i1: sg.i1, i2: sg.i2,
+        prev: p ? { i1: p.i1, i2: p.i2 } : null,
+      };
+    }
+  }
+  return null;
 }
 
 // ── onMouseDown 히트 테스트 체인 ──────────────────────────────────────────────

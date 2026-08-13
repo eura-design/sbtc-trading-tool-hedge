@@ -64,11 +64,15 @@ if not na(ph)
             lastPivotType := 1
             isChoch = false
 
+            // 마크 조건 = "같은 방향 추세가 아니면 CHoCH" (2026-08-13 사용자 요청).
+            // 반대 추세(-1)뿐 아니라 아직 미정(0)인 첫 돌파도 찍는다.
+            // BOS로 넘기는 건 이미 상승인데 또 고점을 돌파한 경우뿐.
+            // ※ na(structHigh)일 때 bias를 미리 세우던 분기는 제거했다 —
+            //   돌파 없이 세워둔 bias가 이후 첫 돌파의 마크를 오히려 삼킨다.
+            // ※ frontend/src/chart/structureZigzag.js와 같은 규칙 (한쪽만 고치지 말 것)
             if not na(structHigh) and ph > structHigh
-                if bias == -1
+                if bias != 1
                     isChoch := true
-                bias := 1
-            else if na(structHigh)
                 bias := 1
 
             if showZigzag and not na(lastPointBar)
@@ -91,15 +95,16 @@ if not na(ph)
             if showZigzag and not na(zzLine)
                 line.set_xy2(zzLine, pivotBar, ph)
 
-            if not isChochFormedInThisLeg and not na(structHigh) and ph > structHigh
-                if bias == -1
-                    bias := 1
+            // 메인 분기와 같은 조건 — bias는 돌파하면 항상 갱신, 마크는 bias != 1일 때
+            if not na(structHigh) and ph > structHigh
+                if not isChochFormedInThisLeg and bias != 1
                     if showChoch and not na(structHighBar)
                         markColor = chochUpColor
                         midBar = math.round((structHighBar + pivotBar) / 2)
                         line.new(structHighBar, structHigh, pivotBar, structHigh, color=markColor, width=1, style=chochLineStyle)
                         label.new(midBar, structHigh, "CHoCH", style=label.style_label_down, color=markColor, textcolor=color.black, size=labelSize)
                     isChochFormedInThisLeg := true
+                bias := 1
 
             lastPointPrice := ph
             lastPointBar := pivotBar
@@ -117,11 +122,10 @@ if not na(pl)
             lastPivotType := -1
             isChoch = false
 
+            // 고점 로직과 동일 — 같은 방향 추세(-1)가 아니면 CHoCH (미정 0 = 첫 돌파 포함)
             if not na(structLow) and pl < structLow
-                if bias == 1
+                if bias != -1
                     isChoch := true
-                bias := -1
-            else if na(structLow)
                 bias := -1
 
             if showZigzag and not na(lastPointBar)
@@ -144,15 +148,16 @@ if not na(pl)
             if showZigzag and not na(zzLine)
                 line.set_xy2(zzLine, pivotBar, pl)
 
-            if not isChochFormedInThisLeg and not na(structLow) and pl < structLow
-                if bias == 1
-                    bias := -1
+            // 메인 분기와 같은 조건 — bias는 돌파하면 항상 갱신, 마크는 bias != -1일 때
+            if not na(structLow) and pl < structLow
+                if not isChochFormedInThisLeg and bias != -1
                     if showChoch and not na(structLowBar)
                         markColor = chochDownColor
                         midBar = math.round((structLowBar + pivotBar) / 2)
                         line.new(structLowBar, structLow, pivotBar, structLow, color=markColor, width=1, style=chochLineStyle)
                         label.new(midBar, structLow, "CHoCH", style=label.style_label_up, color=markColor, textcolor=color.white, size=labelSize)
                     isChochFormedInThisLeg := true
+                bias := -1
 
             lastPointPrice := pl
             lastPointBar := pivotBar

@@ -5,7 +5,8 @@ import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
 import { getCursor } from "../chart/cursorRules";
-import { buildHitChain, findHitChannel, findHitCircle, findHitStructure, findHitZzLeg, findHoveredLegPct, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
+import { buildHitChain, findHitChannel, findHitCircle, findHitStructure, findHitZzLeg, findHoveredLeg, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
+import { legPeakVolume, fmtVol, volChangePct } from "../chart/legVolume";
 import { getZzSegments } from "../chart/structureZigzag";
 import { getStructLiveSegment } from "../chart/structRenderState";
 import { ZZ_ID } from "../chart/drawables";
@@ -270,17 +271,44 @@ export function useChartInteraction({
         }
       }
 
-      // 지그재그 레그 등락률 — 드래그·그리기 중에는 방해되므로 끈다.
+      // 지그재그 레그 hover 라벨 (등락률 + 거래량 + 직전 동일방향 레그 대비).
+      // 드래그·그리기 중에는 방해되므로 끈다.
       // 커서 위치만 쓰는 imperative 라벨이라 React 상태를 건드리지 않는다.
       if (scales && !drag && !structMode && !drawMode && pos.y >= 0 && pos.y <= IH) {
+        const leg = findHoveredLeg({
+          px: pos.x, py: pos.y,
+          structures, liveSegment: getStructLiveSegment(),
+          zzSegments: showZZ ? getZzSegments() : null,
+          xScale: scales.xScale, yScale: scales.yScale, candles,
+        });
+        // 거래량은 **candlesRef**로 — React candles는 봉마감 때만 갱신돼서
+        // 진행 중 레그의 마지막 봉 거래량이 낡아 있다 (구조 지표와 같은 함정)
+        const src = candlesRef?.current?.length ? candlesRef.current : candles;
+        const cur = leg ? legPeakVolume(src, leg.i1, leg.i2) : null;
+        const prv = leg?.prev ? legPeakVolume(src, leg.prev.i1, leg.prev.i2) : null;
+        // 피크를 각각 **같은 쪽끼리** 비교한다 (매수↔매수, 매도↔매도).
+        // 섞으면 "이번 상승의 매수 피크가 직전 상승의 매도 피크보다 크다" 같은
+        // 의미 없는 값이 나온다
+        const side = (c, p) => c == null ? null
+          : { vol: fmtVol(c.peak), delta: p == null ? null : volChangePct(c.peak, p.peak) };
+
+        // [LV6] **레그 방향에 해당하는 쪽만 보여준다** (사용자 요청):
+        //   상승 레그 → ▲(양봉 피크)만 / 하락 레그 → ▼(음봉 피크)만
+        // 지금 보고 있는 선이 상승인데 하락 쪽 숫자까지 깔면 읽을 게 두 배가 된다.
+        // 비교도 어차피 "직전 동일방향 레그의 같은 쪽"이라 반대쪽은 비교선이 없다.
+        // ※ 잃는 것: 상승 레그 안의 최대 되돌림 봉(▼)이 안 보인다.
+        //   실제로 "올랐지만 가장 큰 한 방은 매도였던" 레그가 있었다 — 되살릴 거면
+        //   양쪽을 다 켜지 말고 "반대쪽이 더 클 때만" 같은 조건부로 할 것.
+        // ※ 테이커(체결 주체) 기준 줄은 2026-08-13 제거 — legVolume.js [LV5]
+        const isUp = (leg?.pct ?? 0) >= 0;
+
         showLegPct?.({
           x: pos.x, y: pos.y,
-          pct: findHoveredLegPct({
-            px: pos.x, py: pos.y,
-            structures, liveSegment: getStructLiveSegment(),
-            zzSegments: showZZ ? getZzSegments() : null,
-            xScale: scales.xScale, yScale: scales.yScale, candles,
-          }),
+          pct: leg?.pct ?? null,
+          // 캔들 색 기준 (양봉 최대 / 음봉 최대)
+          row: isUp
+            ? { up: side(cur?.up, prv?.up) }
+            : { dn: side(cur?.dn, prv?.dn) },
         });
       } else {
         showLegPct?.({ pct: null });

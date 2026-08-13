@@ -134,11 +134,10 @@ export const Structures = memo(function Structures({
   }
   // 이어 그리기 중에도 CHoCH가 계속 보이도록 draft에서도 파생한다.
   // draft는 과거 방향 연장 시 역순일 수 있어 normalize로 시간순을 맞춘 뒤 넘긴다.
-  const draftDerived = structDraft?.points?.length >= 2
-    ? deriveStructure(
-        normalizeStructurePoints(structDraft.points),
-        liveOwnerId === DRAFT_ID ? liveCandles : null,
-      )
+  const draftPts = structDraft?.points?.length >= 2
+    ? normalizeStructurePoints(structDraft.points) : null;
+  const draftDerived = draftPts
+    ? deriveStructure(draftPts, liveOwnerId === DRAFT_ID ? liveCandles : null)
     : null;
 
   // 구조별 CHoCH 표시 토글(더블클릭 팝업)이 꺼진 구조는 제외. 기본은 ON이라 undefined = ON
@@ -147,12 +146,26 @@ export const Structures = memo(function Structures({
   // 슬라이스 **전** 개수를 구조별로 남긴다 — 팝업의 "CHoCH 개수" 슬라이더 상한(1~N)
   setStructChochCounts(new Map(visible.map(st => [st.id, derived.get(st.id).chochs.length])));
 
-  // 진행 중 레그(점선)를 hover 등락률 표시가 쓸 수 있게 남긴다.
+  // 진행 중 레그(점선)를 hover 라벨이 쓸 수 있게 남긴다.
   // 구조를 통틀어 하나뿐이므로([R3]) 여기서 한 번만 기록하면 된다.
+  //
+  // [R8] **prev(직전 동일방향 레그)까지 같이 남긴다.** 안 그러면 진행 중 레그만
+  //   거래량 비교(↑↓%)가 통째로 안 뜬다 — 정작 제일 자주 보는 레그인데다,
+  //   화면엔 비교 대상이 뻔히 보이는 상태라 "왜 이것만 안 나오지"가 된다(사용자 지적).
+  //   진행 중 레그는 pts[n-1] → 현재이므로 두 칸 앞 레그는 pts[n-3] → pts[n-2]다
+  //   (고/저 교대라 방향 판정 없이 정확 — 자동 ZZ가 segs[k-2]를 쓰는 것과 같은 근거).
+  //   좌표 변환(timestamp → bar index)은 소비하는 쪽(hitDetection)에서 한다.
+  const liveOwnerPts = liveOwnerId === DRAFT_ID
+    ? draftPts
+    : visible.find(st => st.id === liveOwnerId)?.points;
+  const liveSeg = (liveOwnerId === DRAFT_ID
+    ? draftDerived?.liveSegment
+    : derived.get(liveOwnerId)?.liveSegment) ?? null;
+  const n = liveOwnerPts?.length ?? 0;
   setStructLiveSegment(
-    (liveOwnerId === DRAFT_ID
-      ? draftDerived?.liveSegment
-      : derived.get(liveOwnerId)?.liveSegment) ?? null,
+    liveSeg && n >= 3
+      ? { ...liveSeg, prev: { t1: liveOwnerPts[n - 3].t, t2: liveOwnerPts[n - 2].t } }
+      : liveSeg,
   );
 
   // 알림(useChochAlert)용 — 진행 중 레그에서 나온 CHoCH만. 확정분을 넣으면

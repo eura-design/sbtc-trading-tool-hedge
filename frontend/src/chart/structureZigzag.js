@@ -162,14 +162,15 @@ function step(st, candles, i) {
         if (st.lastPivotType === -1) { st.structLow = st.lastPointPrice; st.structLowBar = st.lastPointBar; }
         st.lastPivotType = 1;
 
-        // bias는 "실제 돌파"가 있을 때만 세운다 (2026-08-12 수정, Pine 원본도 동일하게 수정).
-        // 예전에는 structHigh가 NaN이라는 이유만으로 bias=1을 세웠고, 그래서
-        // 고점100 → 저점90 → 고점110 같은 단순 상승에서도 첫 CHoCH가 찍혔다.
-        // 하락 추세가 성립한 적이 없으므로 그건 BOS이지 CHoCH가 아니다.
-        // ※ Custom Structure Zigzag(deriveStructure.js)와 같은 규칙이다 — 한쪽만 되돌리지 말 것.
+        // bias는 "실제 돌파"가 있을 때만 세운다 (structHigh가 NaN이라는 이유로 미리
+        // 세우지 않는다 — 2026-08-12). 마크 조건은 **같은 방향 추세가 아니면 CHoCH**다:
+        // 반대 추세(-1)는 물론 아직 미정(0)인 첫 돌파도 CHoCH로 찍는다 (2026-08-13 사용자 요청).
+        // BOS로 넘기는 건 이미 상승인데 또 고점을 돌파한 경우뿐이다.
+        // ※ Custom Structure Zigzag(deriveStructure.js)·Pine 원본과 같은 규칙이다 —
+        //   한쪽만 되돌리면 같은 차트에서 지표끼리, 또 트레이딩뷰와 결과가 어긋난다.
         let isChoch = false;
         if (!Number.isNaN(st.structHigh) && ph > st.structHigh) {
-          if (st.bias === -1) isChoch = true;
+          if (st.bias !== 1) isChoch = true;
           st.bias = 1;
         }
 
@@ -191,12 +192,12 @@ function step(st, candles, i) {
       // 같은 방향(고점) 갱신 → 기존 지그재그 선 끝점만 연장
       if (st.curSeg) { st.curSeg.i2 = i; st.curSeg.p2 = ph; }
 
-      // 돌파했으면 bias는 **항상** 갱신한다(= BOS). CHoCH 마크는 반대 추세였을 때만.
+      // 돌파했으면 bias는 **항상** 갱신한다(= BOS). CHoCH 마크는 위 메인 분기와 같은
+      // 조건 — 같은 방향 추세(1)가 아니면 찍는다(반대 추세 -1 + 미정 0, 2026-08-13).
       // ※ bias 갱신을 CHoCH 조건 안에 두면, bias=0 상태에서 이 연장 분기로 구조 고점을
       //   돌파했을 때 추세가 영영 서지 않아 이후 진짜 전환도 CHoCH로 안 잡힌다.
-      //   (위 메인 분기와 동일한 구조로 맞춘 것 — 한쪽만 되돌리지 말 것)
       if (!Number.isNaN(st.structHigh) && ph > st.structHigh) {
-        if (!st.chochInLeg && st.bias === -1) {
+        if (!st.chochInLeg && st.bias !== 1) {
           if (st.structHighBar >= 0) {
             pushChoch(st, { dir: "bull", fromIdx: st.structHighBar, price: st.structHigh, seg: st.curSeg });
           }
@@ -217,10 +218,11 @@ function step(st, candles, i) {
         if (st.lastPivotType === 1) { st.structHigh = st.lastPointPrice; st.structHighBar = st.lastPointBar; }
         st.lastPivotType = -1;
 
-        // 고점 로직과 동일 — 실제 돌파가 있을 때만 bias를 세운다 (2026-08-12 수정)
+        // 고점 로직과 동일 — 돌파가 있을 때만 bias를 세우고,
+        // 같은 방향 추세(-1)가 아니면 CHoCH (미정 0 = 첫 돌파 포함, 2026-08-13)
         let isChoch = false;
         if (!Number.isNaN(st.structLow) && pl < st.structLow) {
-          if (st.bias === 1) isChoch = true;
+          if (st.bias !== -1) isChoch = true;
           st.bias = -1;
         }
 
@@ -239,9 +241,10 @@ function step(st, candles, i) {
     } else if (pl < st.lastPointPrice) {
       if (st.curSeg) { st.curSeg.i2 = i; st.curSeg.p2 = pl; }
 
-      // 고점 연장 분기와 동일 — 돌파하면 bias는 항상 갱신, CHoCH는 반대 추세였을 때만
+      // 고점 연장 분기와 동일 — 돌파하면 bias는 항상 갱신,
+      // CHoCH는 같은 방향 추세(-1)가 아닐 때 (미정 0 포함)
       if (!Number.isNaN(st.structLow) && pl < st.structLow) {
-        if (!st.chochInLeg && st.bias === 1) {
+        if (!st.chochInLeg && st.bias !== -1) {
           if (st.structLowBar >= 0) {
             pushChoch(st, { dir: "bear", fromIdx: st.structLowBar, price: st.structLow, seg: st.curSeg });
           }
@@ -275,7 +278,8 @@ export function getZzChochTotal() {
 /**
  * 현재 누적된 지그재그 세그먼트 `[{ i1, p1, i2, p2 }]` (좌표는 **bar index**).
  *
- * 레그 등락률 hover 표시(hitDetection.findHoveredLegPct)가 히트 판정에 쓴다.
+ * 레그 hover 표시(hitDetection.findHoveredLeg)가 히트 판정에 쓴다.
+ * 순서가 곧 시간순이라 k-2가 "직전 동일방향 레그"가 된다 (지그재그는 상승·하락 교대).
  * ZZ는 캔버스 렌더 경로에만 있어 React로 올라오지 않으므로 모듈 상태를 직접 읽는다.
  * 마지막 세그먼트는 진행 중인 레그(curSeg)라 매 틱 끝점이 연장된다.
  * ZZ가 꺼져 있으면 계산 자체가 안 돌아 빈 배열이다.

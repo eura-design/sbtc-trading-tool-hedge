@@ -22,9 +22,14 @@ export function setStructChochCounts(m) { _chochCounts = m; }
 export function getStructChochCount(id) { return _chochCounts.get(id) ?? 0; }
 
 // ── 진행 중 레그(점선) ──────────────────────────────────────────────────────
-// { t1, p1, t2, p2 } | null — 마지막 꼭짓점 → 현재 구간 극값.
-// 레그 등락률 hover 표시(hitDetection.findHoveredLegPct)가 확정 레그와 함께 훑는다.
+// { t1, p1, t2, p2, prev } | null — 마지막 꼭짓점 → 현재 구간 극값.
+// 레그 hover 표시(hitDetection.findHoveredLeg)가 확정 레그와 함께 훑는다.
 // 구조 전체를 통틀어 하나뿐이다 (Structures.jsx [R3] — liveOwnerId 참고).
+//
+// prev = { t1, t2 } | null — **직전 동일방향 레그**(두 칸 앞, pts[n-3]→pts[n-2]).
+// 진행 중 레그는 확정 레그 목록에 없어서 소비하는 쪽이 직전 레그를 찾을 수 없다.
+// 여기 실어 보내지 않으면 진행 중 레그만 거래량 비교(↑↓%)가 통째로 빠진다
+// (Structures.jsx [R8] — 사용자 지적으로 추가).
 let _liveSegment = null;
 
 export function setStructLiveSegment(seg) { _liveSegment = seg; }

@@ -7,13 +7,19 @@
 // "이상해 보인다 / 더 정확할 것 같다"는 이유로 되돌리지 말 것. 되돌리면 재발하는
 // 구체적 증상을 각 항목에 적어뒀다. 바꿔야 할 이유가 생기면 먼저 사용자에게 확인할 것.
 //
-// [1] CHoCH는 "실제 돌파로 bias가 선 상태"에서만 찍는다.
-//     느슨하게(구조 고/저점이 없다는 이유만으로 bias를 세팅) 바꾸지 말 것 —
-//     그러면 고점100 → 저점90 → 고점110 같은 단순 상승(BOS)에도 CHoCH가 찍힌다.
-//     ※ 자동 ZZ(structureZigzag.js)와 원본 Pine도 2026-08-12에 같은 규칙으로 통일했다.
-//       셋 중 하나만 되돌리면 같은 차트에서 지표끼리 결과가 어긋난다.
-//     사용자 확인: "알고리즘대로 잘 표시되면 문제 없어" (덜/많이 뜨는 건 문제가 아님)
-//     → 마크가 적게 뜬다고 규칙을 완화하지 말 것.
+// [1] **첫 돌파도 CHoCH다** (2026-08-13 사용자 요청으로 변경 — 수동 구조에만 적용).
+//     BOS로 처리하는 건 "같은 방향 추세가 이미 서 있는데 또 돌파한" 경우뿐이다.
+//       bull: bias !== 1 이면 발생 (반대 추세 -1 + 미정 0)
+//       bear: bias !== -1 이면 발생
+//     되돌리면 재발하는 문제: 구조마다 **첫 돌파에 마크가 통째로 없다.**
+//     돌파가 한 번뿐인 짧은 구조는 CHoCH가 0개가 되고, 여러 구조를 그리면
+//     "어떤 건 아예 안 보인다"가 된다 (사용자 지적).
+//     ※ 이전 규칙(bias가 반대로 선 상태에서만)은 고점100 → 저점90 → 고점110 같은
+//       단순 상승에도 마크가 찍히는 걸 막으려던 것이었다. 그 케이스는 이제 다시 찍힌다 —
+//       사용자가 그 트레이드오프를 알고 선택했다.
+//     ※ 자동 ZZ(structureZigzag.js)와 원본 Pine(기타/structure_zigzag.pine)도 같은 날
+//       같은 규칙으로 맞췄다. 셋 중 하나만 되돌리면 같은 차트에서 지표끼리, 또
+//       트레이딩뷰와 마크 개수가 어긋난다.
 //
 // [2] BOS는 표시하지 않는다. 제안했다가 거절당함 — "오히려 복잡해".
 //     디버깅 목적이라도 BOS 라벨 레이어를 추가하지 말 것.
@@ -47,14 +53,13 @@
 //   → 꼭짓점을 옮기면 그 지점 이후의 구조 고/저점이 바뀌므로 CHoCH가 사라지거나
 //     없던 게 생긴다. 의도된 동작이다.
 //
-// ── bias 규칙 (자동 ZZ·원본 Pine과 동일) ──────────────────────────────────────
-// **실제 돌파가 있었을 때만 bias를 세운다.** 구조 고/저점이 아직 없다는 이유로
-// bias를 미리 정해두면 H1 → L1 → H2(>H1) 같은 단순 상승에서도 첫 CHoCH가 찍히는데,
-// 하락 추세가 성립한 적이 없으므로 그건 BOS이지 CHoCH가 아니다.
-//
-// 원래 자동 ZZ와 원본 Pine에만 이 오탐이 있었고 수동 구조는 처음부터 엄격했다.
-// 2026-08-12에 사용자 요청으로 셋 다 같은 규칙으로 통일했다
-// (structureZigzag.js / 기타/structure_zigzag.pine 동시 수정).
+// ── bias 규칙 (2026-08-13 — 자동 ZZ·원본 Pine과 동일) ─────────────────────────
+// bias는 여전히 **실제 돌파가 있었을 때만** 세운다(미리 정해두지 않는다).
+// 달라진 건 마크 조건이다: bias가 아직 미정(0)인 상태의 첫 돌파도 CHoCH로 찍는다.
+//   H1 → L1 → H2(>H1) → 마크 O   (예전엔 X)
+//   H1 → L1 → H2(>H1) → L2 → H3(>H2) → H3는 마크 X (bias가 이미 상승 = BOS)
+// 즉 BOS는 "추세가 이미 그 방향인데 또 돌파"할 때만이고, 구조의 출발점은 전환으로 본다.
+// 손으로 그린 구조는 사용자가 이미 추세를 보고 찍은 것이라 첫 돌파에도 의미가 있다는 판단.
 //
 // ── 판정은 전부 꼬리(고가/저가) 기준 ──────────────────────────────────────────
 // 꼭짓점이 클릭 시 봉의 고가/저가에 스냅되므로, 진행 중 레그도 종가가 아닌 꼬리로 본다.
@@ -154,7 +159,8 @@ export function deriveStructure(points, candles = null, trace = null) {
       level = structHigh;
       if (structHigh !== null && cur.p > structHigh) {
         broke = true;
-        if (bias === -1) {
+        // bias === 0(첫 돌파)도 CHoCH — 같은 방향 추세가 이미 서 있을 때만 BOS다 ([1])
+        if (bias !== 1) {
           fired = true;
           chochs.push({
             dir: "bull", fromT: structHighT, price: structHigh,
@@ -168,7 +174,8 @@ export function deriveStructure(points, candles = null, trace = null) {
       level = structLow;
       if (structLow !== null && cur.p < structLow) {
         broke = true;
-        if (bias === 1) {
+        // 고점 쪽과 동일 — 첫 돌파(bias === 0)도 CHoCH ([1])
+        if (bias !== -1) {
           fired = true;
           chochs.push({
             dir: "bear", fromT: structLowT, price: structLow,
@@ -180,7 +187,6 @@ export function deriveStructure(points, candles = null, trace = null) {
     }
 
     if (trace) {
-      const need = cur.type === "H" ? -1 : 1;   // 전환이 되려면 서 있어야 할 반대 추세
       trace.push({
         "#": k,
         꼭짓점: `${cur.type} ${cur.p}`,
@@ -189,7 +195,7 @@ export function deriveStructure(points, candles = null, trace = null) {
         판정: fired ? "CHoCH ✔"
           : level === null ? "비교할 구조 레벨이 아직 없음"
           : !broke         ? "레벨 미돌파"
-          : `돌파했지만 직전 추세가 ${BIAS_LABEL[need]}이 아니라 ${BIAS_LABEL[biasBefore]} → BOS(추세 지속)`,
+          : `돌파했지만 직전 추세가 이미 ${BIAS_LABEL[biasBefore]} → BOS(추세 지속)`,
       });
     }
   }
@@ -216,8 +222,10 @@ export function deriveStructure(points, candles = null, trace = null) {
         liveSegment = { t1: lastPt.t, p1: lastPt.p, t2: extT, p2: extP };
 
         const level = up ? structHigh : structLow;
-        const want  = up ? -1 : 1;   // 반대 추세가 서 있어야 전환이다
-        if (level !== null && bias === want && (up ? extP > level : extP < level)) {
+        // 확정분과 같은 규칙 — 같은 방향 추세가 이미 서 있으면 BOS,
+        // 반대 추세이거나 아직 미정(첫 돌파)이면 CHoCH ([1])
+        const cont  = up ? 1 : -1;
+        if (level !== null && bias !== cont && (up ? extP > level : extP < level)) {
           chochs.push({
             dir: up ? "bull" : "bear",
             fromT: up ? structHighT : structLowT,

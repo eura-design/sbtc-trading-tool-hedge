@@ -5,6 +5,7 @@ import { useStore }  from "./store";
 import { INTERVALS } from "./constants";
 import { ZZ_ID }     from "./chart/drawables";
 import { installStructDebug } from "./chart/structDebug";
+import { installLegDebug }    from "./chart/legDebug";
 
 import { useCandles }                from "./hooks/useCandles";
 import { useBalance }                from "./hooks/useBalance";
@@ -152,6 +153,12 @@ export default function App() {
   // ── 캔들 데이터 ───────────────────────────────────────────────────────────
   const onTickRef = useRef(null);
   const { candles, candlesRef, loading: candleLoading } = useCandles(interval_, onTickRef);
+
+  // 콘솔에서 `__legDebug()` — 레그 hover의 거래량 비교(↑↓%)가 안 뜨는 이유를 레그별로 출력.
+  // 진행 중 레그는 candlesRef(진행 중 봉 최신값)로 판정해야 화면과 값이 같다.
+  const legDebugCtx = useRef(null);
+  legDebugCtx.current = { structures: structs.structures, candles: candlesRef.current };
+  useEffect(() => { installLegDebug(() => legDebugCtx.current); }, []);
 
   // ── 포지션 진입 스크린샷 ─────────────────────────────────────────────────
 
