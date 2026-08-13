@@ -148,39 +148,26 @@ export function renderOrderBlock(ctx, obData, xScale, yScale, IW, IH) {
   });
 }
 
-export function renderSRLines(ctx, srLevels, yScale, IW, IH, isDark) {
-  const labelColor = isDark ? "#b0b5bc" : "#4b5563";
-
+// ⚠ 오른쪽 끝 라벨(밀도 `42%` / 폴백 `3★`)과 그 배경 박스는 **제거됐다** (2026-08-13 사용자 요청).
+//   되살리지 말 것 — 강도는 이미 선 불투명도(SR_OPACITY, ★4→0.9 … ★1→0.3)로 표현된다.
+//   같은 정보를 숫자로 또 적으면 가격축 옆이 지저분해지기만 한다.
+//   ※ isDark는 라벨 색에만 쓰던 인자라 함께 뺐다 — 점선은 테마와 무관한 단일 색이다
+export function renderSRLines(ctx, srLevels, yScale, IW, IH) {
   withClip(ctx, M.left, M.top, IW, IH, () => {
-    ctx.font      = "700 12px 'JetBrains Mono','Fira Code','Courier New',monospace";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "alphabetic";
+    ctx.strokeStyle = CANVAS_C.SR_LINE;
+    ctx.lineWidth   = 1;
 
     for (const lv of srLevels) {
-      const px      = yScale(lv.price);
+      const px = yScale(lv.price);
       if (px < -20 || px > IH + 20) continue;
-      const opacity = SR_OPACITY[lv.stars] ?? 0.2;
-      const label   = lv.density_pct != null
-        ? `${Math.round(lv.density_pct)}%`
-        : `${lv.stars}★`;
 
-      ctx.globalAlpha  = opacity;
-      ctx.strokeStyle  = CANVAS_C.NEUTRAL;
-      ctx.lineWidth    = 1;
+      ctx.globalAlpha = SR_OPACITY[lv.stars] ?? 0.2;
       ctx.setLineDash([3, 5]);
       ctx.beginPath();
       ctx.moveTo(0,  px);
       ctx.lineTo(IW, px);
       ctx.stroke();
       ctx.setLineDash([]);
-
-      ctx.globalAlpha = opacity * 0.85;
-      ctx.fillStyle   = CANVAS_C.NEUTRAL;
-      ctx.fillRect(IW - 28, px - 9, 28, 16);
-
-      ctx.globalAlpha = 1;
-      ctx.fillStyle   = labelColor;
-      ctx.fillText(label, IW - 4, px + 4);
     }
   });
 }

@@ -612,7 +612,12 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 
 ### S/R 레벨 시스템
 - `기타/KDE.py`를 백엔드에서 `python KDE.py --json`으로 직접 실행 (15분 주기)
-- 캔버스 렌더(`overlayRenderers.js::renderSRLines`): 저항=빨강, 지지=초록, stars 수에 따라 opacity 차등 (4→0.9, 1→0.3)
+- 캔버스 렌더(`overlayRenderers.js::renderSRLines`): 전 레벨 동일한 **보라색 점선**(`CANVAS_C.SR_LINE`
+  `#a78bfa`, 2026-08-13 사용자 요청 — 이전엔 회색 `NEUTRAL`), **강도는 opacity로만** 표현 (★4→0.9 … ★1→0.3)
+  - EMA 기본색 `#c084fc`와 일부러 다른 값이다 — 같으면 S/R 가로 점선과 EMA 곡선이 한 지표로 보인다
+- ⚠ 오른쪽 끝 **밀도 `42%` 라벨과 배경 박스는 제거됐다** (2026-08-13 사용자 요청) — 되살리지 말 것.
+  강도가 이미 선 불투명도로 나타나므로 같은 정보를 숫자로 또 적으면 가격축 옆이 지저분해진다.
+  라벨 색 때문에 받던 `isDark` 인자도 같이 뺐다 (점선은 테마와 무관)
 
 #### ⚠ 파라미터는 6개지만 **UI에는 3개만** 노출한다 (2026-08-13 확정)
 `KDE.py`에는 6개가 전부 전달되고 `INDICATOR_DEFAULTS.sr`/백엔드 `DEFAULTS.sr`에도 6개가 다 있다.
