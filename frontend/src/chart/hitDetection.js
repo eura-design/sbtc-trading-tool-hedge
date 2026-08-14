@@ -3,6 +3,7 @@ import { distToSeg, findHitLine } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
 import { clearAllSelections, selectDrawable, ZZ_ID } from "./drawables";
+import { fibPrice } from "./fib";
 
 // 채널 두 선의 픽셀 좌표 계산
 export function channelXYs(ch, candles, xScale, yScale, _isLog = false) {
@@ -33,6 +34,43 @@ export function findHitCircle(px, py, circles, xScale, yScale, candles, threshol
     const rx = xScale(tsToIdx(ci.rx_t, candles)), ry = yScale(ci.rx_p);
     const r  = Math.hypot(rx - cx, ry - cy);
     return Math.abs(Math.hypot(px - cx, py - cy) - r) < threshold;
+  });
+}
+
+// ── 피보나치 되돌림 ──────────────────────────────────────────────────────────
+
+/**
+ * 두 앵커의 x 픽셀 — 레벨 가로선의 양 끝 (chart/fib.js [F4]).
+ *
+ * fib.js가 아니라 여기 있는 이유: tsToIdx → scales → d3 체인이 딸려오면 fib.js를
+ * node에서 바로 import해 검증할 수 없게 된다 (pivotLevels.js와 같은 방침).
+ */
+export function fibXs(fib, candles, xScale) {
+  const xa = xScale(tsToIdx(fib.t1, candles));
+  const xb = xScale(tsToIdx(fib.t2, candles));
+  return { xa, xb, xMin: Math.min(xa, xb), xMax: Math.max(xa, xb) };
+}
+
+/**
+ * 피보나치 히트 → 그 도형 (없으면 undefined).
+ *
+ * 잡히는 곳은 **레벨 가로선**과 앵커를 잇는 대각선 둘 다다. 대각선까지 넣는 이유:
+ * 레벨을 1개만 켜 두면(지표 메뉴에서 전역 편집 — fib.js [F1]) 가로선이 하나뿐이라
+ * 도형을 고를 데가 거의 없어진다.
+ *
+ * 레벨은 **화면에 그려지는 것과 같은 배열**을 받아야 한다 (App.jsx가 useMemo로 만든
+ * 하나를 렌더·히트·알림이 나눠 쓴다). 여기서 다시 만들면 꺼 둔 레벨이 클릭에 잡힌다.
+ */
+export function findHitFib(px, py, fibs, xScale, yScale, candles, levels, isLog = false, threshold = 8) {
+  if (!levels?.length) return undefined;
+  return (fibs ?? []).find(fb => {
+    const { xa, xb, xMin, xMax } = fibXs(fb, candles, xScale);
+    if (px < xMin - threshold || px > xMax + threshold) return false;   // x 범위로 먼저 컷
+    if (distToSeg(px, py, xa, yScale(fb.p1), xb, yScale(fb.p2)) < threshold) return true;
+    return levels.some(r => {
+      const y = yScale(fibPrice(fb.p1, fb.p2, r, isLog));
+      return Math.abs(py - y) < threshold;
+    });
   });
 }
 
@@ -269,6 +307,9 @@ export function buildHitChain(ctx) {
     circleMode, circleCenter, setCircleCenter, circlePreview,
     circles, selectedCircleId,
     addCircle, moveCircle,
+    // 피보나치 되돌림 — levels는 렌더와 **같은 배열**이어야 한다 (findHitFib 주석 참고)
+    fibMode, fibStart, setFibStart, fibPreview,
+    fibs, selectedFibId, addFib, fibLevels,
     // 수동 구조
     structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
     structures, selectedStructId, structPart, selectStructPart,
@@ -309,6 +350,17 @@ export function buildHitChain(ctx) {
         } else {
           addCircle(circleCenter.t, circleCenter.p, t, p);
         }
+      },
+    },
+    // 0.6. 피보나치 그리기 모드 — 2클릭 (원과 같은 구조).
+    //      첫 클릭 = 추세 시작(레벨 1), 둘째 클릭 = 추세 끝(레벨 0) — chart/fib.js [F5].
+    //      스냅 없음 — 트렌드라인·원과 같은 자유 좌표다
+    {
+      when: fibMode,
+      handle() {
+        const { t, p } = snapToOHLC(pos, candles, xScale, yScale);
+        if (!fibStart) setFibStart({ t, p });
+        else           addFib(fibStart.t, fibStart.p, t, p);
       },
     },
     // 0.7. 구조 그리기 모드 — 클릭할 때마다 꼭짓점 추가 (고/저 교대, 꼬리 스냅)
@@ -376,6 +428,35 @@ export function buildHitChain(ctx) {
         if (Math.abs(pos.y-slPx) < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"sl",    startY:pos.y, startSl:drawing.sl }; return true; }
         if (Math.abs(pos.y-tPx)  < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"tp",    startY:pos.y, startTp:drawing.tp }; return true; }
         if (Math.abs(pos.y-ePx)  < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"entry", startY:pos.y, startX:pos.x, startEntry:drawing.entry, startTp:drawing.tp, startSl:drawing.sl, startTStart:drawing.tStart, startTEnd:drawing.tEnd }; return true; }
+        return false;
+      },
+    },
+    // 3.2. 박스 좌우 폭 조절 (2026-08-14 사용자 요청) — 세로 모서리를 잡아 끈다.
+    //
+    //      y선(진입/TP/SL) **뒤**에 둔다: 모서리와 가로선이 만나는 꼭짓점에서는
+    //      가로선이 이긴다. 가격을 옮기는 쪽이 주 기능이고 폭은 표시용이라 그 순서가 맞다.
+    //
+    //      sameSidePos여도 막지 않는다(위 3번과 다른 점) — 폭은 주문에 전혀 안 들어가는
+    //      순수 표시값이라, 포지션이 열려 있어도 조절할 수 있어야 한다.
+    //      ※ clamp 전 좌표를 본다 — BoxOverlay가 그립을 그리는 기준과 같아야 한다
+    {
+      when: !!drawing,
+      handle() {
+        const rx1 = xScale(tsToIdx(drawing.tStart, candles));
+        const rx2 = xScale(tsToIdx(drawing.tEnd,   candles));
+        const yLo = Math.min(yScale(drawing.tp), yScale(drawing.sl));
+        const yHi = Math.max(yScale(drawing.tp), yScale(drawing.sl));
+        if (pos.y < yLo - HIT || pos.y > yHi + HIT) return false;
+        const iw = xScale.range()[1];                  // = IW (getScales가 [0, IW]로 만든다)
+        for (const [edge, ex] of [["start", rx1], ["end", rx2]]) {
+          if (ex < 0 || ex > iw) continue;             // 화면 밖 모서리는 잡을 게 없다
+          if (Math.abs(pos.x - ex) < HIT) {
+            setSelectedBox(true);
+            clearAllSelections(drawables);
+            dragRef.current = { type: "box_x", edge };
+            return true;
+          }
+        }
         return false;
       },
     },
@@ -536,6 +617,31 @@ export function buildHitChain(ctx) {
         return false;
       },
     },
+    // 4.85 선택된 피보나치 드래그 — 앵커 끝점 우선, 그다음 몸통(레벨선·대각선) 이동
+    {
+      when: selectedFibId !== null && !fibMode && !drawMode,
+      handle() {
+        const fb = (fibs ?? []).find(f => f.id === selectedFibId);
+        if (!fb || fb.locked) return false;
+        const { xa, xb } = fibXs(fb, candles, xScale);
+        const ya = yScale(fb.p1), yb = yScale(fb.p2);
+        if (Math.hypot(pos.x - xa, pos.y - ya) < 10) {
+          dragRef.current = { type:"fib_ep", fibId:selectedFibId, endpoint:"start" }; return true;
+        }
+        if (Math.hypot(pos.x - xb, pos.y - yb) < 10) {
+          dragRef.current = { type:"fib_ep", fibId:selectedFibId, endpoint:"end" }; return true;
+        }
+        // 몸통 — 레벨 가로선 위 아무 데나 잡아도 도형 전체가 따라온다.
+        // 레벨선은 개별 이동 대상이 아니다(비율이 곧 위치라 하나만 옮기면 의미가 깨진다)
+        if (findHitFib(pos.x, pos.y, [fb], xScale, yScale, candles, fibLevels, isLog)) {
+          dragRef.current = { type:"fib_move", fibId:selectedFibId,
+            startX:pos.x, startY:pos.y,
+            startT1:fb.t1, startP1:fb.p1, startT2:fb.t2, startP2:fb.p2 };
+          return true;
+        }
+        return false;
+      },
+    },
     // 5. 도형 선택/해제 (drawMode 중에는 실행 안 함)
     {
       when: !drawMode,
@@ -546,6 +652,10 @@ export function buildHitChain(ctx) {
         if (hitCh) { selectDrawable(drawables, "channel", hitCh.id); setSelectedBox(false); return true; }
         const hitCi = findHitCircle(pos.x, pos.y, circles ?? [], xScale, yScale, candles);
         if (hitCi) { selectDrawable(drawables, "circle",  hitCi.id); setSelectedBox(false); return true; }
+        // 피보나치는 도형 하나가 가로선 7~10개라 선·채널·원보다 넓게 걸린다 → 그 뒤에서 판정.
+        // 다만 x 범위가 두 앵커 사이로 한정돼 있어 구조·ZZ만큼 화면을 덮지는 않는다
+        const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, fibLevels, isLog);
+        if (hitFb) { selectDrawable(drawables, "fib",     hitFb.id); setSelectedBox(false); return true; }
         // 구조는 여러 봉에 걸친 폴리라인이라 클릭을 많이 삼키므로 맨 뒤에서 판정
         const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
         if (hitSt) { selectDrawable(drawables, "structure", hitSt.id); setSelectedBox(false); return true; }

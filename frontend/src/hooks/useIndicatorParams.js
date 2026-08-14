@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { api } from "../api/client";
+import { FIB_DEFAULT_LEVELS } from "../chart/fib";
 
 export const INDICATOR_DEFAULTS = {
   vol: { colorMode: "neutral" },
@@ -41,6 +42,12 @@ export const INDICATOR_DEFAULTS = {
   //   ※ 지표 전체 CHoCH 스위치(show_choch)는 2026-08-12 제거 — 구조별 토글과 AND로 걸려
   //     OFF로 저장돼 있으면 구조별 ON이 먹지 않는데 그걸 알아챌 UI가 없었다
   struct: { tfs: ["1h"] },
+  // 피보나치 되돌림 — **레벨 목록만** 전역이다 (2026-08-14 사용자 확정, chart/fib.js [F1]).
+  //   투명도·잠금·근접 알림은 도형별(localStorage "fibs")이고 더블클릭 팝업에서 조작한다.
+  //   기본 7개 = 트레이딩뷰 기본 되돌림. 확장(1.272/1.414/1.618)은 후보(FIB_ALL_LEVELS)에만
+  //   있고 꺼져 있다 — 되돌림이 아니라 돌파 후 목표가라 성격이 다르다
+  //   ⚠ 도형별 레벨로 바꾸지 말 것. "모든 피보나치가 같은 레벨"이 사용자가 고른 사양이다
+  fib: { levels: FIB_DEFAULT_LEVELS },
   ema: [
     { id: 1, period: 10, color: "#888888", enabled: true },
     { id: 2, period: 20, color: "#f0b90b", enabled: true },

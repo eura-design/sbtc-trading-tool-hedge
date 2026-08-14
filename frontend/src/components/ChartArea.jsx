@@ -45,7 +45,7 @@ export function ChartArea({
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, pivotLevels,
   // 지표 표시 여부
-  showRsi, showRsiZones, showPivot, showOB, showFVG, showVol, showEMA, showZZ, showStruct, zzSelected,
+  showRsi, showRsiZones, showPivot, showOB, showFVG, showVol, showEMA, showZZ, showStruct, showFib, zzSelected,
   // 지표 파라미터
   indicatorParams,
   // 드로잉 상태 (useTrendLines)
@@ -62,7 +62,11 @@ export function ChartArea({
   selectedCircleId, setSelectedCircleId,
   addCircle, moveCircle,
   setCircleOpacity, toggleCircleLock, toggleCircleAlert, setCircleAlertOff,
-  cancelDraw, cancelChannelDraw, cancelCircleDraw,
+  // 피보나치 되돌림 (useFibs) — fibLevels는 App.jsx가 useMemo로 만든 **하나뿐인** 배열이다
+  fibs, fibMode, fibStart, setFibStart, fibPreview, setFibPreview,
+  selectedFibId, setSelectedFibId,
+  addFib, updateFibEndpoint, setFibPosition, fibLevels,
+  cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw,
   // 수동 구조 (useStructures)
   structures, structMode, structDraft, structPreview, setStructPreview,
   selectedStructId, setSelectedStructId,
@@ -103,6 +107,10 @@ export function ChartArea({
   // 수동 구조 표시 OFF면 렌더뿐 아니라 히트 판정에서도 빼야 한다.
   // 안 그러면 안 보이는 구조가 클릭에 잡혀 선택·드래그된다.
   const visibleStructures = showStruct ? structures : [];
+
+  // 피보나치도 같다 — 지표를 끄면 렌더뿐 아니라 히트 판정에서도 빠져야
+  // 안 보이는 도형이 클릭·드래그에 잡히지 않는다
+  const visibleFibs = showFib ? fibs : [];
 
   // ── 봉마감 카운트다운 ──────────────────────────────────────────────────────
   const [countdown, setCountdown] = useState({ text: "", ratio: 1 });
@@ -249,6 +257,9 @@ export function ChartArea({
       circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
       circles, selectedCircleId, setSelectedCircleId,
       addCircle, moveCircle,
+      fibMode, fibStart, setFibStart, fibPreview, setFibPreview,
+      fibs: visibleFibs, selectedFibId, setSelectedFibId,
+      addFib, updateFibEndpoint, setFibPosition, fibLevels,
       structMode, structDraft, structPreview, setStructPreview,
       structures: visibleStructures, selectedStructId, setSelectedStructId,
       addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
@@ -298,6 +309,7 @@ export function ChartArea({
           if (lineMode) cancelDraw();
           if (channelMode) cancelChannelDraw();
           if (circleMode) cancelCircleDraw();
+          if (fibMode) cancelFibDraw();
           if (drawMode || dragRef.current?.type === "draw") {
             setDrawMode(false); setCurrent(null); dragRef.current = null;
           }
@@ -317,6 +329,8 @@ export function ChartArea({
         channelStep={channelStep} channelPoints={channelPoints} channelPreview={channelPreview}
         circles={circles} selectedCircleId={selectedCircleId}
         circleCenter={circleCenter} circlePreview={circlePreview}
+        fibs={visibleFibs} selectedFibId={selectedFibId} fibLevels={fibLevels}
+        fibStart={showFib ? fibStart : null} fibPreview={showFib ? fibPreview : null}
         structures={visibleStructures} selectedStructId={selectedStructId} structPart={structPart}
         structDraft={showStruct ? structDraft : null}
         structPreview={showStruct ? structPreview : null}

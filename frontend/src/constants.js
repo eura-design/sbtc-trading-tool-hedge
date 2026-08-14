@@ -51,6 +51,18 @@ export const VOL_GAP   = 1;
 export const MIN_QTY   = 0.001;
 export const QTY_STEP  = 0.001;
 export const HIT       = 8;
+
+// 도형 선택 시 뜨는 금색 핸들의 반지름 (px) — **트렌드라인/채널/원/피보나치/수동 구조 공통**.
+//
+// ⚠ 2026-08-14 사용자 지정: 기준은 **수동 구조 꼭짓점**이다. 나머지 도형이 r=5라 두 배로
+//   커 보였고, "구조의 점 크기가 마음에 든다"며 전부 여기 맞췄다. 한 곳만 되돌리지 말 것 —
+//   같은 금색 핸들인데 도형마다 크기가 다르면 선택 상태가 도형별로 달라 보인다.
+// ※ **잡는 반경과는 무관하다.** 드래그 히트 판정은 hitDetection의 10px 고정이라
+//   점을 작게 그려도 집기 어려워지지 않는다 (보이는 크기만 줄인 것).
+// ※ 그리는 중 프리뷰 점(r=3)은 대상이 아니다 — 그건 "선택"이 아니라 "지금 찍은 첫 점" 표시고
+//   구조 draft 점과 이미 같은 크기다.
+export const SEL_HANDLE_R = 2.5;
+
 export const API_BASE  = "http://localhost:3002";
 export const BN_PUBLIC = "https://fapi.binance.com";
 export const BN_WS     = "wss://fstream.binance.com/market";

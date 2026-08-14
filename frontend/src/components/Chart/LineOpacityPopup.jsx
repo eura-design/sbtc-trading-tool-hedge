@@ -8,13 +8,15 @@ import { getZzChochTotal } from "../../chart/structureZigzag";
 // 사용자에게는 둘 다 "구조"이고, 어느 쪽을 더블클릭했는지는 이미 알고 있다.
 // "ZZ 투명도"처럼 이름이 갈리면 같은 팝업인데 다른 기능처럼 보인다.
 const KIND_LABEL = {
-  line: "선", channel: "채널", circle: "원",
+  line: "선", channel: "채널", circle: "원", fib: "피보나치",
   structure: "구조", zz: "구조",
 };
 
-// 근접 알림(useTrendLineAlert)은 선/채널/원만 대상.
+// 근접 알림(useTrendLineAlert)은 선/채널/원/피보나치만 대상.
+// 피보나치는 **레벨 가로선 각각**이 근접 대상이고, 어느 레벨에 닿았는지는
+// 토스트 본문에 비율로 찍힌다 (useTrendLineAlert 참고).
 // 구조·ZZ의 🔔은 같은 자리·같은 아이콘이지만 **CHoCH 발생 알림**이다 (useChochAlert).
-const PROXIMITY_ALERT_KINDS = new Set(["line", "channel", "circle"]);
+const PROXIMITY_ALERT_KINDS = new Set(["line", "channel", "circle", "fib"]);
 // CHoCH를 갖는 종류 — 🔔(발생 알림) + 아래 CHoCH 표시 영역
 const CHOCH_KINDS = new Set(["structure", "zz"]);
 // 레그 hover 거래량 비교(3줄)를 갖는 종류 — **수동 구조뿐이다.**
@@ -22,7 +24,7 @@ const CHOCH_KINDS = new Set(["structure", "zz"]);
 // CHOCH_KINDS와 달라진 유일한 지점이라 별도 집합으로 둔다 — 되살리지 말 것
 const LEGVOL_KINDS = new Set(["structure"]);
 // 드래그로 움직일 수 있는 것만 잠금이 의미 있다. ZZ는 지표라 제외
-const LOCK_KINDS = new Set(["line", "channel", "circle", "structure"]);
+const LOCK_KINDS = new Set(["line", "channel", "circle", "fib", "structure"]);
 
 // 헤더의 아이콘 토글 — 모든 종류가 같은 자리·같은 크기를 쓰도록 한 곳에서 그린다
 function IconToggle({ icon, on, onClick, title, theme, onColor = PALETTE.warn }) {

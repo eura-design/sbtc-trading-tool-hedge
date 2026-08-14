@@ -4,6 +4,7 @@ import { INDICATOR_DEFAULTS } from "../hooks/useIndicatorParams";
 import { getZzChochTotal } from "../chart/structureZigzag";
 import { getRsiZoneCount } from "../chart/overlayRenderers";
 import { INTERVALS, RSI_ZONE_MAX } from "../constants";
+import { FIB_ALL_LEVELS, FIB_DEFAULT_LEVELS } from "../chart/fib";
 
 export const INDICATORS = [
   { key: "vol", label: "Volume" },
@@ -20,6 +21,10 @@ export const INDICATORS = [
   //   CHoCH 표시/개수·거래량 비교는 자동 ZZ와 달리 여기 없다 — 전부 구조별이라
   //   각 구조의 더블클릭 팝업에 있다 (아래 STRUCT 주석 참고)
   { key: "struct", label: "Custom Structure Zigzag" },
+  // 피보나치 되돌림 — 선/채널/원과 같은 **도형**인데 여기 행이 있는 이유는
+  // 레벨 목록이 전역 파라미터라서다 (chart/fib.js [F1]). 체크박스는 표시 on/off이고,
+  // OFF면 렌더·히트 판정에서 빠지고 TopBar "피보" 버튼도 죽는다 (수동 구조와 같은 규칙)
+  { key: "fib", label: "Fibonacci" },
   { key: "ema", label: "EMA" },
 ];
 
@@ -403,6 +408,83 @@ function StructTfPanel({ structParams, setParam, resetIndicator, theme }) {
   );
 }
 
+/**
+ * 피보나치 레벨 선택 패널 — **전역**이다 (2026-08-14 사용자 확정, chart/fib.js [F1]).
+ * 여기서 고른 레벨이 차트의 모든 피보나치 도형에 함께 적용된다.
+ *
+ * ⚠ 도형별 레벨 편집(더블클릭 팝업)을 만들지 말 것 — 두 값이 생기면 AND로 걸리는지
+ *   덮어쓰는지가 UI 어디에도 안 드러난다 (struct.show_choch에서 겪은 문제와 같다).
+ *
+ * TfGrid와 같은 체크박스 규격을 쓴다 (13px 아님, 12px — 후보가 10개라 3열이 필요하다).
+ * 값이 숫자라 정렬은 chart/fib.js의 normFibLevels가 맡는다 — 클릭 순서로 저장하면
+ * 같은 선택인데 배열이 달라져 useMemo가 헛돈다.
+ */
+function FibLevelPanel({ fibParams, setParam, resetIndicator, theme }) {
+  const list = Array.isArray(fibParams?.levels) ? fibParams.levels : FIB_DEFAULT_LEVELS;
+  const toggle = (r) => {
+    const next = list.includes(r) ? list.filter(v => v !== r) : [...list, r];
+    setParam("fib", "levels", FIB_ALL_LEVELS.filter(v => next.includes(v)));
+  };
+
+  return (
+    <div style={{ padding: "10px 12px", background: theme.bgCardAlt, borderTop: `1px solid ${theme.borderSec}` }}>
+      <div style={{ fontSize: 11, color: theme.textSec, marginBottom: 6 }}>
+        표시할 레벨 (모든 피보나치 공통)
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px 2px" }}>
+        {FIB_ALL_LEVELS.map(r => {
+          const on = list.includes(r);
+          return (
+            <div
+              key={r}
+              onClick={() => toggle(r)}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "3px 2px", borderRadius: 3, cursor: "pointer",
+                fontSize: 11, color: on ? theme.textPrimary : theme.textMuted,
+                fontVariantNumeric: "tabular-nums", userSelect: "none",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = theme.borderSec}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <span style={{
+                width: 12, height: 12, flexShrink: 0,
+                border: `1.5px solid ${on ? "#c084fc" : theme.textFaint}`,
+                borderRadius: 3,
+                background: on ? "#c084fc" : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 9, color: "#000", fontWeight: 700, lineHeight: 1,
+                transition: "all 0.15s",
+              }}>
+                {on ? "✓" : ""}
+              </span>
+              {r}
+            </div>
+          );
+        })}
+      </div>
+      {/* 1 초과는 되돌림이 아니라 추세 시작점을 뚫고 더 간 자리 — 뜻이 다르니 적어 둔다 */}
+      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 6, lineHeight: 1.4 }}>
+        1 초과(1.272·1.414·1.618)는 되돌림이 아니라 돌파 후 확장 목표가입니다.
+      </div>
+      {list.length === 0 && (
+        <div style={{ fontSize: 10, color: "#f6465d", marginTop: 6, lineHeight: 1.4 }}>
+          선택된 레벨이 없어 가로선이 하나도 그려지지 않습니다. (앵커 대각선만 남습니다)
+        </div>
+      )}
+
+      <button
+        onClick={() => resetIndicator("fib")}
+        style={{
+          width: "100%", marginTop: 8, padding: "4px 0", borderRadius: 4,
+          border: `1px solid ${theme.borderSec}`, background: "transparent",
+          color: theme.textMuted, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+        }}
+      >초기화</button>
+    </div>
+  );
+}
+
 function VolColorPanel({ colorMode, setParam, theme }) {
   const modes = [
     { value: "neutral", label: "단색" },
@@ -650,6 +732,13 @@ export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaLi
                     : ind.key === "struct"
                     ? <StructTfPanel
                         structParams={params.struct ?? INDICATOR_DEFAULTS.struct}
+                        setParam={setParam}
+                        resetIndicator={resetIndicator}
+                        theme={theme}
+                      />
+                    : ind.key === "fib"
+                    ? <FibLevelPanel
+                        fibParams={params.fib ?? INDICATOR_DEFAULTS.fib}
                         setParam={setParam}
                         resetIndicator={resetIndicator}
                         theme={theme}

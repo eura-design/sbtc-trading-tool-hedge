@@ -5,7 +5,7 @@ import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
 import { getCursor } from "../chart/cursorRules";
-import { buildHitChain, findHitChannel, findHitCircle, findHitStructure, findHitZzLeg, findHoveredLeg, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
+import { buildHitChain, findHitChannel, findHitCircle, findHitFib, findHitStructure, findHitZzLeg, findHoveredLeg, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
 import { legPeakVolume, fmtVol, volChangePct, LEG_VOL_METRICS } from "../chart/legVolume";
 import { getZzSegments } from "../chart/structureZigzag";
 import { getStructLiveSegment } from "../chart/structRenderState";
@@ -34,6 +34,12 @@ export function useChartInteraction({
   circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
   circles, selectedCircleId, setSelectedCircleId,
   addCircle, moveCircle,
+  // 피보나치 되돌림
+  // fibLevels — 화면에 그려지는 것과 **같은 배열**을 받는다 (App.jsx의 useMemo 하나를
+  // 렌더·히트·알림이 나눠 쓴다). 여기서 다시 만들면 꺼 둔 레벨이 클릭에 잡힌다
+  fibMode, fibStart, setFibStart, fibPreview, setFibPreview,
+  fibs, selectedFibId, setSelectedFibId,
+  addFib, updateFibEndpoint, setFibPosition, fibLevels,
   // 수동 구조
   structMode, structDraft, structPreview, setStructPreview,
   structures, selectedStructId, setSelectedStructId,
@@ -149,6 +155,8 @@ export function useChartInteraction({
       circleMode, circleCenter, setCircleCenter, circlePreview,
       circles, selectedCircleId,
       addCircle, moveCircle,
+      fibMode, fibStart, setFibStart, fibPreview,
+      fibs, selectedFibId, addFib, fibLevels,
       structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
       structures, selectedStructId, structPart, selectStructPart,
       showZZ, zzSegments: showZZ ? getZzSegments() : null,
@@ -159,7 +167,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, showZZ]);
+  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, fibLevels, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, showZZ]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -238,6 +246,13 @@ export function useChartInteraction({
         const { xScale, yScale } = scales;
         const snapped = snapToOHLC(pos, candles, xScale, yScale);
         setCirclePreview({ t: snapped.t, p: snapped.p });
+      }
+
+      // 피보나치 그리기 프리뷰 (원과 같은 2클릭 — 첫 점 찍은 뒤부터 레벨이 따라온다)
+      if (fibMode && fibStart && scales) {
+        const { xScale, yScale } = scales;
+        const snapped = snapToOHLC(pos, candles, xScale, yScale);
+        setFibPreview({ t: snapped.t, p: snapped.p });
       }
 
       // 구조 그리기 프리뷰 — 다음 꼭짓점 타입은 직전 점의 반대
@@ -330,10 +345,10 @@ export function useChartInteraction({
       if (!drag) {
         if (scales) {
           const { xScale, yScale } = scales;
-          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawing, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, selectedStructId, structures, structMode, structDraft, isLog });
+          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawing, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, fibLevels, selectedStructId, structures, structMode, structDraft, isLog });
           if (cursor) { setCursor(cursor); return; }
         }
-        setCursor((drawMode || lineMode || channelMode || circleMode || structMode) ? "crosshair" : "grab"); return;
+        setCursor((drawMode || lineMode || channelMode || circleMode || fibMode || structMode) ? "crosshair" : "grab"); return;
       }
 
       // 드래그 핸들러 위임
@@ -345,6 +360,7 @@ export function useChartInteraction({
         redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp,
         isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
+        updateFibEndpoint, setFibPosition,
         moveStructPoint, normalizeStruct,
       };
       const state = { drawing, dragTpsl, dragScaleIn, dragSplitTp };
@@ -359,7 +375,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
+  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, fibLevels, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
@@ -379,6 +395,7 @@ export function useChartInteraction({
         setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart,
         updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
+        updateFibEndpoint, setFibPosition,
         moveStructPoint, normalizeStruct, clearStructPart,
       },
       state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
@@ -404,6 +421,11 @@ export function useChartInteraction({
     const hitCi = findHitCircle(pos.x, pos.y, circles ?? [], xScale, yScale, candles);
     if (hitCi) { onLineDoubleClick?.(hitCi.id, "circle", e.clientX, e.clientY); return; }
 
+    // 히트 우선순위는 buildHitChain 5번(선택)과 같게 유지할 것 —
+    // 어긋나면 "클릭하면 선이 잡히는데 더블클릭하면 피보나치 팝업이 뜬다"가 된다
+    const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, fibLevels, isLog);
+    if (hitFb) { onLineDoubleClick?.(hitFb.id, "fib", e.clientX, e.clientY); return; }
+
     const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
     if (hitSt) { onLineDoubleClick?.(hitSt.id, "structure", e.clientX, e.clientY); return; }
 
@@ -412,7 +434,7 @@ export function useChartInteraction({
     if (showZZ && findHitZzLeg(pos.x, pos.y, getZzSegments(), xScale, yScale)) {
       onLineDoubleClick?.(ZZ_ID, "zz", e.clientX, e.clientY);
     }
-  }, [candles, lines, channels, circles, structures, structMode, finishStruct, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, lines, channels, circles, fibs, fibLevels, structures, structMode, finishStruct, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMouseLeave = useCallback(() => {
     dragRef.current = null;

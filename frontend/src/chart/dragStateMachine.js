@@ -94,6 +94,27 @@ export const DRAG_HANDLERS = {
     },
   },
 
+  // 박스 좌우 폭 조절 (2026-08-14 사용자 요청).
+  // 폭은 **주문에 들어가지 않는 순수 표시값**이라 onUp에서 재등록을 부르지 않는다
+  // (entry/sl은 replacePendingOrder, tp는 updatePendingTpsl을 부르는 것과 대비된다).
+  box_x: {
+    onMove({ pos, drag, scales, candles, IW, setters }) {
+      if (!scales || !candles.length) return;
+      const t  = idxToTimestamp(scales.xScale.invert(Math.min(Math.max(pos.x, 0), IW)), candles);
+      const ms = getCandleMs(candles);
+      setters.setDrawing(p => {
+        if (!p) return p;
+        // 최소 1봉은 남긴다 — 폭이 0이 되면 BoxOverlay가 x2 <= x1로 렌더를 통째로 접어
+        // 박스가 사라진 것처럼 보이고 다시 잡을 수도 없다
+        return drag.edge === "start"
+          ? { ...p, tStart: Math.min(t, p.tEnd   - ms) }
+          : { ...p, tEnd:   Math.max(t, p.tStart + ms) };
+      });
+      setters.setCursor("ew-resize");
+    },
+    onUp({ setters }) { setters.setCursor("crosshair"); },
+  },
+
   entry: {
     onMove({ pos, drag, scales, candles, IW, IH, setters }) {
       const { xScale, yScale } = scales;
@@ -297,6 +318,32 @@ export const DRAG_HANDLERS = {
       const dt = moveTimeDelta(scales.xScale, pos, drag, candles);
       const { newP1, newP2 } = movePricePair(scales.yScale, pos, drag, setters.isLog);
       setters.setLinePosition(drag.lineId, drag.startT1 + dt, newP1, drag.startT2 + dt, newP2);
+      setters.setCursor("move");
+    },
+    onUp({ setters }) { setters.setCursor("crosshair"); },
+  },
+
+  // ── 피보나치 드래그 ───────────────────────────────────────────────────────
+  // 트렌드라인과 같다 — 앵커 두 개짜리 도형이라 끝점 이동 / 몸통 평행이동뿐이다.
+  // 레벨 가로선을 개별로 끌 수는 없다: 위치가 곧 비율이라 하나만 옮기면 정의가 깨진다
+  fib_ep: {
+    onMove({ pos, drag, scales, candles, IW, setters }) {
+      if (!scales || !candles.length) return;
+      const { xScale, yScale } = scales;
+      const t = idxToTimestamp(xScale.invert(Math.min(Math.max(pos.x, -IW), IW * 2)), candles);
+      const p = yScale.invert(pos.y);
+      setters.updateFibEndpoint(drag.fibId, drag.endpoint, t, p);
+      setters.setCursor("move");
+    },
+    onUp({ setters }) { setters.setCursor("crosshair"); },
+  },
+
+  fib_move: {
+    onMove({ pos, drag, scales, candles, setters }) {
+      if (!scales) return;
+      const dt = moveTimeDelta(scales.xScale, pos, drag, candles);
+      const { newP1, newP2 } = movePricePair(scales.yScale, pos, drag, setters.isLog);
+      setters.setFibPosition(drag.fibId, drag.startT1 + dt, newP1, drag.startT2 + dt, newP2);
       setters.setCursor("move");
     },
     onUp({ setters }) { setters.setCursor("crosshair"); },

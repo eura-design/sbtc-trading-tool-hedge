@@ -17,7 +17,10 @@
 //   - 항목이 하나뿐이라 id는 상수 "zz"
 //   - delete/toggleLock은 no-op — 지표는 지우거나 잠글 대상이 아니다
 //   - 맨 뒤 우선순위: 지그재그가 화면을 넓게 덮어 다른 도형 선택을 삼키면 안 된다
-export const DRAWABLE_KINDS = ["channel", "circle", "line", "structure", "zz"];
+// "fib"(피보나치 되돌림)은 선/채널/원과 같은 계열의 평범한 도형이다.
+// 선보다 뒤에 두는 이유: 도형 하나가 가로선 7~10개라 히트 범위가 넓다 (hitDetection.js).
+// 레벨 목록만 전역 파라미터고(chart/fib.js [F1]) 나머지는 전부 도형별이다.
+export const DRAWABLE_KINDS = ["channel", "circle", "line", "fib", "structure", "zz"];
 
 // 자동 ZZ 가짜 drawable의 고정 id (선택 상태를 boolean 대신 id로 표현)
 export const ZZ_ID = "zz";

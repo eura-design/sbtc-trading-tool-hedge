@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { fibPrice, fmtFibRatio } from "../chart/fib";
 
 const PROXIMITY_PCT  = 0.002; // 0.2% 이내 → 근접 알림
 const HYSTERESIS_PCT = 0.003; // 0.3% 이상 멀어지면 "근접" 상태 해제
@@ -28,6 +29,10 @@ export function useTrendLineAlert(
   channels, setChannelAlertOff,
   circles,  setCircleAlertOff,
   isLog = false,
+  // 피보나치 — 레벨 가로선 **각각**이 근접 대상이다.
+  // fibLevels는 화면에 그려지는 것과 같은 배열이어야 한다 (App.jsx의 useMemo 하나).
+  // 여기서만 다른 목록을 보면 "화면에 없는 선에서 알림이 온다"가 된다
+  fibs = [], setFibAlertOff = () => {}, fibLevels = [],
 ) {
   const nearRef    = useRef({});
   const pendingRef = useRef(new Set());
@@ -43,10 +48,14 @@ export function useTrendLineAlert(
     for (const ln of (lines || []))     aliveKeys.add(`l${ln.id}`);
     for (const ch of (channels || [])) { aliveKeys.add(`ch${ch.id}`); aliveKeys.add(`ch${ch.id}_m`); aliveKeys.add(`ch${ch.id}_r`); }
     for (const ci of (circles || []))   aliveKeys.add(`ci${ci.id}`);
+    // 피보나치는 도형 하나가 레벨 수만큼 키를 갖는다. 지표 메뉴에서 레벨을 끄면
+    // 그 키는 여기서 자연히 빠져 정리된다 (다시 켰을 때 "이미 근접" 상태로 남지 않는다)
+    for (const fb of (fibs || [])) for (const r of fibLevels) aliveKeys.add(`fb${fb.id}_${r}`);
     const aliveGroupKeys = new Set([
       ...(lines || []).map(l => `l${l.id}`),
       ...(channels || []).map(c => `ch${c.id}`),
       ...(circles || []).map(c => `ci${c.id}`),
+      ...(fibs || []).map(f => `fb${f.id}`),
     ]);
     for (const k of Object.keys(nearRef.current)) {
       if (!aliveKeys.has(k)) delete nearRef.current[k];
@@ -115,6 +124,28 @@ export function useTrendLineAlert(
         });
       }
     }
-  // lines/channels/circles 변경(드래그 포함) 시에도 즉시 체크
-  }, [candles, lines, channels, circles]); // eslint-disable-line react-hooks/exhaustive-deps
+    // ── 피보나치 (레벨 가로선 각각) ───────────────────────────────────────────
+    // 그룹 키(fb{id})로 한 번 울리면 그 도형은 확인 전까지 조용해진다 — 채널과 같은 규칙.
+    // 레벨이 7~10개라 그렇게 안 하면 되돌림 한 번에 토스트가 여러 개 쌓인다.
+    for (const fb of (fibs || [])) {
+      if (!fb.alert) continue;
+      const gkey = `fb${fb.id}`;
+      if (pendingRef.current.has(gkey)) continue;
+      for (const r of fibLevels) {
+        const target = fibPrice(fb.p1, fb.p2, r, isLog);
+        const ev = checkNear(price, target, `${gkey}_${r}`, nearRef);
+        if (ev !== "enter") continue;
+        pendingRef.current.add(gkey);
+        const side = price >= target ? "위" : "아래";
+        onAlert(`피보나치 ${fmtFibRatio(r)} 근접 (${side})  ${fmt(price)}`, () => {
+          setFibAlertOff(fb.id);
+          pendingRef.current.delete(gkey);
+          for (const rr of fibLevels) nearRef.current[`${gkey}_${rr}`] = false;
+        });
+        break;
+      }
+    }
+  // lines/channels/circles/fibs 변경(드래그 포함) 시에도 즉시 체크.
+  // fibLevels도 봐야 한다 — 레벨을 켜면 그 선의 근접 판정이 바로 시작돼야 한다
+  }, [candles, lines, channels, circles, fibs, fibLevels]); // eslint-disable-line react-hooks/exhaustive-deps
 }

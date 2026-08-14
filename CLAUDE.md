@@ -98,12 +98,14 @@ frontend/src/
 │   ├── usePositionCloseAlert.js ← 포지션 종료 감지 → sticky 알림 (롱/숏 각각 독립 추적)
 │   ├── useNotificationSettings.js ← 타임프레임별 알림 설정 (RSI OB/OS, 봉마감) localStorage 동기화
 │   ├── useTrendLines.js       ← 트렌드 라인 + 채널 + 원 상태 (내부적으로 useDrawableStore 3개 사용)
+│   ├── useFibs.js             ← 피보나치 되돌림 도형 스토어 (useDrawableStore("fibs")) + 2클릭 그리기 상태
+│   │                             레벨 목록은 여기 없다 — 전역 파라미터다 (indicatorParams.fib.levels)
 │   ├── useDrawableStore.js    ← 제네릭 도형 스토어 (localStorage 영속화, 공통 필드 id/opacity/locked/alert)
 │   ├── useStructures.js       ← 수동 구조 도형 스토어 (useDrawableStore("structures")) + 그리기/편집 액션
 │   │                             points 배열 변형은 전부 normalizeStructurePoints를 거쳐 고/저 교대 유지
 │   ├── useIndicatorParams.js  ← 지표 파라미터 로드/저장 (서버 /api/indicator-params, INDICATOR_DEFAULTS 기본값 병합)
 │   ├── useShortcutSettings.js ← 단축키 커스텀 설정 (DEFAULT_SHORTCUTS + localStorage "keyboard_shortcuts")
-│   ├── useKeyboardShortcuts.js ← 단축키 글로벌 핸들러 (ESC/Delete/박스·선택·알람·잠금·투명도·TF 전환)
+│   ├── useKeyboardShortcuts.js ← 단축키 글로벌 핸들러 (ESC/Delete/박스·구조·피보·선택·알람·잠금·투명도·TF 전환)
 │   ├── useChartRenderer.js    ← D3 캔들 렌더링 + 뷰포트 도메인 관리
 │   │                             redrawCanvas(메인), redrawVolume(볼륨 캔버스), redrawRSI(RSI 캔버스) 분리
 │   ├── useChartInteraction.js ← 마우스/휠 이벤트 핸들러 (cursorRules + hitDetection 활용)
@@ -125,6 +127,10 @@ frontend/src/
 │   │                             renderRsiZones만 캔들 **뒤**(배경)에 그린다 — 나머지는 캔들 위
 │   │                             computeRsiZones/getRsiZoneCount/clearRsiZones — 구간 목록
 │   │                               모듈 캐시 (지표 메뉴의 "검출된 과매수/과매도 N개"가 읽음)
+│   ├── fib.js                 ← 피보나치 되돌림 계산 (순수 함수, **import 없음**)
+│   │                             fibPrice(선형/로그) / normFibLevels / FIB_ALL_LEVELS·FIB_DEFAULT_LEVELS
+│   │                             pivotLevels.js와 같은 이유로 의존성 0 — node에서 바로 검산한다
+│   │                             (픽셀 변환 fibXs는 tsToIdx가 필요해 hitDetection.js에 있다)
 │   ├── pivotLevels.js         ← computePivotLevels() — Pivot Levels 계산 (순수 함수)
 │   │                             usePivotLevels가 감싸 쓴다. 순수 함수로 뺀 이유는
 │   │                             실제 캔들로 기본값을 실측 검증하기 위함 (node에서 바로 import)
@@ -166,11 +172,15 @@ frontend/src/
 │                                 트렌드라인: line_ep/line_move
 │                                 채널: channel_ep/channel_move/channel_mid_offset/channel_mirror_ep
 │                                 원: circle_move/circle_radius
+│                                 피보나치: fib_ep/fib_move (레벨선 개별 이동은 없다 — 위치가 곧 비율이다)
 ├── components/
 │   ├── ChartArea.jsx          ← 차트 전체 영역 조합 (hooks + ChartSvg + RSI/Volume 패널 + LineOpacityPopup)
-│   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원 모드 버튼,
+│   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원/피보 모드 버튼,
 │   │                             로그 스케일 토글, 지표 메뉴, 알림 메뉴, 단축키 메뉴, 테마 토글
-│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/**Pivot**/OB/FVG/EMA/ZZ/Custom ZZ)
+│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/**Pivot**/OB/FVG/EMA/ZZ/Custom ZZ/**Fibonacci**)
+│   │                             FibLevelPanel: 표시할 레벨 체크박스 10개 (전역 — 모든 피보나치 공통)
+│   │                               Fibonacci 행의 체크박스는 표시 on/off — OFF면 렌더·히트에서 빠지고
+│   │                               TopBar "피보" 버튼도 죽는다 (수동 구조와 같은 규칙)
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
 │   │                             StructTfPanel: Custom ZZ 표시 타임프레임 다중 선택 (struct.tfs, 기본 1h) **전용**
 │   │                               ※ 수동 구조엔 CHoCH 관련이 없다 — 표시 on/off·개수·거래량 비교
@@ -187,20 +197,34 @@ frontend/src/
 │   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (7TF × RSI OB/OS/봉마감)
 │   ├── ShortcutMenu.jsx       ← 단축키 커스텀 설정 UI (녹음 모드로 각 action 키 재바인딩 + 초기화)
 │   ├── Toast.jsx              ← 토스트 알림 컴포넌트 (일반: 금색, sticky: 빨강 + 확인 버튼)
-│   ├── Slider.jsx             ← 리스크/레버리지 슬라이더
+│   ├── Slider.jsx             ← 리스크/레버리지 슬라이더 (index.css `.slim-range` — 손잡이 9px)
+│   │                             ⚠ 손잡이 크기를 줄이려면 `appearance:none`이 필요하고, 그러면
+│   │                               `accent-color`가 하던 **트랙·채움까지 직접 그려야 한다**
+│   │                               (채움은 값 비율 linear-gradient). 한 줄만 지우면 트랙이 사라진다
+│   │                             ※ 지표 메뉴·투명도 팝업 슬라이더는 대상이 아니다 (기본 크기 유지)
 │   ├── Divider.jsx            ← 구분선
 │   ├── StatusAlert.jsx        ← 주문/TP·SL 결과 알림 배너 (성공/에러)
 │   ├── Chart/
 │   │   ├── ChartSvg.jsx           ← SVG 전체 레이어 조합 (채널/원 오버레이 포함)
-│   │   ├── BoxOverlay.jsx         ← BoxOverlay, DrawingCurrent, BoxLabels SVG 컴포넌트
+│   │   ├── BoxOverlay.jsx         ← BoxOverlay, DrawingCurrent SVG 컴포넌트
+│   │   │                             ⚠ 2026-08-14 사용자 요청으로 **장식을 전부 걷어냈다**:
+│   │   │                               가격 텍스트(BoxLabels 컴포넌트째) / TP 삼각형 / SL 다이아 /
+│   │   │                               손익비 배지 / 진입선 노란 원(↕) / 좌우 폭 조절 그립
+│   │   │                             남은 것은 면 · 가로선 3개 · `▲ LONG`/`▼ SHORT` 뿐이다
+│   │   │                             ※ 지운 마커는 전부 **드래그 판정과 무관한 장식**이었다
+│   │   │                               (판정은 hitDetection이 따로 갖는다) — 조작성은 그대로다
+│   │   │                             ※ TP·SL 둘 다 **실선**이다 (SL만 점선이던 것을 맞췄다)
 │   │   ├── PositionLines.jsx      ← 헷지모드: 롱/숏 포지션 각각 진입/TP/SL/분할TP/추가진입 수평선 (드래그 핸들)
 │   │   ├── TrendLines.jsx         ← 트렌드 라인 SVG (선택 시 끝점 핸들)
 │   │   ├── Channels.jsx           ← 채널 SVG (메인선+미러선+채우기, 알림 글로우, 선택 핸들)
 │   │   ├── Circles.jsx            ← 원 SVG (채우기+테두리, 선택 핸들)
+│   │   ├── Fibs.jsx               ← 피보나치 되돌림 SVG (레벨 가로선 + 비율 라벨 + 앵커 대각선)
+│   │   │                             채우기 없음 / 라벨은 비율만 / 두 앵커 사이만 — 전부 사용자 확정
 │   │   ├── Structures.jsx         ← 수동 구조 SVG (지그재그 폴리라인 + CHoCH 마크 + 꼭짓점 핸들)
 │   │   │                             liveClose를 자체 구독 — ChartArea가 구독하면 틱마다 전체 리렌더
 │   │   └── LineOpacityPopup.jsx   ← 더블클릭 팝업 — 헤더(이름+%+🔔🔒) / 투명도 슬라이더 / 옵션 영역
-│   │                                 🔔 의미만 다름: 선·채널·원 = 근접 알림 / 구조·ZZ = CHoCH 발생 알림
+│   │                                 🔔 의미만 다름: 선·채널·원·**피보나치** = 근접 알림 / 구조·ZZ = CHoCH 발생 알림
+│   │                                 피보나치는 헤더(투명도 + 🔔 + 🔒) + 슬라이더까지만 — 아래 옵션 영역이 없다
 │   │                                 구조·ZZ는 슬라이더 아래에 `CHoCH 표시 [ON/OFF]` + `CHoCH 개수` 슬라이더
 │   │                                 `거래량 비교 [ON/OFF]`는 **수동 구조에만** (LEGVOL_KINDS, 2026-08-14)
 │   │                                 개수는 **그 구조(또는 ZZ)에만** 적용 — 전역 설정이 아니다
@@ -288,8 +312,16 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 드래그 시스템
 - `dragRef.current.type`으로 현재 드래그 타입 관리
 - `DRAG_HANDLERS[type].onMove()` / `.onUp()` 호출로 분기 (if 체인 없음)
-- 박스 타입: `draw`, `pan`, `entry`, `tp`, `sl`, `pos_tp`, `pos_sl`, `scale_in`, `split_tp`
+- 박스 타입: `draw`, `pan`, `entry`, `tp`, `sl`, `box_x`, `pos_tp`, `pos_sl`, `scale_in`, `split_tp`
 - **박스 그리기 방향**: 클릭점=진입가, 드래그 끝=손절가 기준 / 롱=아래로 드래그, 숏=위로 드래그 / TP는 SL 거리의 2배 자동 계산
+- **박스 좌우 폭 조절**(`box_x`, 2026-08-14 사용자 요청): 세로 모서리를 잡아 끈다.
+  - 폭은 **주문에 들어가지 않는 순수 표시값**이라 onUp에서 재등록을 부르지 않는다
+    (entry/sl은 `replacePendingOrder`, tp는 `updatePendingTpsl`을 부르는 것과 대비)
+  - 그래서 같은 사이드 포지션이 있어도 막지 않는다 (가격 3선을 막는 3번 스텝과 다른 점)
+  - 최소 1봉은 남긴다 — 폭 0이면 `BoxOverlay`가 `x2 <= x1`로 렌더를 접어 박스가 사라진 것처럼
+    보이고 다시 잡을 수도 없다
+  - 히트는 가격 가로선(3번) **뒤**(3.2번)다 — 모서리와 가로선이 만나는 꼭짓점에서는 가격이 이긴다
+  - clamp 전 좌표로 판정한다 (화면 밖 모서리는 잡히지 않음). `BoxOverlay`도 같은 기준
 - 트렌드 라인 타입: `line_ep` (끝점 드래그), `line_move` (몸통 드래그)
 - 채널 타입: `channel_ep` (끝점), `channel_move` (몸통), `channel_mid_offset` (중간 핸들로 양쪽 offset 동시 조절), `channel_mirror_ep` (미러선 끝점)
 - 원 타입: `circle_move` (이동), `circle_radius` (반지름 조절)
@@ -303,6 +335,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **라인 모드**: 트렌드 라인 (2점 클릭)
 - **채널 모드**: 평행 채널 (3클릭: 시작→끝→폭 확정)
 - **원 모드**: 원 (2클릭: 중심→반지름)
+- **피보나치 모드**: 되돌림 (기본 `f`) — 2클릭: 추세 시작 → 추세 끝
 - **구조 모드**: 수동 시장 구조 (기본 `s`) — 클릭 반복으로 고/저점 찍기, 우클릭·더블클릭 확정
 - `Escape`: 그리기 취소 / 선택 해제
 - `Delete`: 선택된 도형 삭제 (수동 구조는 꼭짓점을 클릭해 뒀으면 **그 꼭짓점만** 삭제)
@@ -331,7 +364,17 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - 히트 판정 우선순위는 맨 뒤 (채널 > 원 > 선 > 수동 구조 > 자동 ZZ) —
   넓게 깔린 지그재그가 다른 도형 클릭을 삼키면 안 된다
 
-### 도형 공통 속성 (트렌드라인/채널/원)
+### 도형 공통 속성 (트렌드라인/채널/원/피보나치)
+- **선택 핸들 크기는 `SEL_HANDLE_R`(constants.js) 하나가 정한다** — 2026-08-14 사용자 지정.
+  기준은 **수동 구조 꼭짓점**이고(그날 5 → 2.5로 줄인 값), 나머지 도형이 r=5라 두 배로 커
+  보인다는 이유로 트렌드라인/채널/원/피보나치를 전부 여기 맞췄다.
+  `Structures.jsx`도 이 상수를 쓴다(부분선택 +0.5 / 선택 = 기준 / 미선택 −0.5)
+  - ⚠ 한 곳만 리터럴로 되돌리지 말 것 — 같은 금색 핸들인데 도형마다 크기가 다르면
+    "선택됨"이 도형별로 다르게 보인다
+  - ※ **잡는 반경과는 무관하다.** 드래그 히트 판정은 hitDetection의 10px 고정이라
+    점을 작게 그려도 집기 어려워지지 않는다 (보이는 크기만 줄인 것)
+  - ※ 그리는 중 프리뷰 점(r=3)은 대상이 아니다 — "선택"이 아니라 "방금 찍은 첫 점" 표시고
+    구조 draft 점과 이미 같은 크기다
 - `opacity`: 0.25~1.0 (0.25 단위)
 - `locked`: true 시 드래그 이동 불가
 - `alert`: true 시 근접(0.2%) 감지 → sticky 토스트 알림 + 3초마다 소리 반복
@@ -647,7 +690,9 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS/**zone_bg/zone_max/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
+- 대상: RSI(period/OB/OS/**zone_bg/zone_max/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs), **fib(levels)**
+- ※ `fib`는 **levels 하나뿐이다** — 투명도·잠금·알림은 도형별(localStorage `"fibs"`)이라 여기 없다.
+  도형별 레벨 편집을 새로 만들지 말 것 (위 피보나치 절 `[F1]`)
 - ※ `pivot`은 **6개를 저장하고 UI에는 5개**(TF 그리드 + 슬라이더 4개) — 숨긴 건 `lookback`(600).
   이유는 "Pivot Levels" 절 참고
 - ※ 구 S/R Levels의 `sr` 키는 지표째로 제거됐다 (2026-08-13) — 저장 파일에서도 지웠다
@@ -669,7 +714,9 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 알림 시스템
 - **토스트 종류**: 일반(금색 테두리, 30초 자동닫힘) / sticky(빨강 테두리, 확인 버튼 필수)
 - **포지션 종료 알림**: 롱/숏 포지션 각각 독립 감지 → 해당 사이드 종료 시 sticky 알림
-- **추세선/채널/원 근접 알림**: 0.2% 이내 진입 → sticky, 0.3% 이상 이탈 시 해제 (히스테리시스)
+- **추세선/채널/원/피보나치 근접 알림**: 0.2% 이내 진입 → sticky, 0.3% 이상 이탈 시 해제 (히스테리시스)
+  - 피보나치는 **레벨 가로선 각각**이 대상이고, 어느 레벨인지 토스트에 비율로 찍는다.
+    한 번 울리면 그룹 키(`fb{id}`)로 잠가 도형당 하나만 뜬다 — 레벨이 7~10개라 안 그러면 쌓인다
 - **CHoCH 발생 알림** (`useChochAlert`, 2026-08-12 추가) — 자동 ZZ + 수동 구조 공용.
   **자동 ZZ는 기본 ON, 수동 구조는 기본 OFF**(2026-08-13 — 알림 ON이 호박색 점선으로 보이므로)
   - **설정 위치는 지그재그 선 더블클릭 팝업의 🔔 아이콘**(사용자 지정) + 단축키 `a`.
@@ -866,6 +913,48 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - 원: `circle_move`(이동) / `circle_radius`(반지름)
 - 선택된 도형: 금색(#f0b90b) + 핸들 표시
 
+### 피보나치 되돌림 (2026-08-14)
+트레이딩뷰의 Fib Retracement 포팅. **선/채널/원과 같은 계열의 도형**이고
+(`useDrawableStore("fibs")`, 좌표가 timestamp라 전 TF 공유), 지표 메뉴에 행이 있는 이유는
+**레벨 목록만 전역 파라미터**라서다.
+
+- **데이터**: `{ id, t1, p1, t2, p2, opacity, locked, alert }` — localStorage `"fibs"`
+- **그리기**: TopBar `피보` 버튼(또는 `f`) → **2클릭** (원과 같은 구조).
+  스냅 없음 — 트렌드라인·원과 같은 자유 좌표다
+- **편집**: 앵커 끝점 드래그(`fib_ep`) / 몸통 드래그로 전체 평행이동(`fib_move`) / `Delete`로 삭제.
+  잠금(`l`)·투명도(`[` `]`)·근접 알림(`a`)은 다른 도형과 완전히 동일
+- **계산**: `chart/fib.js`의 순수 함수. **로그 모드에서는 로그 보간**을 쓴다(트뷰와 동일) —
+  선형으로 계산하면 로그 차트에서 0.5 선이 두 앵커의 시각적 한가운데에 놓이지 않는다.
+  채널(`ch.isLog`)과 달리 생성 시점이 아니라 **현재 스케일**을 본다: 피보나치는 "지금 보고 있는
+  축에서의 비율"이 곧 의미라 축을 바꾸면 같이 따라가야 한다 (실측: 로그 0.5 = 기하평균과 일치)
+- **근접 알림**: `useTrendLineAlert`이 **레벨 가로선 각각**을 본다 (0.2% / 히스테리시스 0.3%).
+  토스트에 어느 레벨인지 비율로 찍는다(`피보나치 0.786 근접 (아래) $62,900`).
+  한 번 울리면 그룹 키로 잠가 도형당 하나만 뜬다 — 레벨이 7~10개라 안 그러면 토스트가 쌓인다
+- **레벨 목록은 지표 메뉴 `Fibonacci` ⚙에서 전역 편집** (`indicatorParams.fib.levels`)
+
+#### ⚠ 사용자 확정 사양 (2026-08-14, 임의 변경 금지)
+**만들기 전에 트레이딩뷰 기본값을 나란히 놓고 고른 결과다.** "트뷰 기본은 저쪽"으로 되돌리지 말 것.
+코드에는 `[F1]`~`[F5]` 번호로 같은 내용이 달려 있다 (`chart/fib.js`, `components/Chart/Fibs.jsx`).
+
+| 결정 | 되돌리면 생기는 문제 |
+|---|---|
+| **[F1] 레벨 목록은 전역 하나** (지표 메뉴 ⚙) — 도형별 편집 없음 | 전역·도형별 두 값이 생기면 AND인지 덮어쓰기인지가 UI 어디에도 안 드러난다 (`struct.show_choch`에서 겪은 문제) |
+| **[F2] 구간 채우기 없음 — 선만** | 트뷰 기본은 반투명 밴드지만 거절됐다. 캔들 위에 색이 깔린다 |
+| **[F3] 라벨은 비율만** — 가격·% 병기 없음 | 가격은 크로스헤어가 답한다. CHoCH 마크에서 글자를 다 걷어낸 기조와 같다 |
+| **[F4] 레벨 선은 두 앵커 사이에만** — 오른쪽/양쪽 연장 없음 | 연장하면 현재가 구간까지 가로선이 덮는다 |
+| **[F5] 첫 클릭 = 추세 시작(레벨 1), 둘째 = 추세 끝(레벨 0)** — 트뷰와 동일 | 뒤집으면 0.236과 0.786이 자리를 바꿔, 같은 두 점인데 트뷰와 다른 가격에 선이 생긴다 |
+| 기본 7개(0·0.236·0.382·0.5·0.618·0.786·1) 체크 / 확장 3개(1.272·1.414·1.618)는 후보에만 | 확장은 되돌림이 아니라 돌파 후 목표가라 성격이 다르다 |
+| 알림 ON 스타일에 **글로우 없음** (호박색 + 점선만) | 레벨이 7~10줄이라 글로우를 겹치면 그 가격대가 통째로 흐릿한 띠가 되어, 거절된 [F2] 채우기와 똑같이 보인다 |
+| 레벨선 개별 드래그 없음 | 위치가 곧 비율이라 하나만 옮기면 정의가 깨진다 |
+
+- ⚠ SVG는 **뷰포트로 자른다**(`clipSegmentX`) — 트렌드라인·채널과 같은 이유인데,
+  도형 하나가 선 7~10개라 배율이 그만큼 더 크다 (`chart/svgGeom.js`의 5m 실측 참고)
+- ⚠ 렌더·히트 판정·근접 알림이 **같은 레벨 배열**을 봐야 한다 (App.jsx의 `useMemo` 하나를 셋이 나눠 쓴다).
+  각자 만들면 지표 메뉴에서 끈 레벨이 클릭에 잡히거나 알림만 울린다
+- ⚠ 히트 우선순위는 채널 > 원 > 선 > **피보나치** > 수동 구조 > 자동 ZZ.
+  `buildHitChain` 5번(선택)과 `onDoubleClick`(팝업)의 순서를 **같게 유지할 것** —
+  어긋나면 "클릭하면 선이 잡히는데 더블클릭하면 피보나치 팝업이 뜬다"가 된다
+
 ### 보조지표 (프론트엔드 계산, 백엔드 불필요)
 - **Volume**: 거래량 캔버스 (가시 범위 maxVol 정규화, useVolResize로 높이 조절)
   - 바 색상 `vol.colorMode`: `neutral`(단색) / `candle`(양봉·음봉 색). 실시간 색 전환은 `candle`에서만 보인다
@@ -994,7 +1083,7 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - 거래량: D3 imperative (`renderVolumeCanvas`) → `volCanvasRef`에 별도 드로우
 - RSI: D3 imperative (`renderRSICanvas`) → `rsiCanvasRef`에 별도 드로우
 - FVG/OB/SR/EMA/RSI 구간 배경: 캔버스 렌더 (`overlayRenderers.js`)
-- 오버레이 (박스/포지션 라인/트렌드라인/채널/원/수동 구조): React SVG (`ChartSvg` 내)
+- 오버레이 (박스/포지션 라인/트렌드라인/채널/원/피보나치/수동 구조): React SVG (`ChartSvg` 내)
 - `useChartRenderer.js`의 `forceUpdate`(renderTick)로 캔버스 렌더 후 React 오버레이 동기화
 - pan 중: `redrawChart()`가 redrawCanvas+redrawVolume+redrawRSI+forceUpdate 동시 호출
 

@@ -3,9 +3,10 @@ import { useTheme } from "../../ThemeContext";
 import { TrendLines }   from "./TrendLines";
 import { Channels }     from "./Channels";
 import { Circles }      from "./Circles";
+import { Fibs }         from "./Fibs";
 import { Structures }   from "./Structures";
 import { PositionLines } from "./PositionLines";
-import { BoxOverlay, DrawingCurrent, BoxLabels } from "./BoxOverlay";
+import { BoxOverlay, DrawingCurrent } from "./BoxOverlay";
 import { LEG_VOL_METRICS } from "../../chart/legVolume";
 
 // 지그재그 레그 hover 라벨의 거래량 줄 머리말 (상위3 / 평균 / 총량 — legVolume.js [LV9]).
@@ -35,6 +36,7 @@ export function ChartSvg({
   drawing, current, locked, selectedBox,
   channels, selectedChannelId, channelStep, channelPoints, channelPreview,
   circles, selectedCircleId, circleCenter, circlePreview,
+  fibs, selectedFibId, fibStart, fibPreview, fibLevels,
   structures, selectedStructId, structPart, structDraft, structPreview,
 }) {
   const { isDark } = useTheme();
@@ -59,6 +61,9 @@ export function ChartSvg({
         <Channels channels={channels} selectedChannelId={selectedChannelId}
           channelStep={channelStep} channelPoints={channelPoints} channelPreview={channelPreview}
           scales={scales} IW={IW} IH={IH} candles={candles} isLog={isLog} />
+        <Fibs fibs={fibs} selectedFibId={selectedFibId}
+          fibStart={fibStart} fibPreview={fibPreview} levels={fibLevels}
+          scales={scales} IW={IW} candles={candles} isLog={isLog} />
         <Structures structures={structures} selectedStructId={selectedStructId} structPart={structPart}
           structDraft={structDraft} structPreview={structPreview}
           scales={scales} candles={candles} candlesRef={candlesRef} IW={IW} />
@@ -73,14 +78,12 @@ export function ChartSvg({
             scales={scales} IW={IW} IH={IH}
           />
         )}
-        <BoxOverlay drawing={drawing} scales={scales} IW={IW} hasLong={hasLong} hasShort={hasShort} selectedBox={selectedBox} candles={candles} />
+        <BoxOverlay drawing={drawing} scales={scales} IW={IW} selectedBox={selectedBox} candles={candles} />
         <DrawingCurrent current={current} scales={scales} IW={IW} IH={IH} />
       </g>
 
-      {/* 라벨 (클립 밖) */}
-      <g transform={`translate(${M.left},${M.top})`}>
-        <BoxLabels drawing={drawing} scales={scales} IW={IW} candles={candles} />
-      </g>
+      {/* ※ 박스 오른쪽의 가격 라벨(BoxLabels)은 2026-08-14 사용자 요청으로 제거 —
+          사이드바 플랜 카드와 중복이었다 (BoxOverlay.jsx 주석 참고) */}
 
       {/* RSI 패널은 전부 canvas (ChartArea rsiCanvasRef) — SVG 오버레이 없음 */}
 

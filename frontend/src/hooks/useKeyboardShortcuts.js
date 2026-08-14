@@ -6,9 +6,10 @@ const INTERVAL_VALUES = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
 export function useKeyboardShortcuts({
   shortcuts,
   setDrawMode, setCurrent,
-  cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelStructDraw,
+  cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelStructDraw,
   setStructMode, structEnabled, structMode, ensureStructTf,
-  drawables,   // { line, channel, circle, structure } — chart/drawables.js 인터페이스
+  setFibMode, fibEnabled,
+  drawables,   // { line, channel, circle, fib, structure, zz } — chart/drawables.js 인터페이스
   setSelectedBox,
   drawing, hasPending, locked,
   selectedBox,
@@ -23,7 +24,7 @@ export function useKeyboardShortcuts({
     const onKey = e => {
       if (match(e, "escape")) {
         setDrawMode(false); setCurrent(null);
-        cancelDraw(); cancelChannelDraw(); cancelCircleDraw();
+        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw();
         cancelStructDraw();   // 그리던 구조는 확정하지 않고 버린다 (확정은 우클릭/더블클릭)
         clearAllSelections(drawables);
         setSelectedBox(false);
@@ -43,7 +44,7 @@ export function useKeyboardShortcuts({
 
       if (match(e, "drawBox")) {
         if (!locked) {
-          cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelStructDraw();
+          cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw(); cancelStructDraw();
           setDrawMode(m => !m);
         }
         return;
@@ -53,8 +54,16 @@ export function useKeyboardShortcuts({
         if (!structEnabled) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단 (TopBar 버튼도 동일)
         if (!structMode) ensureStructTf?.();   // 진입 시 현재 TF를 표시 목록에 편입 (TopBar 버튼과 동일)
         setDrawMode(false);
-        cancelDraw(); cancelChannelDraw(); cancelCircleDraw();
+        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw();
         setStructMode(m => { if (m) cancelStructDraw(); return !m; });
+        return;
+      }
+
+      if (match(e, "drawFib")) {
+        if (!fibEnabled) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단 (TopBar 버튼과 동일)
+        setDrawMode(false);
+        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelStructDraw();
+        setFibMode(m => { if (m) cancelFibDraw(); return !m; });
         return;
       }
 
@@ -91,6 +100,7 @@ export function useKeyboardShortcuts({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [shortcuts, drawables, selectedBox, drawing, hasPending, locked, deleteBox, interval_, onIntervalChange,
-      setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelStructDraw,
-      setStructMode, structEnabled, structMode, ensureStructTf, setSelectedBox]);
+      setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelStructDraw,
+      setStructMode, structEnabled, structMode, ensureStructTf,
+      setFibMode, fibEnabled, setSelectedBox]);
 }

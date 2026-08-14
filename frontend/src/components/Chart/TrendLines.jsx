@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { useTheme } from "../../ThemeContext";
+import { SEL_HANDLE_R } from "../../constants";
 import { tsToIdx } from "../../chart/scales";
 import { clipPolylineX, clipSegmentX, VIEW_PAD } from "../../chart/svgGeom";
 
@@ -72,8 +73,8 @@ export const TrendLines = memo(function TrendLines({ lines, selectedLineId, line
                 한쪽만 되살리면 같은 🔔인데 도형 종류마다 다르게 보인다).
                 켜고 끄는 곳은 더블클릭 팝업의 🔔 토글이다 — 그건 그대로 있다 */}
             {selected && <>
-              <circle cx={a.x} cy={a.y} r={5} fill="#f0b90b" opacity={0.9} />
-              <circle cx={b.x} cy={b.y} r={5} fill="#f0b90b" opacity={0.9} />
+              <circle cx={a.x} cy={a.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
+              <circle cx={b.x} cy={b.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
             </>}
           </g>
         );

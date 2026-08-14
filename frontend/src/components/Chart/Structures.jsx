@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { CANVAS_C, PALETTE } from "../../constants";
+import { CANVAS_C, PALETTE, SEL_HANDLE_R } from "../../constants";
 import { useStore } from "../../store";
 import { tsToIdx } from "../../chart/scales";
 import { deriveStructure, normalizeStructurePoints } from "../../chart/deriveStructure";
@@ -289,13 +289,18 @@ export const Structures = memo(function Structures({
                 ⚠ 반지름은 2026-08-14 사용자 요청으로 **선택/부분선택 둘 다 절반**으로 줄였다
                   (금색 5 → 2.5 / 파랑 6 → 3). 점이 커서 지그재그를 가린다는 이유.
                   ※ **히트 반경은 안 줄었다** — 잡는 판정은 hitDetection이 따로 갖고 있어
-                    점이 작아져도 집기 어려워지지 않는다. "작아서 못 누른다"며 되돌리지 말 것 */}
+                    점이 작아져도 집기 어려워지지 않는다. "작아서 못 누른다"며 되돌리지 말 것
+
+                ⚠ 여기 선택 크기가 **다른 도형의 기준**이다 (2026-08-14, 같은 날 후속 요청).
+                  트렌드라인/채널/원/피보나치가 전부 `SEL_HANDLE_R`을 쓰므로 이 값을 바꾸면
+                  다섯 도형이 같이 움직인다 — 그게 의도다. 여기만 리터럴로 되돌리지 말 것.
+                  세 크기는 상수 기준 상대값: 부분선택 +0.5 / 선택 = 기준 / 미선택 -0.5 */}
             {pts.map((q, k) => {
               if (!inViewX(q.x, IW)) return null;      // [R9] 화면 밖 꼭짓점은 노드도 만들지 않는다
               const isPart = k === partPt;
               return (
                 <circle key={k} cx={q.x} cy={q.y}
-                  r={isPart ? 3 : (selected ? 2.5 : 2)}
+                  r={isPart ? SEL_HANDLE_R + 0.5 : (selected ? SEL_HANDLE_R : SEL_HANDLE_R - 0.5)}
                   fill={isPart ? PART_COLOR : color}
                   opacity={isPart ? 1 : (selected ? 0.9 : 0.7 * opacity)} />
               );

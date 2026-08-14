@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { SEL_HANDLE_R } from "../../constants";
 import { tsToIdx } from "../../chart/scales";
 import { clipSegmentX, VIEW_PAD } from "../../chart/svgGeom";
 
@@ -61,11 +62,11 @@ export const Channels = memo(function Channels({
                 알림 여부는 **호박색 + 점선**만으로 나타낸다 (선/원/수동 구조도 동일) */}
             {/* 선택 핸들 */}
             {selected && <>
-              <circle cx={a1.x} cy={a1.y} r={5} fill="#f0b90b" opacity={0.9} />
-              <circle cx={b1.x} cy={b1.y} r={5} fill="#f0b90b" opacity={0.9} />
-              <circle cx={a2.x} cy={a2.y} r={5} fill="#f0b90b" opacity={0.9} />
-              <circle cx={b2.x} cy={b2.y} r={5} fill="#f0b90b" opacity={0.9} />
-              <circle cx={(a2.x+b2.x)/2} cy={(a2.y+b2.y)/2} r={5} fill="#f0b90b" opacity={0.9} />
+              <circle cx={a1.x} cy={a1.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
+              <circle cx={b1.x} cy={b1.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
+              <circle cx={a2.x} cy={a2.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
+              <circle cx={b2.x} cy={b2.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
+              <circle cx={(a2.x+b2.x)/2} cy={(a2.y+b2.y)/2} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
             </>}
           </g>
         );

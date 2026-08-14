@@ -1,7 +1,7 @@
 import { HIT } from "../constants";
 import { distToSeg } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
-import { channelXYs, lineXY, findHitStructPointIdx, findStructEndpointHit } from "./hitDetection";
+import { channelXYs, lineXY, findHitStructPointIdx, findStructEndpointHit, findHitFib, fibXs } from "./hitDetection";
 
 export const CURSOR_RULES = [
   {
@@ -70,6 +70,21 @@ export const CURSOR_RULES = [
             (Math.abs(pos.y-tPx)<HIT || Math.abs(pos.y-slPx)<HIT);
     },
     cursor: "ns-resize",
+  },
+  // 박스 좌우 모서리 — 폭 조절 (가로선 규칙보다 뒤에 둬야 꼭짓점에서 가격 이동이 이긴다)
+  {
+    test: ({ drawing, pos, xScale, yScale, candles }) => {
+      if (!drawing) return false;
+      const yLo = Math.min(yScale(drawing.tp), yScale(drawing.sl));
+      const yHi = Math.max(yScale(drawing.tp), yScale(drawing.sl));
+      if (pos.y < yLo - HIT || pos.y > yHi + HIT) return false;
+      const iw = xScale.range()[1];
+      return [drawing.tStart, drawing.tEnd].some(t => {
+        const ex = xScale(tsToIdx(t, candles));
+        return ex >= 0 && ex <= iw && Math.abs(pos.x - ex) < HIT;
+      });
+    },
+    cursor: "ew-resize",
   },
   {
     test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
@@ -141,6 +156,31 @@ export const CURSOR_RULES = [
       if (Math.hypot(pos.x-cx, pos.y-cy) < 10 || Math.hypot(pos.x-rx, pos.y-ry) < 10) return false;
       const r = Math.hypot(rx-cx, ry-cy);
       return Math.abs(Math.hypot(pos.x-cx, pos.y-cy) - r) < 8;
+    },
+    cursor: "move",
+  },
+  // 피보나치 선택 시 앵커 핸들
+  {
+    test: ({ selectedFibId, fibs, pos, xScale, yScale, candles }) => {
+      if (selectedFibId == null || !fibs?.length) return false;
+      const fb = fibs.find(f => f.id === selectedFibId);
+      if (!fb) return false;
+      const { xa, xb } = fibXs(fb, candles, xScale);
+      return Math.hypot(pos.x - xa, pos.y - yScale(fb.p1)) < 10
+          || Math.hypot(pos.x - xb, pos.y - yScale(fb.p2)) < 10;
+    },
+    cursor: "move",
+  },
+  // 피보나치 선택 시 몸통 (레벨 가로선 + 앵커 대각선)
+  {
+    test: ({ selectedFibId, fibs, pos, xScale, yScale, candles, fibLevels, isLog }) => {
+      if (selectedFibId == null || !fibs?.length) return false;
+      const fb = fibs.find(f => f.id === selectedFibId);
+      if (!fb) return false;
+      const { xa, xb } = fibXs(fb, candles, xScale);
+      if (Math.hypot(pos.x - xa, pos.y - yScale(fb.p1)) < 10) return false;
+      if (Math.hypot(pos.x - xb, pos.y - yScale(fb.p2)) < 10) return false;
+      return !!findHitFib(pos.x, pos.y, [fb], xScale, yScale, candles, fibLevels, isLog);
     },
     cursor: "move",
   },

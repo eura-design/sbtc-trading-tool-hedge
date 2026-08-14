@@ -14,3 +14,49 @@ html, body, #root {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── 얇은 슬라이더 (리스크 / 레버리지) ────────────────────────────────────────
+   2026-08-14 사용자 요청: 손잡이 동그라미가 너무 크다 → 기본 16px에서 9px로.
+
+   ⚠ `accent-color`만으로는 손잡이 **크기**를 못 바꾼다. 크기를 건드리려면
+     `appearance:none`이 필요하고, 그 순간 **트랙 기본 스타일까지 사라져서** 트랙도
+     직접 그려야 한다 — 그래서 이 규칙 덩어리가 통째로 필요하다.
+     한 줄만 지우면 트랙이 투명해지거나 손잡이가 사각형이 된다.
+
+   색은 인라인 CSS 변수로 받는다 (Slider.jsx가 --sl-color / --sl-track을 넣는다) —
+   슬라이더마다 색이 다르고 트랙은 테마를 타므로 여기 하드코딩할 수 없다.
+
+   ※ 지표 메뉴·투명도 팝업의 슬라이더는 **대상이 아니다** (여전히 브라우저 기본 크기).
+     거기까지 줄이려면 그 input들에도 이 클래스를 붙이면 된다 */
+.slim-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.slim-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--sl-track, #2a2f3a);
+}
+.slim-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 9px;
+  height: 9px;
+  border: none;
+  border-radius: 50%;
+  background: var(--sl-color, #f0b90b);
+  margin-top: -3px;           /* (트랙 3px - 손잡이 9px) / 2 — 세로 중앙 정렬 */
+}
+.slim-range::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--sl-track, #2a2f3a);
+}
+.slim-range::-moz-range-thumb {
+  width: 9px;
+  height: 9px;
+  border: none;
+  border-radius: 50%;
+  background: var(--sl-color, #f0b90b);
+}

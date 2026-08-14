@@ -7,7 +7,7 @@ import { NotificationMenu }  from "./NotificationMenu";
 import { ShortcutMenu }      from "./ShortcutMenu";
 
 
-export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset }) {
+export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, fibEnabled, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
@@ -78,6 +78,22 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
         color: channelMode ? "#000" : theme.textMuted,
         transition:"all 0.15s",
       }}>채널</button>
+
+      {/* 피보나치 되돌림 — 2클릭(추세 시작 → 끝). 구조 버튼과 같은 규칙으로
+          지표가 꺼져 있으면 그려도 안 보이므로 진입을 막는다 */}
+      <button onClick={onFibModeToggle} disabled={!fibEnabled}
+        title={fibEnabled
+          ? "피보나치 되돌림 — 추세 시작점 클릭 → 끝점 클릭 (레벨은 지표 메뉴에서 선택)"
+          : "지표 메뉴에서 Fibonacci를 켜야 그릴 수 있습니다"} style={{
+        height:"22px", padding:"0 7px", borderRadius:"3px",
+        cursor: fibEnabled ? "pointer" : "not-allowed", flexShrink:0,
+        fontSize:"12px", fontFamily:"inherit", fontWeight:"400",
+        background: fibMode ? "#60a5fa" : "transparent",
+        border:`1px solid ${fibMode ? "#60a5fa" : theme.textFaint}`,
+        color: fibMode ? "#000" : theme.textMuted,
+        opacity: fibEnabled ? 1 : 0.35,
+        transition:"all 0.15s",
+      }}>피보</button>
 
       {/* 지표가 꺼져 있거나 현재 TF가 표시 대상이 아니면 그려도 화면에 안 나오므로 아예 막는다 (App.jsx에서도 가드) */}
       <button onClick={onStructModeToggle} disabled={!structEnabled}

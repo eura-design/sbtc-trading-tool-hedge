@@ -8,6 +8,7 @@ export const DEFAULT_SHORTCUTS = {
   delete:       { key: "Delete",  label: "선택 삭제" },
   drawBox:      { key: "q",       label: "박스 모드 토글" },
   drawStruct:   { key: "s",       label: "구조 모드 토글" },
+  drawFib:      { key: "f",       label: "피보나치 모드 토글" },
   alert:        { key: "a",       label: "알람 토글" },
   lock:         { key: "l",       label: "잠금 토글" },
   opacityDown:  { key: "[",       label: "투명도 감소" },

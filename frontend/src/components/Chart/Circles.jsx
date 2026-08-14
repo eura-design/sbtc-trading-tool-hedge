@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { SEL_HANDLE_R } from "../../constants";
 import { tsToIdx } from "../../chart/scales";
 
 const CIRCLE_COLOR = "#a9d0fd"; // 연한 파랑
@@ -46,8 +47,8 @@ export const Circles = memo(function Circles({
                 알림 여부는 **호박색 + 점선**만으로 나타낸다 (선/채널/수동 구조도 동일) */}
             {/* 선택 핸들 */}
             {selected && <>
-              <circle cx={c.x}  cy={c.y}  r={5} fill="#f0b90b" opacity={0.9} />
-              <circle cx={re.x} cy={re.y} r={5} fill="#f0b90b" opacity={0.9} />
+              <circle cx={c.x}  cy={c.y}  r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
+              <circle cx={re.x} cy={re.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
             </>}
           </g>
         );
