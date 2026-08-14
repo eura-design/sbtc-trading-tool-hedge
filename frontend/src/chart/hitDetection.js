@@ -183,7 +183,6 @@ export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
  */
 export function findHoveredLeg({
   px, py, structures, liveSegment, zzSegments, xScale, yScale, candles, threshold = 6,
-  zzShowVol = true,
 }) {
   const pct = (p1, p2) => (p1 ? ((p2 - p1) / p1) * 100 : null);
 
@@ -239,8 +238,10 @@ export function findHoveredLeg({
         pct: pct(sg.p1, sg.p2),
         i1: sg.i1, i2: sg.i2,
         prev: p ? { i1: p.i1, i2: p.i2 } : null,
-        // 자동 ZZ는 지표라 설정이 하나뿐 (indicatorParams.zz.show_legvol)
-        showVol: zzShowVol,
+        // ⚠ 자동 ZZ는 **거래량 비교를 하지 않는다** (2026-08-14 사용자 요청으로 제거).
+        // 거래량 3줄은 수동 구조 전용이다 — 되살리지 말 것.
+        // 등락률(%)은 그대로 뜬다(위 pct) — ZZ 레그에서 사라진 건 거래량 줄뿐이다.
+        showVol: false,
       };
     }
   }

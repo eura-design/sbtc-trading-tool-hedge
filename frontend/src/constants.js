@@ -40,6 +40,12 @@ export const SIDEBAR_W = 272;
 export const M         = { top: 20, right: 72, bottom: 36, left: 6 };
 export const RSI_H     = 160;
 export const RSI_GAP   = 1;
+// RSI 과매수/과매도 **구간 배경** 개수(`rsi.zone_max`)의 **숫자 상한** (2026-08-14 사용자 지정).
+// 검출이 실측 90개를 넘어서, 상한을 검출 개수로 두면 슬라이더 한 칸이 의미를 잃는다.
+// ⚠ 상한이지 "전체 금지"가 아니다 — 슬라이더 맨 오른쪽 칸은 여전히 **전체**(`null`)이고
+//   전체는 캡의 예외라 렌더에서 자르지 않는다 (candleRenderer.js). 즉 고를 수 있는 값은
+//   1~10 그리고 전체. 한쪽만 바꾸지 말 것
+export const RSI_ZONE_MAX = 10;
 export const VOL_H     = 80;
 export const VOL_GAP   = 1;
 export const MIN_QTY   = 0.001;

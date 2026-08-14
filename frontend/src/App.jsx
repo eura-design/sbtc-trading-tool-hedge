@@ -63,7 +63,17 @@ export default function App() {
   const { params: indicatorParams, setParam: setIndicatorParam, setEmaList, resetIndicator } = useIndicatorParams();
 
   // ── 지표 표시 여부 ────────────────────────────────────────────────────────
-  const showRsi = indicators.rsi !== false;
+  // RSI — 지표 토글은 **전 TF 공통**이다. RSI 패널(선)은 어느 프레임에서든 보인다.
+  //
+  // `rsi.tfs`(중복 선택, 기본 전체)가 거르는 건 **메인 차트의 과매수/과매도 구간 배경뿐**이다
+  // (2026-08-14 사용자 확정 — 처음엔 지표 전체를 걸렀다가 정정된 요구사항).
+  // 배경은 캔들 위에 깔리는 것이라 TF마다 밀도가 크게 다르지만(5m은 온통 물든다),
+  // RSI 선 자체는 어느 TF에서나 보고 싶은 값이라 둘을 나눈다. 다시 합치지 말 것.
+  // ⚠ 알림(useAlertMonitor)은 이 필터와 **무관**하다 — 저쪽은 TF별 WebSocket을 따로 감시하고
+  //   설정도 NotificationMenu에 따로 있다. 배경을 끈 TF의 RSI 알림도 계속 울려야 한다
+  const rsiTfs       = indicatorParams.rsi?.tfs ?? [];
+  const showRsi      = indicators.rsi !== false;
+  const showRsiZones = showRsi && rsiTfs.includes(interval_);
   // Pivot Levels — 지지/저항 지표 (구 S/R Levels(KDE) 대체). chart/pivotLevels.js 참고
   const showPivot = indicators.pivot !== false;
   const showOB  = indicators.ob  !== false;
@@ -233,8 +243,9 @@ export default function App() {
         opacity:    indicatorParams.zz?.opacity ?? 1.0,
         alertChoch: indicatorParams.zz?.alert_choch !== false,
         showChoch:  indicatorParams.zz?.show_choch  !== false,
-        showLegVol: indicatorParams.zz?.show_legvol !== false,
         maxChoch:   indicatorParams.zz?.max_choch ?? null,   // null = 전체
+        // ⚠ showLegVol은 **없다** — 자동 ZZ의 거래량 비교는 2026-08-14 기능째로 제거됐다.
+        //   거래량 3줄은 수동 구조 전용이다 (LineOpacityPopup의 LEGVOL_KINDS 참고)
       }],
       setSelectedId: (id) => setZzSelected(id != null),
       delete:     () => {},   // 지표는 지울 대상이 아니다
@@ -242,8 +253,7 @@ export default function App() {
       // 구조와 마찬가지로 toggleAlert = **CHoCH 발생 알림**(근접 알림이 아니다)
       toggleAlert: () => setIndicatorParam("zz", "alert_choch", indicatorParams.zz?.alert_choch === false),
       toggleChoch: () => setIndicatorParam("zz", "show_choch",  indicatorParams.zz?.show_choch  === false),
-      // 레그 hover의 거래량 비교 3줄 — 수동 구조(structures[].showLegVol)와 같은 자리·같은 뜻
-      toggleLegVol: () => setIndicatorParam("zz", "show_legvol", indicatorParams.zz?.show_legvol === false),
+      // toggleLegVol 없음 — 위 showLegVol 주석 참고 (팝업이 kind로 걸러 행 자체를 안 그린다)
       setOpacity:  (_id, opacity) => setIndicatorParam("zz", "opacity", opacity),
       setMaxChoch: (_id, n) => setIndicatorParam("zz", "max_choch", n),
     },
@@ -359,7 +369,7 @@ export default function App() {
           onTickRef={onTickRef} interval_={interval_} isDark={isDark} isLog={isLog}
           rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData}
           pivotLevels={pivotLevels}
-          showRsi={showRsi} showPivot={showPivot} showOB={showOB} showFVG={showFVG}
+          showRsi={showRsi} showRsiZones={showRsiZones} showPivot={showPivot} showOB={showOB} showFVG={showFVG}
           showVol={showVol} showEMA={showEMA}
           showZZ={showZZ} showStruct={showStruct} zzSelected={zzSelected}
           indicatorParams={indicatorParams}

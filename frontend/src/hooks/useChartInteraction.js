@@ -41,7 +41,8 @@ export function useChartInteraction({
   moveStructPoint, normalizeStruct, structPart, selectStructPart, clearStructPart,
   // 레그 등락률 hover 표시 — 자동 ZZ는 모듈 상태에서 읽으므로 on/off 여부만 받는다
   showZZ = false,
-  zzShowVol = true,   // 자동 ZZ의 레그 hover 거래량 3줄 (indicatorParams.zz.show_legvol)
+  // ※ 자동 ZZ에는 거래량 비교 설정이 없다 — 2026-08-14 기능째로 제거됐다.
+  //   ZZ 레그 hover는 등락률(%)만 뜬다 (hitDetection.js의 showVol:false)
   // 도형 통합 인터페이스
   drawables,
   overlaysRef,
@@ -281,7 +282,6 @@ export function useChartInteraction({
           structures, liveSegment: getStructLiveSegment(),
           zzSegments: showZZ ? getZzSegments() : null,
           xScale: scales.xScale, yScale: scales.yScale, candles,
-          zzShowVol,
         });
         // 거래량은 **candlesRef**로 — React candles는 봉마감 때만 갱신돼서
         // 진행 중 레그의 마지막 봉 거래량이 낡아 있다 (구조 지표와 같은 함정)
@@ -359,7 +359,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ, zzShowVol]);
+  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;

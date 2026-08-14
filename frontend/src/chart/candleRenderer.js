@@ -1,5 +1,5 @@
 import * as d3 from "d3";
-import { M, CANVAS_C } from "../constants";
+import { M, CANVAS_C, RSI_ZONE_MAX } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
 import { renderFVG, renderOrderBlock, renderPivotLevels, renderEMA, renderStructureZigzag,
          computeRsiZones, clearRsiZones, renderRsiZones } from "./overlayRenderers";
@@ -48,11 +48,22 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   // ※ 계산(computeRsiZones)은 **zone_bg가 꺼져 있어도** 돌린다 — 지표 메뉴가 보여주는
   //   "검출된 구간 N개"(= 개수 슬라이더 상한)가 배경을 끄면 0으로 주저앉으면 안 된다.
   //   캐시 덕에 봉마감 전까지는 재계산이 없으므로 비용도 없다
+  //
+  // ※ 표시 여부는 **showRsiZones**(= RSI 지표 ON && rsi.tfs에 현재 TF 포함)를 본다.
+  //   `showRsi`(패널)와 나뉜 값이다 — 배경만 TF로 거르고 RSI 선은 전 TF에서 보인다
+  //   (2026-08-14 사용자 확정). 다시 하나로 합치지 말 것.
+  //   계산은 showRsi 기준으로 계속 돌린다: 배경을 안 그리는 TF에서도 메뉴의
+  //   "검출된 구간 N개"(= 개수 슬라이더 상한)는 살아 있어야 미리 맞춰둘 수 있다
   if (ov.showRsi && ov.rsiData?.length) {
     const zones = computeRsiZones(ov.rsiData, ov.rsiParams);
-    if (ov.rsiParams?.zone_bg !== false) {
-      // zone_max는 null이 "전체"라 ?? 로 기본값을 채우면 안 된다 (null을 5로 덮어씀)
-      const zoneMax = ov.rsiParams?.zone_max === undefined ? 5 : ov.rsiParams.zone_max;
+    if (ov.showRsiZones && ov.rsiParams?.zone_bg !== false) {
+      // zone_max: `undefined` = 미설정(기본 5) / `null` = **전체**(제한 없음) / 숫자 = 최근 N개.
+      // ⚠ null이 "전체"라 `?? 5`로 기본값을 채우면 안 된다 (null을 5로 덮어씀) — `=== undefined` 검사를 쓸 것.
+      // 숫자는 **RSI_ZONE_MAX(10)로 자른다** (2026-08-14 사용자 지정): 슬라이더가 10을 넘지
+      // 못하게 막지만, 구버전이 10보다 큰 값을 저장해뒀을 수 있어 렌더에서도 한 번 더 건다.
+      // "전체"는 캡의 예외다 — 사용자가 명시적으로 고른 값이라 자르지 않는다
+      const zm = ov.rsiParams?.zone_max;
+      const zoneMax = zm === undefined ? 5 : zm === null ? null : Math.min(zm, RSI_ZONE_MAX);
       renderRsiZones(ctx, zones, xScale, IW, IH, isDark, zoneMax);
     }
   } else {

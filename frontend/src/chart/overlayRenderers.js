@@ -270,6 +270,10 @@ export function renderEMA(ctx, emaDataList, xScale, yScale, IW, IH) {
 // ── Structure Zigzag (지그재그 + CHoCH) ──────────────────────────────────────
 // 선택 강조색 — 수동 구조(Structures.jsx의 SEL_COLOR)와 같은 금색
 const ZZ_SEL_COLOR = "#f0b90b";
+// ※ CHoCH 마크에는 **글자가 없다** — 가로선만 그린다 (2026-08-14 사용자 요청).
+//   `"CHoCH"` → `"C"` → 제거 순으로 줄였다. 마크가 여러 개 붙으면 글자끼리 겹쳐
+//   화면이 복잡해 보인다는 이유. 방향은 색(초록/빨강)과 선 위치가 이미 말해준다.
+//   ⚠ 수동 구조(Structures.jsx)·`기타/structure_zigzag.pine`도 같이 지웠다 — 되살릴 거면 셋을 같이
 
 /**
  * @param opts { selected, opacity } — 지그재그 선의 색·굵기·투명도.
@@ -303,12 +307,8 @@ export function renderStructureZigzag(ctx, zzData, xScale, yScale, IW, IH, opts 
       ctx.stroke();
     }
 
-    // CHoCH 마크 (돌파된 구조 레벨 + 라벨)
+    // CHoCH 마크 — 돌파된 구조 레벨에 **가로선 하나**. 글자는 없다 (위 주석 참고).
     if (chochs?.length) {
-      ctx.font         = "700 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
-      ctx.textAlign    = "center";
-      ctx.textBaseline = "alphabetic";
-
       // ※ 수동 구조(Structures.jsx의 ChochMarks)와 **픽셀 단위로 같은 규칙**이다.
       //   화면 밖 판정 / 최소 폭 2px / 불투명도 1 / 진행 중이면 점선 — 한쪽만 바꾸지 말 것.
       for (const ev of chochs) {
@@ -320,10 +320,7 @@ export function renderStructureZigzag(ctx, zzData, xScale, yScale, IW, IH, opts 
         const x1 = Math.max(Math.min(IW, rawX1), x0 + 2);
         const y  = yScale(ev.price);
 
-        const isBull = ev.dir === "bull";
-        const color  = isBull ? CANVAS_C.BULL_DARK : CANVAS_C.BEAR_DARK;
-
-        ctx.strokeStyle = color;
+        ctx.strokeStyle = ev.dir === "bull" ? CANVAS_C.BULL_DARK : CANVAS_C.BEAR_DARK;
         ctx.lineWidth   = 1.5;
         ctx.globalAlpha = 1;
         // 진행 중 레그에서 나온 CHoCH는 확정분과 구분되게 점선
@@ -333,9 +330,6 @@ export function renderStructureZigzag(ctx, zzData, xScale, yScale, IW, IH, opts 
         ctx.lineTo(x1, y);
         ctx.stroke();
         ctx.setLineDash([]);
-
-        ctx.fillStyle = color;
-        ctx.fillText("CHoCH", (x0 + x1) / 2, isBull ? y - 4 : y + 12);
       }
     }
   });

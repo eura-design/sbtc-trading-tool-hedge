@@ -46,8 +46,6 @@ export const Channels = memo(function Channels({
         const s1 = clipSegmentX(a1.x, a1.y, b1.x, b1.y, -VIEW_PAD, IW + VIEW_PAD);
         const s2 = clipSegmentX(a2.x, a2.y, b2.x, b2.y, -VIEW_PAD, IW + VIEW_PAD);
         if (!s1 && !s2) return null;                    // 완전히 화면 밖
-        const mx       = s1 ? (s1.x1 + s1.x2) / 2 : 0;
-        const my       = s1 ? (s1.y1 + s1.y2) / 2 : 0;
 
         return (
           <g key={ch.id}>
@@ -59,12 +57,8 @@ export const Channels = memo(function Channels({
             {s2 && <line x1={s2.x1} y1={s2.y1} x2={s2.x2} y2={s2.y2}
               stroke={color} strokeWidth={sw} opacity={opacity}
               strokeDasharray={alert && !selected ? "6,3" : undefined} />}
-            {/* 알림 아이콘 */}
-            {alert && !selected && s1 && (
-              <text x={mx} y={my - 7} textAnchor="middle"
-                fontSize="11" fill="#fbbf24" opacity={opacity}
-                style={{ pointerEvents: "none" }}>🔔</text>
-            )}
+            {/* ※ 알림 ON을 나타내던 🔔 아이콘은 2026-08-14 사용자 요청으로 제거.
+                알림 여부는 **호박색 + 점선**만으로 나타낸다 (선/원/수동 구조도 동일) */}
             {/* 선택 핸들 */}
             {selected && <>
               <circle cx={a1.x} cy={a1.y} r={5} fill="#f0b90b" opacity={0.9} />

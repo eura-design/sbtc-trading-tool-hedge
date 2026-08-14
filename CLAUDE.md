@@ -173,9 +173,17 @@ frontend/src/
 │   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/**Pivot**/OB/FVG/EMA/ZZ/Custom ZZ)
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
 │   │                             StructTfPanel: Custom ZZ 표시 타임프레임 다중 선택 (struct.tfs, 기본 1h) **전용**
-│   │                               ※ CHoCH 관련은 여기 없다 — 표시 on/off·개수·검출 개수 전부
-│   │                                 각 구조/ZZ의 더블클릭 팝업에 있다 (2026-08-12 중복 제거)
-│   │                               ※ ZZ 패널에만 "검출된 CHoCH N개"가 남아 있다 (지표 하나 = 리스트 하나)
+│   │                               ※ 수동 구조엔 CHoCH 관련이 없다 — 표시 on/off·개수·거래량 비교
+│   │                                 전부 **구조별**이라 각 구조의 더블클릭 팝업에 있다
+│   │                             ZZ 패널: "검출된 CHoCH N개" + **CHoCH 표시 / CHoCH 개수**
+│   │                               (2026-08-14 추가 — 팝업과 같은 값의 거울)
+│   │                               ※ 거래량 비교는 없다 — 자동 ZZ는 거래량 비교 자체가 제거됨
+│   │                             RSI 패널: "검출된 과매수/과매도 N개" + **구간 배경 표시 TF(rsi.tfs)**
+│   │                               + 구간 배경/구간 개수 + period/OB/OS
+│   │                               ※ rsi.tfs는 **구간 배경만** 거른다 — RSI 선은 전 TF에 나온다
+│   │                             TfGrid: TF 다중 선택 — **RSI(구간 배경)/Custom ZZ(표시)/Pivot(계산)** 공유
+│   │                               ⚠ **체크박스다** (2026-08-14 사용자 요청 — 3개 전부).
+│   │                                 ON/OFF 버튼으로 되돌리지 말 것: 다중 선택이 모양에서 안 읽힌다
 │   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (7TF × RSI OB/OS/봉마감)
 │   ├── ShortcutMenu.jsx       ← 단축키 커스텀 설정 UI (녹음 모드로 각 action 키 재바인딩 + 초기화)
 │   ├── Toast.jsx              ← 토스트 알림 컴포넌트 (일반: 금색, sticky: 빨강 + 확인 버튼)
@@ -188,15 +196,17 @@ frontend/src/
 │   │   ├── PositionLines.jsx      ← 헷지모드: 롱/숏 포지션 각각 진입/TP/SL/분할TP/추가진입 수평선 (드래그 핸들)
 │   │   ├── TrendLines.jsx         ← 트렌드 라인 SVG (선택 시 끝점 핸들)
 │   │   ├── Channels.jsx           ← 채널 SVG (메인선+미러선+채우기, 알림 글로우, 선택 핸들)
-│   │   ├── Circles.jsx            ← 원 SVG (채우기+테두리, 알림 아이콘, 선택 핸들)
+│   │   ├── Circles.jsx            ← 원 SVG (채우기+테두리, 선택 핸들)
 │   │   ├── Structures.jsx         ← 수동 구조 SVG (지그재그 폴리라인 + CHoCH 마크 + 꼭짓점 핸들)
 │   │   │                             liveClose를 자체 구독 — ChartArea가 구독하면 틱마다 전체 리렌더
 │   │   └── LineOpacityPopup.jsx   ← 더블클릭 팝업 — 헤더(이름+%+🔔🔒) / 투명도 슬라이더 / 옵션 영역
 │   │                                 🔔 의미만 다름: 선·채널·원 = 근접 알림 / 구조·ZZ = CHoCH 발생 알림
 │   │                                 구조·ZZ는 슬라이더 아래에 `CHoCH 표시 [ON/OFF]` + `CHoCH 개수` 슬라이더
-│   │                                 + `거래량 비교 [ON/OFF]` (레그 hover 거래량 3줄)
+│   │                                 `거래량 비교 [ON/OFF]`는 **수동 구조에만** (LEGVOL_KINDS, 2026-08-14)
 │   │                                 개수는 **그 구조(또는 ZZ)에만** 적용 — 전역 설정이 아니다
-│   │                                 **자동 ZZ와 수동 구조는 이름("구조")·구성 동일** (잠금 유무만 다름)
+│   │                                 ※ ZZ의 두 줄은 지표 메뉴 ZZ ⚙에도 있다 (같은 값의 거울, 2026-08-14)
+│   │                                 **자동 ZZ와 수동 구조는 이름("구조")·구성 거의 동일**
+│   │                                   (자동 ZZ에 없는 것: 잠금 🔒, 거래량 비교)
 │   │                                  ※ FVG/OB/SR/EMA는 SVG가 아닌 `overlayRenderers.js`로 캔버스 렌더
 │   │                                  ※ Volume/RSI 패널은 `volumeRenderer.js`/`rsiRenderer.js` (캔버스) 사용
 │   └── Sidebar/
@@ -344,6 +354,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 | `deriveStructure`에 `candlesRef.current` 전달 | React candles는 봉마감 때만 갱신 → 라이브가 조용히 죽음 |
 | 라이브 레그는 가장 최근 구조 1개만 | 과거 구조가 화면 끝까지 점선을 뻗음 |
 | CHoCH 마크 항상 100% 불투명 | 구조를 흐리게 하면 마크까지 흐려짐 |
+| **마크에 글자 없음 — 가로선만** (2026-08-14) — ZZ·수동 구조·Pine 셋 다 | 마크가 붙어 있으면 글자끼리 겹쳐 복잡해 보임 (`"CHoCH"` → `"C"` → 제거 순으로 줄인 결과) |
 | 신규 구조 기본 투명도 0.5 | — |
 | `STRUCT_SNAP_BARS = 1` | 마그넷이 과하게 강해짐 (3에서 낮춘 값) |
 | 전 TF 공유 (storageKey에 TF 없음) — **저장은 TF별로 쪼개지 않는다** | TF별 분리는 기능 후퇴 |
@@ -483,22 +494,26 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
     실제 가격은 90 위에서 뭉개다 레그 끝에서 깨는 일이 흔하다. 봉 기준으로 끊으면 그 차이만큼
     가로선이 지그재그를 지나 오른쪽으로 삐져나온다 (하락 레그에 잦아 bear 쪽에 몰려 보임)
   - 선분 교차점은 정의상 두 꼭짓점 사이에 들어가므로 어떤 데이터·TF에서도 삐져나오지 않는다
-- **스타일**: 자동 ZZ와 동일 (지그재그 `#888888` / CHoCH `#0ecb81`·`#f6465d` 1.5px + 라벨), 렌더만 SVG
+- **스타일**: 자동 ZZ와 동일 (지그재그 `#888888` / CHoCH `#0ecb81`·`#f6465d` 1.5px 가로선, 글자 없음), 렌더만 SVG
 - **알림 ON 스타일은 트렌드라인과 동일** (2026-08-13 사용자 요청): 호박색 `#fbbf24` +
-  점선 `6,3` + 굵기 1.5 + 글로우(굵기 6, 투명도 0.18) + 가운데 선분에 🔔.
+  점선 `6,3` + 굵기 1.5 + 글로우(굵기 6, 투명도 0.18).
   선택(금색)이 알림보다 우선한다. 꼭짓점 점 색도 선을 따라간다.
-  한쪽만 바꾸지 말 것 — 같은 🔔인데 선 종류마다 다르게 보인다
+  한쪽만 바꾸지 말 것 — 같은 알림인데 선 종류마다 다르게 보인다
+  - ⚠ **차트 위 🔔 아이콘은 없다** (2026-08-14 사용자 요청으로 제거 — 선·채널·원·수동 구조
+    **네 종류 모두**). 알림 여부는 **색과 점선만으로** 나타낸다. 되살리려면 넷을 같이.
+    켜고 끄는 🔔 토글(더블클릭 팝업 헤더)과 단축키 `a`는 그대로다 — 지운 건 마커뿐이다
   - ※ **자동 ZZ는 아직 이 스타일이 아니다** (캔버스 렌더라 `overlayRenderers.js` 쪽 작업이 따로 필요).
     맞출 거면 `renderStructureZigzag`에서 같은 값으로
   - ⚠ 그래서 `alertChoch`는 **기본 OFF**다 (2026-08-13 사용자 결정, `[R10]`).
     기본이 ON이면 손대지 않은 구조가 전부 알림 스타일이 되어 색이 아무것도 구분해주지 못한다.
 - **근접 알림 없음**: `useTrendLineAlert`은 선/채널/원만 대상. 대신 `drawables.structure.toggleAlert`가
-  **CHoCH 발생 알림**(`useChochAlert`)에 연결돼 있어 🔔 아이콘과 단축키 `a`가 그대로 동작한다.
+  **CHoCH 발생 알림**(`useChochAlert`)에 연결돼 있어 팝업의 🔔 토글과 단축키 `a`가 그대로 동작한다.
   CHoCH 마크 표시(`showChoch`)는 슬라이더 아래 `CHoCH 표시 [ON/OFF]` 행 — 자동 ZZ와 같은 UI다
   (👁 아이콘으로 바꿨다가 "무슨 표시인지 모르겠다"는 이유로 사용자가 되돌렸다 — 되살리지 말 것)
 
 ### 지그재그 레그 hover — 등락률 + 양봉/음봉 거래량 3종 (2026-08-12 / 3줄 2026-08-13)
-지그재그 선 위에 마우스를 올리면 커서 아래 작게 뜬다:
+지그재그 선 위에 마우스를 올리면 커서 아래 작게 뜬다
+(**거래량 3줄은 수동 구조에서만** — 자동 ZZ는 등락률만, 2026-08-14):
 ```
 +1.38%   상위3 ▲4.2K ↓7%      ← 상위 3봉 평균 (n<3이면 있는 만큼)
          평균  ▲2.1K ↓4%      ← 그 방향 봉 전체 평균 (봉당)
@@ -512,8 +527,13 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   (봉 수와의 상관계수 총량 0.29 / 상위3 0.10 / 평균 0.00). 총량이 늘었을 때
   "거래가 많았다"인지 "레그가 길었다"인지는 위 두 줄과 같이 봐야 갈린다 — 순서를 뒤집지 말 것
 - 라벨이 패널 아래로 넘치면 커서 **위**로 뒤집는다 (`showLegPct`에 `IH` 전달)
-- **끄는 곳은 더블클릭 팝업의 `거래량 비교 [ON/OFF]`** (2026-08-13) — 수동 구조는 **구조마다**
-  (`structures[].showLegVol`), 자동 ZZ는 지표 하나(`indicatorParams.zz.show_legvol`). 둘 다 기본 ON
+- ⚠ **거래량 3줄은 수동 구조 전용이다 — 자동 ZZ에는 없다** (2026-08-14 사용자 요청으로 제거).
+  자동 ZZ 레그에 hover하면 **등락률(%)만** 뜬다. 되살리지 말 것 —
+  되살리려면 `hitDetection.js`의 ZZ 분기(`showVol: false`), `zz.show_legvol` 파라미터
+  (프론트·백엔드 DEFAULTS), 팝업의 `LEGVOL_KINDS`, `useChartInteraction`의 `zzShowVol`까지
+  전부 다시 필요하다 (같이 삭제됨)
+- **끄는 곳은 더블클릭 팝업의 `거래량 비교 [ON/OFF]`** (2026-08-13) — **구조마다**
+  (`structures[].showLegVol`), 기본 ON. 자동 ZZ 팝업에는 이 행이 없다(`LEGVOL_KINDS`)
   - **OFF여도 등락률(%)은 그대로 뜬다.** 거래량 3줄만 사라진다 — 전부 없어지면
     "hover가 통째로 죽었다"로 보인다
   - 진행 중(점선) 레그는 구조 목록에 없어서 `hitDetection`이 플래그를 직접 못 읽는다 →
@@ -627,13 +647,22 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS/**zone_bg/zone_max**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/show_legvol/opacity**), struct(tfs)
+- 대상: RSI(period/OB/OS/**zone_bg/zone_max/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
 - ※ `pivot`은 **6개를 저장하고 UI에는 5개**(TF 그리드 + 슬라이더 4개) — 숨긴 건 `lookback`(600).
   이유는 "Pivot Levels" 절 참고
 - ※ 구 S/R Levels의 `sr` 키는 지표째로 제거됐다 (2026-08-13) — 저장 파일에서도 지웠다
-- ※ `zz`의 **show_choch·max_choch·alert_choch·opacity는 전부 ZZ 선 더블클릭 팝업**에서 조작한다
-  (PARAMS_META.zz에 없음). `show_choch`는 예전에 IndicatorMenu에도 있었지만 **같은 값을 가리키는
-  중복이라 2026-08-12 제거**했다 — 되살리지 말 것
+- ※ `zz`의 **show_choch·max_choch는 두 곳에 있다** (2026-08-14 사용자 요청):
+  ZZ 선 더블클릭 팝업 + 지표 메뉴 ZZ ⚙. **같은 값을 가리키는 거울**이라 한쪽을 바꾸면 양쪽이 바뀐다
+  (2026-08-12에 "중복"이라며 메뉴 쪽을 지웠던 것을 사용자가 다시 요청해 되돌렸다).
+  줄 순서는 **표시 → 개수**로 양쪽 같게 유지할 것
+  - ⚠ `zz.show_legvol`은 **없다** — 자동 ZZ의 레그 hover 거래량 비교는 2026-08-14 기능째로
+    제거됐다 (같은 날, 메뉴에 넣은 직후 사용자 요청). 프론트·백엔드 DEFAULTS 양쪽에서 키를 뺐다
+  - `alert_choch`·`opacity`는 **팝업에만** 있다 (🔔 / 슬라이더 — 도형 공통 UI라 메뉴에 자리가 없다)
+  - `max_choch` 슬라이더는 상한이 실제 검출 개수(`getZzChochTotal()`)라 PARAMS_META로 못 만든다 →
+    `RecentCountSlider`(RSI `zone_max`와 공유). 끝까지 올리면 `null`(전체)
+  - ⚠ **수동 구조(struct)에는 같은 걸 만들지 말 것.** 저쪽 세 값은 전부 구조별(localStorage)이라
+    지표 메뉴가 가리킬 값 자체가 없다. 새로 전역 값을 만들면 구조별 값과 AND로 걸려
+    전역 OFF일 때 구조별 ON이 먹지 않는데 그 사실이 구조 팝업에 드러나지 않는다 (아래 `struct.show_choch` 항목)
 - ※ `struct.max_choch`는 **없다** — 수동 구조의 표시 개수는 구조마다 localStorage에 있다(`st.maxChoch`)
 - ※ 새 지표 추가 시 프론트 `INDICATOR_DEFAULTS`와 백엔드 `indicatorParamsStore.DEFAULTS` **양쪽 모두**에 키 추가 필요 (백엔드 load()가 자기 DEFAULTS 키만 통과시킴)
 
@@ -802,13 +831,14 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 **차트 TF와 무관하게** `pivot.tfs`에서 고른 TF들의 레벨이 **모든 프레임에 똑같이** 뜬다.
 (예: 1h·4h·1d를 체크하면 5m 차트에서도 그 세 TF의 지지/저항이 같은 가격에 보인다)
 
-- 설정 위치: 지표 메뉴 `Pivot Levels` ⚙ → **레벨 계산 타임프레임** (`TfGrid`, 중복 선택)
+- 설정 위치: 지표 메뉴 `Pivot Levels` ⚙ → **레벨 계산 타임프레임** (`TfGrid`, 중복 선택 체크박스)
   - ⚠ TF 그리드 옆에 **표시/숨김 버튼을 넣지 말 것** (2026-08-13 넣었다가 사용자 요청으로 제거).
     지표 행의 체크박스와 같은 값(`indicators.pivot`)이라 중복이다.
     지표를 끄고 켜는 곳은 체크박스 하나뿐이다 — `TfGrid`가 수동 구조와 공유 컴포넌트라
     한쪽에 붙이면 양쪽에 다 생기는 문제도 있다
-  - ⚠ 수동 구조의 `struct.tfs`와 **뜻이 다르다**. 저쪽은 "어느 TF에서 보여줄지"(표시 필터)고
-    이쪽은 **계산 대상 TF**다. 컴포넌트(`TfGrid`)만 공유한다
+  - ⚠ 수동 구조의 `struct.tfs`(구조 표시)·RSI의 `rsi.tfs`(구간 배경만)와 **뜻이 다르다**.
+    저쪽 둘은 "어느 TF에서 보여줄지"(표시 필터)고 이쪽은 **계산 대상 TF**다.
+    컴포넌트(`TfGrid`)만 공유한다
 - 각 TF의 캔들은 `usePivotLevels`가 **Binance REST로 직접** 받아 온다(TF당 700봉).
   차트는 한 번에 한 TF만 들고 있어서 차트 캔들로는 불가능하다
   - 재조회는 그 TF의 **다음 봉 마감 직후**, 최대 30분 간격(`MAX_REFETCH_MS`).
@@ -862,7 +892,12 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
       레그는 끝점이 계속 연장되므로 교차점도 같이 움직여야 한다. 누적 기록(`_st.chochs`)은
       건드리지 않으므로 forward-only 원칙은 그대로다
     - 화면 밖 판정 / 최소 폭 2px / 불투명도 1도 동일. 한쪽만 바꾸지 말 것
-    - `기타/structure_zigzag.pine`도 같이 수정했다 (교차점 + 점선→실선 전환)
+    - ⚠ **글자는 없다 — 가로선 하나뿐이다** (2026-08-14 사용자 요청).
+      `"CHoCH"` → `"C"` → 제거 순으로 줄였다. 마크가 여러 개 붙으면 글자끼리 겹쳐
+      복잡해 보인다는 이유고, 방향은 **색(초록/빨강)과 선 위치**가 이미 말해준다.
+      되살릴 거면 ZZ·수동 구조·Pine **셋을 같이** — 하나만 되살리면 지표마다 다르게 보인다
+    - `기타/structure_zigzag.pine`도 같이 수정했다 (교차점 + 점선→실선 전환 + 라벨 제거).
+      `label.new` 호출이 하나도 남지 않아 `labelSize` 상수도 지웠다
   ※ 지그재그 선 자체는 ZZ·수동 구조가 다르다 — ZZ의 마지막 세그먼트는 실제 피벗 구간이라
     실선이고, 수동 구조의 진행 중 레그는 "마지막 꼭짓점 → 현재가" 투영이라 점선이다
   ※ 구 Market Structure(MS) 지표는 ZZ가 대체하여 제거됨 (2026-08-12)
@@ -884,6 +919,8 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - **RSI 패널**: Wilder's smoothing, 별도 캔버스, 드래그로 높이 조절 (useRsiResize)
   ※ RSI 다이버전스 지표는 **없다** — 2026-08-12에 한 번, 2026-08-13에 재작성분까지
     사용자 요청으로 지웠다. RSI 패널에는 RSI 선 말고 아무 오버레이도 없다
+  ※ **RSI 패널(선)은 전 TF 공통이다.** 지표 체크박스(`indicators.rsi`)만 본다 —
+    `rsi.tfs` 필터는 패널을 건드리지 않는다 (아래 "구간 배경" 참고)
 - **RSI 과매수/과매도 구간 배경** (2026-08-13, `overlayRenderers.js::renderRsiZones`)
   - RSI가 과매수(≥ob) / 과매도(≤os)인 봉 구간을 **메인 차트**에 세로 밴드로 칠한다
   - **메인 차트에만.** RSI 패널에는 밴드를 넣지 않는다 (사용자 선택)
@@ -900,17 +937,42 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
     세로 줄무늬가 생긴다 (반투명 사각형을 이어 붙일 때의 고전적 문제)
   - **캔들보다 먼저 그린다**(배경). 다른 오버레이와 달리 **pan 중에도 그린다** —
     사각형 몇 개라 비용이 없고, 드래그할 때만 사라지면 구간이 깜빡이는 것처럼 보인다
-  - **최근 N개만 표시** (`rsi.zone_max`, **기본 5**, `null` = 전체) — 과거까지 온통 파래지면
+  - **최근 N개만 표시** (`rsi.zone_max`, **기본 5 / 숫자 상한 10 / `null` = 전체**) — 과거까지 온통 파래지면
     배경이 아니라 노이즈가 된다는 사용자 요청. 제한은 **화면이 아니라 전체 목록 기준**
     (`zones.slice(-max)`) — 뷰포트에 따라 "최근 5개"가 달라지면 스크롤할 때마다 밴드가
     다른 데 찍혀 같은 지표로 보이지 않는다
+  - **표시 타임프레임 필터** `rsi.tfs` (중복 선택, **기본 전 TF**, 2026-08-14 사용자 확정) —
+    IndicatorMenu RSI ⚙ → `구간 배경 표시 타임프레임`. 여기서 고른 TF에서만 밴드가 칠해진다
+    - ⚠ **거르는 건 배경뿐이다. RSI 패널(선)은 전 TF에서 계속 보인다.**
+      처음엔 `showRsi` 하나로 지표 전체를 걸렀다가 사용자가 정정한 요구사항이다.
+      `App.jsx`가 두 값을 나눠 갖는다: `showRsi`(패널·레이아웃 높이) /
+      `showRsiZones = showRsi && rsi.tfs.includes(interval_)`(배경). 다시 합치지 말 것
+    - 이유: 배경은 캔들 위에 깔리는 것이라 TF마다 밀도가 크게 다르지만(5m은 온통 물든다),
+      RSI 선 자체는 어느 TF에서나 보고 싶은 값이다
+    - ⚠ **기본값은 전 TF**다. `struct.tfs`처럼 `["1h"]`로 두지 말 것 — 새 필터가 기본으로
+      좁으면 기존 사용자에게는 기능이 사라진 것처럼 보인다
+    - ⚠ **구간 계산(`computeRsiZones`)은 걸러진 TF에서도 돌린다** — 안 그리는 TF에서도
+      메뉴의 "검출된 과매수/과매도 N개"(= 개수 슬라이더 상한)가 살아 있어야 미리 맞춰둘 수 있다.
+      `zone_bg`가 꺼져 있어도 계산하는 것과 같은 이유 (candleRenderer.js)
+    - ⚠ **알림은 이 필터와 무관하다.** `useAlertMonitor`는 TF별 WebSocket을 따로 감시하고
+      설정도 NotificationMenu에 따로 있다 — 배경을 끈 TF의 RSI 알림도 계속 울려야 한다
+    - 라벨에 "구간 배경"을 꼭 적을 것. 그냥 "표시 타임프레임"이면 RSI 전체가 사라지는 줄 안다
   - 토글/개수: IndicatorMenu RSI ⚙ → `구간 배경`(`zone_bg`, 기본 ON) + `구간 개수` 슬라이더.
     RSI 지표가 꺼져 있으면 함께 꺼지고, `zone_bg`가 OFF면 개수 슬라이더도 숨긴다
-  - **슬라이더 상한 = 실제 검출 개수** (`getRsiZoneCount()`) + `검출된 과매수/과매도 N개` 행.
-    ZZ의 CHoCH 개수와 같은 규칙 — 끝까지 올리면 `null`(전체)로 저장한다.
-    숫자로 고정하면 구간이 늘었을 때 새 밴드가 조용히 잘린다
-  - ⚠ `zone_max`는 **`null`이 "전체"**라 `?? 5`로 기본값을 채우면 안 된다 (null을 5로 덮어씀).
-    `=== undefined` 검사를 쓸 것
+  - **고를 수 있는 값 = 1~10 + 전체.** 숫자 상한이 `constants.js`의 `RSI_ZONE_MAX`(10,
+    2026-08-14 사용자 지정)이고, 슬라이더 **맨 오른쪽 한 칸이 `null`(전체)**이다.
+    `검출된 과매수/과매도 N개` 행은 그대로 실제 개수를 보여준다
+    - 왜 숫자 상한을 두나: 검출이 실측 **90개**를 넘는다. 상한을 검출 개수로 두면
+      슬라이더 한 칸이 의미를 잃는다 (배경 개수는 한 자릿수에서 조절하는 값이다)
+    - ⚠ **"전체"는 캡의 예외다** — 사용자가 명시적으로 고른 값이라 렌더에서 자르지 않는다.
+      숫자만 `Math.min(…, RSI_ZONE_MAX)`로 자른다 (`candleRenderer.js`)
+    - ⚠ `zone_max`는 **`null`이 "전체"**라 `?? 5`로 기본값을 채우면 안 된다 (null을 5로 덮어씀).
+      `=== undefined` 검사를 쓸 것
+    - ⚠ ZZ의 CHoCH 개수(`max_choch`)와 **"전체" 칸의 위치가 다르다.** `RecentCountSlider`의
+      `cap` prop이 가른다:
+        · cap 없음(ZZ) — 상한 = 검출 개수, 맨 오른쪽 칸이 곧 전체 (둘이 같은 뜻이라 겹쳐 둔다).
+          구조/ZZ 팝업의 `CountRow`와 같은 규칙 — 같은 값을 두 곳에서 조작하므로 맞춰야 한다
+        · cap 있음(RSI) — 칸이 하나 더 있다. 겹치면 **"10개"를 고를 방법이 없어진다**
   - ⚠ 구간 계산(`computeRsiZones`)은 **`zone_bg`가 꺼져 있어도 돌린다** — 메뉴의 검출 개수
     (= 슬라이더 상한)가 배경을 끄면 0으로 주저앉으면 안 되기 때문. rsiData 참조 비교
     캐시라 봉마감 전까지 재계산이 없어 비용은 없다. RSI 지표 자체가 꺼지면 `clearRsiZones()`

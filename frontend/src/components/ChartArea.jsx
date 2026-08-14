@@ -45,7 +45,7 @@ export function ChartArea({
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, pivotLevels,
   // 지표 표시 여부
-  showRsi, showPivot, showOB, showFVG, showVol, showEMA, showZZ, showStruct, zzSelected,
+  showRsi, showRsiZones, showPivot, showOB, showFVG, showVol, showEMA, showZZ, showStruct, zzSelected,
   // 지표 파라미터
   indicatorParams,
   // 드로잉 상태 (useTrendLines)
@@ -185,7 +185,8 @@ export function ChartArea({
     fvgData, showFVG, obData, showOB, pivotLevels, showPivot, emaData, showEMA,
     showZZ, zzParams: indicatorParams.zz, zzSelected,   // ZZ는 candleRenderer가 라이브 캔들로 직접 계산
     showVol, volH: effectiveVolH, volColorMode: indicatorParams.vol?.colorMode ?? "neutral",
-    rsiData, showRsi, rsiH: effectiveRsiH, rsiParams: indicatorParams.rsi,
+    // showRsi = 패널(선) — 전 TF 공통 / showRsiZones = 메인 차트 구간 배경 — rsi.tfs 필터
+    rsiData, showRsi, showRsiZones, rsiH: effectiveRsiH, rsiParams: indicatorParams.rsi,
   };
 
   // ── 캔버스 렌더러 ──────────────────────────────────────────────────────────
@@ -212,7 +213,7 @@ export function ChartArea({
     if (!candles.length) return;
     redrawRSI();
     redrawCanvas();
-  }, [rsiData, showRsi, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rsiData, showRsi, showRsiZones, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
   const { saveTpsl, moveScaleIn, moveSplitTp } = useOrderFlow();
@@ -228,7 +229,6 @@ export function ChartArea({
     useChartInteraction({
       candles, candlesRef, IW, IH, rsiH: effectiveRsiH, volH: effectiveVolH,
       updateCrosshair, hideCrosshair, showLegPct, showZZ,
-      zzShowVol: indicatorParams.zz?.show_legvol !== false,
       scalesRef,
       onLineDoubleClick: (id, type, x, y) => setOpacityPopup({ id, type, x, y }),
       xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,

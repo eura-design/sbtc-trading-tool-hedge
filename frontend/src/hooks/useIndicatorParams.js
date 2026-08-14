@@ -4,9 +4,16 @@ import { api } from "../api/client";
 export const INDICATOR_DEFAULTS = {
   vol: { colorMode: "neutral" },
   // zone_bg  — 과매수/과매도 구간을 **메인 차트** 배경에 세로 밴드로 표시 (2026-08-13)
-  // zone_max — 그중 **최근 몇 개만** 칠할지. 기본 5, `null`이면 전체
-  //   (과거까지 온통 파래지면 배경이 아니라 노이즈가 된다는 사용자 요청)
-  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5 },
+  // zone_max — 그중 **최근 몇 개만** 칠할지. 기본 5 / `null`이면 전체 /
+  //   숫자 상한 **10** (constants.js `RSI_ZONE_MAX`, 2026-08-14 — 검출이 실측 90개를 넘어
+  //   슬라이더 상한을 검출 개수로 두면 한 칸이 의미를 잃는다). 고를 수 있는 값 = 1~10 + 전체
+  //   ⚠ `null`이 "전체"라 `?? 5`로 기본값을 채우면 안 된다 — `=== undefined` 검사를 쓸 것
+  // tfs      — **구간 배경을 칠할 타임프레임** (중복 선택, 2026-08-14 사용자 확정).
+  //   ⚠ 거르는 건 **배경뿐이다. RSI 패널(선)은 전 TF에서 계속 보인다** —
+  //     App.jsx가 showRsi(패널)와 showRsiZones(배경)로 나눠 갖는다. 다시 합치지 말 것
+  //   ⚠ 기본값은 **전 TF**다 — struct처럼 ["1h"]로 두면 기존 사용자에게 기능이 사라진 것처럼 보인다
+  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5,
+         tfs: ["5m", "15m", "1h", "4h", "1d", "1w", "1M"] },
   // ※ RSI 다이버전스(`rsidiv`)는 2026-08-13 지표째로 제거됐다 — 키를 되살리지 말 것
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },
   ob:  { swing_lb: 5, bos_window: 30, ob_lookback: 20, scan_from: 500, mitigation_pct: 50, max_display: 15, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false, use_wick: false },
@@ -24,7 +31,9 @@ export const INDICATOR_DEFAULTS = {
   // max_choch(표시 개수, null = 전체) / alert_choch(CHoCH 발생 알림) / opacity(투명도)는
   // 지표 메뉴가 아니라 **ZZ 선 클릭 → 더블클릭 팝업**에서 조작한다 (수동 구조와 같은 조작감).
   // max_choch 기본이 숫자면 낮춰둔 걸 잊고 "CHoCH가 안 뜬다"고 오해한다 → 기본은 전체
-  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: true, show_legvol: true, opacity: 1.0 },
+  // ※ show_legvol은 **없다** — 자동 ZZ의 레그 hover 거래량 비교는 2026-08-14 사용자 요청으로
+  //   기능째로 제거됐다 (거래량 3줄은 수동 구조 전용). 키를 되살리지 말 것
+  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: true, opacity: 1.0 },
   // 수동 구조(Custom Structure Zigzag)
   //   tfs — 표시할 타임프레임 (중복 선택 가능, 기본 1h). **여기 있는 건 이것뿐이다.**
   //   ※ CHoCH 표시 on/off·개수는 구조마다 localStorage에 있다 (st.showChoch / st.maxChoch,

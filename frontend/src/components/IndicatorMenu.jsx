@@ -3,7 +3,7 @@ import { useTheme } from "../ThemeContext";
 import { INDICATOR_DEFAULTS } from "../hooks/useIndicatorParams";
 import { getZzChochTotal } from "../chart/structureZigzag";
 import { getRsiZoneCount } from "../chart/overlayRenderers";
-import { INTERVALS } from "../constants";
+import { INTERVALS, RSI_ZONE_MAX } from "../constants";
 
 export const INDICATORS = [
   { key: "vol", label: "Volume" },
@@ -16,7 +16,9 @@ export const INDICATORS = [
   { key: "zz",  label: "Structure Zigzag" },
   // 수동 구조 표시 토글 — 자동 ZZ와 독립
   // ※ key는 "struct" 유지 — 바꾸면 localStorage("indicators")에 저장된 on/off가 초기화된다
-  // ⚙ 설정은 전용 패널(StructTfPanel): 표시 타임프레임 + CHoCH 표시 개수/on-off
+  // ⚙ 설정은 전용 패널(StructTfPanel): **표시 타임프레임뿐이다.**
+  //   CHoCH 표시/개수·거래량 비교는 자동 ZZ와 달리 여기 없다 — 전부 구조별이라
+  //   각 구조의 더블클릭 팝업에 있다 (아래 STRUCT 주석 참고)
   { key: "struct", label: "Custom Structure Zigzag" },
   { key: "ema", label: "EMA" },
 ];
@@ -56,9 +58,9 @@ const PARAMS_META = {
     { key: "atr_mult",   label: "ATR 배수",       min: 0.1, max: 5.0,   step: 0.1, fmt: v => v.toFixed(1) + "×" },
     { key: "atr_period", label: "ATR 기간",       min: 5,   max: 50,    step: 1  },
     // 표시 범위(scan_from)는 제거 — 지그재그는 로드된 캔들 전체를 잇는다.
-    // CHoCH 관련(show_choch 표시 on/off, max_choch 개수)은 여기 없다 —
-    // 전부 **ZZ 선 더블클릭 팝업**에 있다 (2026-08-12 사용자 요청으로 메뉴 쪽 중복 제거).
-    // show_choch는 팝업과 **같은 값**(zz.show_choch)을 가리켜 두 곳에 둘 이유가 없었다.
+    // CHoCH 표시/개수는 아래 SettingsPanel의 전용 블록에 있다 (PARAMS_META 아님) —
+    // 개수 슬라이더의 상한이 실제 검출 개수라 정적 meta로 만들 수 없고,
+    // 팝업과 **순서를 맞춰야** 해서 표시 → 개수를 한 덩어리로 그린다.
   ],
   // Pivot Levels — 노브 4개, **전부 단조롭다**: 앞의 3개는 올릴수록 레벨이 줄고
   // top_n은 표시만 늘린다.
@@ -118,27 +120,40 @@ function DetectedCountRow({ label, total, theme }) {
 }
 
 /**
- * "최근 N개만" 슬라이더 — 상한이 **실제 검출 개수**라 데이터에 따라 움직인다.
+ * "최근 N개만" 슬라이더 — `null`을 저장하면 **전체**(제한 없음)다.
  *
- * 구조/ZZ 팝업의 CHoCH 개수 슬라이더(LineOpacityPopup::CountRow)와 같은 규칙:
- * 끝까지 올리면 `null`(= 전체)로 저장한다. 숫자로 고정해두면 구간이 늘어났을 때
- * 새 밴드가 조용히 잘린다.
+ * "전체"를 숫자와 따로 두는 이유: 항목이 늘어났을 때 저장값이 옛 개수에 묶여 있으면
+ * 새 항목이 조용히 잘려 "왜 안 뜨지"가 된다. 그래서 끝까지 올리면 제한을 해제한다.
+ *
+ * 숫자 구간의 상한(`hi`)만 두 가지다:
+ *   ① `cap` 없음 (ZZ의 CHoCH 개수) — 상한 = **실제 검출 개수**. 데이터에 따라 움직인다
+ *   ② `cap` 있음 (RSI의 구간 개수, `RSI_ZONE_MAX` = 10) — 상한 **고정 10** (2026-08-14 사용자 지정).
+ *      검출이 실측 90개를 넘어서 상한을 검출 개수로 두면 슬라이더 한 칸이 의미를 잃는다.
+ *      ※ 검출 개수는 바로 위 `검출된 …N개` 행이 계속 보여주므로 정보가 사라지진 않는다
+ *
+ * 맨 오른쪽 칸(`top`)이 "전체"인 건 두 모드 공통인데, 그 칸의 위치가 다르다:
+ *   ① cap 없음 — `top = hi`. 상한이 곧 검출 개수라 "hi개 = 전체"가 같은 뜻이라 겹쳐 둔다
+ *      (구조/ZZ 팝업의 `CountRow`와 같은 규칙 — 두 곳이 같은 값을 조작하므로 맞춰야 한다)
+ *   ② cap 있음 — `top = hi + 1`. 겹쳐 두면 **"10개"를 고를 방법이 없어진다**
+ *      (상한이 10인데 10이 곧 전체가 되어버린다). 그래서 칸을 하나 더 둔다
  */
-function RecentCountSlider({ label, value, detected, onChange, theme }) {
-  const hi  = Math.max(1, detected);
-  const all = value == null || value >= hi;
-  const cur = all ? hi : Math.max(1, value);
+function RecentCountSlider({ label, value, detected, onChange, theme, cap }) {
+  const hi   = cap ?? Math.max(1, detected);
+  const top  = cap != null ? hi + 1 : hi;      // "전체" 칸의 위치
+  const all  = value == null || value >= top;
+  const cur  = all ? hi : Math.max(1, value);
+  const pos  = all ? top : cur;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
       <span style={{ fontSize: 11, color: theme.textSec, width: 100, flexShrink: 0 }}>
         {label}
       </span>
       <input
-        type="range" min={1} max={hi} step={1} value={cur}
+        type="range" min={1} max={top} step={1} value={pos}
         disabled={detected === 0}
         onChange={e => {
           const n = parseInt(e.target.value, 10);
-          onChange(n >= hi ? null : n);      // 끝까지 올리면 제한 해제
+          onChange(n >= top ? null : n);      // 맨 오른쪽 칸 = 전체(제한 해제)
         }}
         style={{
           flex: 1, accentColor: "#c084fc",
@@ -294,11 +309,16 @@ function EmaSettingsPanel({ emaList, setEmaList, resetIndicator, theme }) {
 }
 
 /**
- * 타임프레임 다중 선택 그리드 — 수동 구조(표시 TF)와 Pivot Levels(계산 TF)가 공유한다.
- * 두 지표에서 **뜻이 다르다**(표시 필터 vs 계산 대상)므로 label로 구분해 붙인다.
+ * 타임프레임 다중 선택 그리드 — RSI(표시 TF) / 수동 구조(표시 TF) / Pivot Levels(계산 TF) 공유.
+ * 지표마다 **뜻이 다르므로**(표시 필터 vs 계산 대상) label로 구분해 붙인다.
  *
  * 저장은 항상 INTERVALS 순서로 정렬한다 — 클릭 순서대로 저장하면 같은 선택인데도
  * 배열이 달라져 재조회·재계산이 헛돈다.
+ *
+ * ⚠ **체크박스다. ON/OFF 버튼으로 되돌리지 말 것** (2026-08-14 사용자 요청 — 세 지표 전부).
+ *   다중 선택이라는 게 모양에서 바로 읽혀야 한다. 버튼 스타일은 "하나만 고르는 것"처럼
+ *   보였고, 바로 위 지표 행의 체크박스와도 어긋났다.
+ *   체크 표식은 지표 행(IndicatorMenu 본문)과 **같은 규격**을 쓴다 — 13px, #c084fc, ✓.
  */
 function TfGrid({ label, list, onChange, theme, emptyWarn }) {
   const toggle = (val) => {
@@ -308,18 +328,36 @@ function TfGrid({ label, list, onChange, theme, emptyWarn }) {
   return (
     <>
       <div style={{ fontSize: 11, color: theme.textSec, marginBottom: 6 }}>{label}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
+      {/* 3열 — 체크박스가 붙어 라벨 폭이 커졌다. 4열이면 "1시간"이 줄바꿈된다 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px 2px" }}>
         {INTERVALS.map(iv => {
           const on = list.includes(iv.value);
           return (
-            <button key={iv.value} onClick={() => toggle(iv.value)} style={{
-              padding: "4px 0", borderRadius: 4, cursor: "pointer",
-              fontSize: 11, fontFamily: "inherit", fontWeight: on ? 700 : 400,
-              background: on ? "#c084fc" : "transparent",
-              border: `1px solid ${on ? "#c084fc" : theme.borderSec}`,
-              color: on ? "#000" : theme.textMuted,
-              transition: "all 0.15s",
-            }}>{iv.label}</button>
+            <div
+              key={iv.value}
+              onClick={() => toggle(iv.value)}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "3px 2px", borderRadius: 3, cursor: "pointer",
+                fontSize: 11, color: on ? theme.textPrimary : theme.textMuted,
+                userSelect: "none",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = theme.borderSec}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <span style={{
+                width: 12, height: 12, flexShrink: 0,
+                border: `1.5px solid ${on ? "#c084fc" : theme.textFaint}`,
+                borderRadius: 3,
+                background: on ? "#c084fc" : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 9, color: "#000", fontWeight: 700, lineHeight: 1,
+                transition: "all 0.15s",
+              }}>
+                {on ? "✓" : ""}
+              </span>
+              {iv.label}
+            </div>
           );
         })}
         {/* ※ 여기 있던 표시/숨김 버튼은 2026-08-13 사용자 요청으로 제거했다 —
@@ -397,7 +435,7 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
   const indParams = params[indKey] || {};
 
   // ZZ: 검출된 CHoCH 개수 표시용 (모듈 상태 직접 조회 — 메뉴를 여는 시점의 값).
-  // 표시 개수 제한(max_choch)은 여기 없다 — ZZ 선 더블클릭 팝업으로 옮겼다.
+  // CHoCH 표시 개수(max_choch) 슬라이더의 상한이기도 하다.
   const zzTotal = isZZ ? getZzChochTotal() : 0;
 
   // RSI: 검출된 과매수/과매도 구간 개수 — ZZ와 같은 이유로 모듈 상태 직접 조회.
@@ -413,6 +451,22 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
     }}>
       {isZZ  && <DetectedCountRow label="CHoCH"        total={zzTotal}   theme={theme} />}
       {isRSI && <DetectedCountRow label="과매수/과매도" total={zoneTotal} theme={theme} />}
+      {/* RSI: **구간 배경만** 거르는 필터다 (2026-08-14 사용자 확정).
+          RSI 패널(선)은 이 목록과 무관하게 전 TF에서 보인다 — App.jsx의 showRsi(패널) /
+          showRsiZones(배경)로 나뉘어 있다. 라벨에 "구간 배경"을 꼭 적을 것:
+          그냥 "표시 타임프레임"이면 RSI 전체가 사라지는 줄 안다.
+          알림(NotificationMenu의 TF별 RSI 과매수/과매도)도 이것과 무관하게 계속 울린다 */}
+      {isRSI && (
+        <div style={{ marginBottom: 10 }}>
+          <TfGrid
+            label="구간 배경 표시 타임프레임 (RSI 패널은 전 TF)"
+            list={Array.isArray(indParams.tfs) ? indParams.tfs : []}
+            theme={theme}
+            onChange={next => setParam("rsi", "tfs", next)}
+            emptyWarn="선택된 타임프레임이 없어 구간 배경이 어디에도 표시되지 않습니다. (RSI 패널·알림은 계속 동작)"
+          />
+        </div>
+      )}
       {/* Pivot: TF 선택은 "표시 필터"가 아니라 **계산 대상**이다 — 여기서 고른 TF의
           레벨이 차트 TF와 무관하게 전 프레임에 똑같이 뜬다 (선 오른쪽 끝에 TF 태그) */}
       {isPivot && (
@@ -435,11 +489,36 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
           theme={theme}
         />
       ))}
+      {/* ZZ CHoCH — **ZZ 선 더블클릭 팝업과 같은 값**을 가리키는 거울이다
+          (zz.show_choch / zz.max_choch). 한쪽에서 바꾸면 다른 쪽도 바뀐다.
+          팝업과 순서를 같게 유지할 것 — 표시 → 개수.
+          ※ `거래량 비교`는 여기 없다 — 자동 ZZ의 거래량 비교는 2026-08-14 사용자 요청으로
+            기능째로 제거됐다 (거래량 3줄은 수동 구조 전용). 되살리지 말 것
+          ※ 수동 구조(struct)에는 이 블록이 없다. 저쪽 값은 전부 **구조별**(localStorage)이라
+            지표 메뉴가 가리킬 값 자체가 없다 (Structures.jsx [R6]).
+            여기에 struct용 전역 값을 새로 만들지 말 것 — 구조별 값과 AND로 걸려
+            전역 OFF일 때 구조별 ON이 먹지 않는데 그 사실이 구조 팝업에 안 보인다 */}
+      {isZZ && (
+        <>
+          <ParamSlider
+            meta={{ key: "show_choch", label: "CHoCH 표시", type: "toggle" }}
+            value={indParams.show_choch !== false}
+            onChange={v => setParam("zz", "show_choch", v)}
+            theme={theme}
+          />
+          <RecentCountSlider
+            label="CHoCH 개수" value={indParams.max_choch} detected={zzTotal}
+            onChange={n => setParam("zz", "max_choch", n)}
+            theme={theme}
+          />
+        </>
+      )}
       {/* 구간 개수는 상한이 검출 개수라 정적 PARAMS_META로 못 만든다 → 전용 슬라이더.
           배경이 꺼져 있으면 조절할 대상이 없으므로 같이 숨긴다 */}
       {isRSI && zoneBgOn && (
         <RecentCountSlider
           label="구간 개수" value={indParams.zone_max} detected={zoneTotal}
+          cap={RSI_ZONE_MAX}                 /* 숫자 상한 10 + 맨 오른쪽 한 칸은 "전체" */
           onChange={n => setParam("rsi", "zone_max", n)}
           theme={theme}
         />

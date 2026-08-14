@@ -43,7 +43,7 @@ import { clipPolylineX, clipSegmentX, inViewX, VIEW_PAD } from "../../chart/svgG
 //
 // [R10] CHoCH 발생 알림(alertChoch)은 **기본 OFF**다 (2026-08-13 사용자 결정).
 //      다른 구조별 플래그(showChoch/showLegVol)는 기본 ON인데 이것만 반대인 이유:
-//      알림 ON인 구조는 호박색 점선 + 글로우 + 🔔로 그려진다. 기본이 ON이면 **모든**
+//      알림 ON인 구조는 호박색 점선 + 글로우로 그려진다. 기본이 ON이면 **모든**
 //      구조가 알림 스타일이 되어 색이 아무것도 구분해주지 못한다 (실제로 그렇게 보였다).
 //      "undefined = ON이 이 파일의 관례"라며 되돌리지 말 것 — 표시와 묶인 플래그라 다르다.
 //
@@ -66,15 +66,21 @@ const ZZ_COLOR   = CANVAS_C.NEUTRAL;      // #888888
 const BULL_COLOR = CANVAS_C.BULL_DARK;    // #0ecb81
 const BEAR_COLOR = CANVAS_C.BEAR_DARK;    // #f6465d
 const SEL_COLOR  = "#f0b90b";           // 구조 전체 선택 = 금색
-// 알림 ON = 호박색 + 점선 + 굵기 1.5 + 글로우 + 🔔 — **트렌드라인/채널/원과 같은 규칙**
-// (TrendLines.jsx의 alert 스타일을 그대로 옮긴 것. 한쪽만 바꾸면 같은 🔔인데
+// 알림 ON = 호박색 + 점선 + 굵기 1.5 + 글로우 — **트렌드라인/채널/원과 같은 규칙**
+// (TrendLines.jsx의 alert 스타일을 그대로 옮긴 것. 한쪽만 바꾸면 같은 알림인데
 //  선 종류마다 다르게 보인다. 뜻만 다르다 — 선·채널·원 = 근접 알림 / 구조·ZZ = CHoCH 발생 알림)
+// ※ 예전엔 여기에 🔔 아이콘도 달렸다 — 2026-08-14 사용자 요청으로 **네 종류 모두** 제거.
+//   되살리려면 넷을 같이 되살릴 것
 const ALERT_COLOR = "#fbbf24";
 // 구조 안에서 다시 고른 꼭짓점 = 파랑. 금색과 확실히 구분돼야
 // "지금 Delete를 누르면 이것만 지워진다"가 한눈에 보인다 (사용자 요구사항)
 const PART_COLOR = PALETTE.info;        // #60a5fa
 
-const CHOCH_FONT = "700 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
+// ※ CHoCH 마크에는 **글자가 없다** — 가로선만 그린다 (2026-08-14 사용자 요청).
+//   `"CHoCH"` → `"C"` → 제거 순으로 줄였다. 마크가 여러 개 붙으면 글자끼리 겹쳐
+//   화면이 복잡해 보인다는 이유. 방향은 색(초록/빨강)과 선 위치가 이미 말해준다.
+//   ⚠ 자동 ZZ(overlayRenderers.js)·`기타/structure_zigzag.pine`도 같이 지웠다 —
+//     되살릴 거면 셋을 같이. 한쪽만 되살리면 지표마다 다르게 보인다
 
 // 진행 중 레그 소유자 판정에서 draft를 가리키는 키 (구조 id와 겹치지 않게)
 const DRAFT_ID = Symbol("draft");
@@ -93,19 +99,15 @@ function ChochMarks({ chochs, candles, xScale, yScale, IW }) {
     const x0 = Math.max(0, rawX0);
     // 돌파 봉이 레벨 시작점과 같은 화면 위치면 선이 사라지므로 최소 폭 확보
     const x1 = Math.max(Math.min(IW, rawX1), x0 + 2);
-    const y      = yScale(ev.price);
-    const isBull = ev.dir === "bull";
-    const color  = isBull ? BULL_COLOR : BEAR_COLOR;
+    const y     = yScale(ev.price);
+    const color = ev.dir === "bull" ? BULL_COLOR : BEAR_COLOR;
+    // 가로선 하나뿐 — 라벨 없음 (파일 상단 주석 참고).
+    // <g>로 감싸지 않는 이유: 자식이 하나라 노드만 늘어난다
     return (
-      <g key={`ch${k}`}>
-        <line x1={x0} y1={y} x2={x1} y2={y}
-          stroke={color} strokeWidth={1.5}
-          // 진행 중 레그에서 나온 CHoCH는 확정분과 구분되게 점선
-          strokeDasharray={ev.live ? "5,3" : undefined} />
-        <text x={(x0 + x1) / 2} y={isBull ? y - 4 : y + 12}
-          textAnchor="middle" style={{ font: CHOCH_FONT }}
-          fill={color}>CHoCH</text>
-      </g>
+      <line key={`ch${k}`} x1={x0} y1={y} x2={x1} y2={y}
+        stroke={color} strokeWidth={1.5}
+        // 진행 중 레그에서 나온 CHoCH는 확정분과 구분되게 점선
+        strokeDasharray={ev.live ? "5,3" : undefined} />
     );
   });
 }
@@ -244,12 +246,6 @@ export const Structures = memo(function Structures({
         // 자세한 실측은 chart/svgGeom.js 주석. 화면 안 형상은 그대로다.
         const vis  = clipPolylineX(pts, IW);
         const poly = vis.map(q => `${q.x},${q.y}`).join(" ");
-        // 🔔 아이콘 위치 — **보이는** 부분의 가운데 선분 중점
-        // (자르기 전 좌표로 잡으면 화면 밖에 달려서 안 보인다)
-        const midK = Math.max(1, Math.floor(vis.length / 2));
-        const bell = vis.length >= 2
-          ? { x: (vis[midK - 1].x + vis[midK].x) / 2, y: (vis[midK - 1].y + vis[midK].y) / 2 }
-          : null;
 
         return (
           <g key={st.id}>
@@ -283,20 +279,23 @@ export const Structures = memo(function Structures({
             <ChochMarks chochs={shown(chochs, st)} candles={candles}
               xScale={xScale} yScale={yScale} IW={IW} />
 
-            {/* 알림 아이콘 — 선택 중일 땐 안 단다 (핸들과 겹쳐 지저분해진다) */}
-            {alert && !selected && bell && (
-              <text x={bell.x} y={bell.y - 7} textAnchor="middle"
-                fontSize="11" fill={ALERT_COLOR} opacity={opacity}>🔔</text>
-            )}
+            {/* ※ 알림 ON을 나타내던 🔔 아이콘은 2026-08-14 사용자 요청으로 제거.
+                알림 여부는 **호박색 + 점선 + 글로우**만으로 나타낸다 (선/채널/원도 동일).
+                켜고 끄는 곳은 더블클릭 팝업의 🔔 토글 + 단축키 `a` — 그건 그대로다 */}
 
             {/* 꼭짓점 — 선택 시 드래그 핸들, 평소엔 위치 표시용 점.
-                다시 클릭해 고른 꼭짓점만 파랑 (Delete 대상) */}
+                다시 클릭해 고른 꼭짓점만 파랑 (Delete 대상)
+
+                ⚠ 반지름은 2026-08-14 사용자 요청으로 **선택/부분선택 둘 다 절반**으로 줄였다
+                  (금색 5 → 2.5 / 파랑 6 → 3). 점이 커서 지그재그를 가린다는 이유.
+                  ※ **히트 반경은 안 줄었다** — 잡는 판정은 hitDetection이 따로 갖고 있어
+                    점이 작아져도 집기 어려워지지 않는다. "작아서 못 누른다"며 되돌리지 말 것 */}
             {pts.map((q, k) => {
               if (!inViewX(q.x, IW)) return null;      // [R9] 화면 밖 꼭짓점은 노드도 만들지 않는다
               const isPart = k === partPt;
               return (
                 <circle key={k} cx={q.x} cy={q.y}
-                  r={isPart ? 6 : (selected ? 5 : 2)}
+                  r={isPart ? 3 : (selected ? 2.5 : 2)}
                   fill={isPart ? PART_COLOR : color}
                   opacity={isPart ? 1 : (selected ? 0.9 : 0.7 * opacity)} />
               );

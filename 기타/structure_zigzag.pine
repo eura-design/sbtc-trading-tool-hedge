@@ -20,7 +20,10 @@ chochDownColor  = input.color(#FF073A, "CHoCH Bearish Color")
 // ---------------- 고정값 (더이상 옵션 아님) ----------------
 lineWidth      = 1
 chochLineStyle = line.style_dashed
-labelSize      = size.small
+// ※ CHoCH 마크에는 **글자가 없다** — 가로선만 그린다 (2026-08-14 사용자 요청).
+//   "CHoCH" → "C" → 제거 순으로 줄였다. 마크가 여러 개 붙으면 글자끼리 겹쳐 복잡해 보인다.
+//   그래서 labelSize도 없앴다 (label.new 호출이 하나도 남지 않았다).
+//   frontend의 Structures.jsx / overlayRenderers.js도 같이 지웠다 — 되살릴 거면 셋을 같이
 atrLength      = 14
 
 atrVal = ta.atr(atrLength)
@@ -80,9 +83,7 @@ if not na(ph)
 
             if showChoch and isChoch and not na(structHighBar)
                 markColor = chochUpColor
-                midBar = math.round((structHighBar + pivotBar) / 2)
                 line.new(structHighBar, structHigh, pivotBar, structHigh, color=markColor, width=1, style=chochLineStyle)
-                label.new(midBar, structHigh, "CHoCH", style=label.style_label_down, color=markColor, textcolor=color.black, size=labelSize)
 
             isChochFormedInThisLeg := isChoch
             lastPointPrice := ph
@@ -100,9 +101,7 @@ if not na(ph)
                 if not isChochFormedInThisLeg and bias != 1
                     if showChoch and not na(structHighBar)
                         markColor = chochUpColor
-                        midBar = math.round((structHighBar + pivotBar) / 2)
                         line.new(structHighBar, structHigh, pivotBar, structHigh, color=markColor, width=1, style=chochLineStyle)
-                        label.new(midBar, structHigh, "CHoCH", style=label.style_label_down, color=markColor, textcolor=color.black, size=labelSize)
                     isChochFormedInThisLeg := true
                 bias := 1
 
@@ -133,9 +132,7 @@ if not na(pl)
 
             if showChoch and isChoch and not na(structLowBar)
                 markColor = chochDownColor
-                midBar = math.round((structLowBar + pivotBar) / 2)
                 line.new(structLowBar, structLow, pivotBar, structLow, color=markColor, width=1, style=chochLineStyle)
-                label.new(midBar, structLow, "CHoCH", style=label.style_label_up, color=markColor, textcolor=color.white, size=labelSize)
 
             isChochFormedInThisLeg := isChoch
             lastPointPrice := pl
@@ -153,9 +150,7 @@ if not na(pl)
                 if not isChochFormedInThisLeg and bias != -1
                     if showChoch and not na(structLowBar)
                         markColor = chochDownColor
-                        midBar = math.round((structLowBar + pivotBar) / 2)
                         line.new(structLowBar, structLow, pivotBar, structLow, color=markColor, width=1, style=chochLineStyle)
-                        label.new(midBar, structLow, "CHoCH", style=label.style_label_up, color=markColor, textcolor=color.white, size=labelSize)
                     isChochFormedInThisLeg := true
                 bias := -1
 

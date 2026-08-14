@@ -17,6 +17,10 @@ const KIND_LABEL = {
 const PROXIMITY_ALERT_KINDS = new Set(["line", "channel", "circle"]);
 // CHoCH를 갖는 종류 — 🔔(발생 알림) + 아래 CHoCH 표시 영역
 const CHOCH_KINDS = new Set(["structure", "zz"]);
+// 레그 hover 거래량 비교(3줄)를 갖는 종류 — **수동 구조뿐이다.**
+// 자동 ZZ는 2026-08-14 사용자 요청으로 거래량 비교를 기능째로 뺐다 (hitDetection.js showVol:false).
+// CHOCH_KINDS와 달라진 유일한 지점이라 별도 집합으로 둔다 — 되살리지 말 것
+const LEGVOL_KINDS = new Set(["structure"]);
 // 드래그로 움직일 수 있는 것만 잠금이 의미 있다. ZZ는 지표라 제외
 const LOCK_KINDS = new Set(["line", "channel", "circle", "structure"]);
 
@@ -113,9 +117,11 @@ function CountRow({ value, detected, onChange, theme }) {
  *   🔒 잠금 — 드래그 가능한 도형만. 자동 ZZ는 움직일 대상이 아니라 없다(죽은 버튼을 두지 않음)
  *   CHoCH 표시 — **아이콘이 아니라 슬라이더 아래 라벨+ON/OFF 행**.
  *     👁 아이콘으로 바꿨다가 "무슨 표시인지 모르겠다"는 이유로 사용자가 되돌렸다. 되살리지 말 것
- *   거래량 비교 — 레그 hover의 거래량 3줄(피크/상위3/평균). 같은 라벨+ON/OFF 행 (2026-08-13)
+ *   거래량 비교 — 레그 hover의 거래량 3줄(상위3/평균/총량). 같은 라벨+ON/OFF 행 (2026-08-13).
+ *     **수동 구조에만 있다** — 자동 ZZ는 2026-08-14 사용자 요청으로 거래량 비교를 뺐다
  *
- * **자동 ZZ와 수동 구조는 이름도 "구조"로 같고, 팝업 구성도 같다**(잠금 유무만 다름).
+ * **자동 ZZ와 수동 구조는 이름도 "구조"로 같고, 팝업 구성도 거의 같다**
+ * (자동 ZZ에 없는 것: 잠금 🔒, 거래량 비교).
  * 사용자에게는 둘 다 "구조"다 — 이름이 갈리면 같은 팝업인데 다른 기능처럼 보인다.
  *
  * kind "zz"(자동 Structure Zigzag)는 도형이 아니라 지표라 항목이 하나뿐이고
@@ -163,8 +169,9 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
 
   // 팝업이 화면 밖으로 나가지 않도록 위치 조정.
   // 슬라이더가 브라우저 기본 최소 너비(~129px)를 갖고 좌우 여백 24px가 빠지므로
-  // 폭은 넉넉히 잡는다. 높이는 구조/ZZ일 때 CHoCH 두 블록 + 거래량 비교 행만큼 더 크다.
-  const W = 210, H = isChoch ? 210 : 80;
+  // 폭은 넉넉히 잡는다. 높이는 구조/ZZ일 때 CHoCH 두 블록만큼 더 크고,
+  // 수동 구조는 거기에 `거래량 비교` 행이 하나 더 붙는다 (자동 ZZ엔 없다 — LEGVOL_KINDS)
+  const W = 210, H = LEGVOL_KINDS.has(kind) ? 210 : isChoch ? 175 : 80;
   const x = Math.min(popup.x, window.innerWidth  - W - 8);
   const y = Math.min(popup.y, window.innerHeight - H - 8);
 
@@ -213,7 +220,10 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
       />
 
       {/* CHoCH 옵션 — 자동 ZZ·수동 구조 모두 같은 자리, 같은 모양.
-          개수는 **이 구조(또는 ZZ)에만** 적용된다 — 전역 설정이 아니다 */}
+          수동 구조는 **이 구조에만** 적용된다 — 전역 설정이 아니다.
+          자동 ZZ(kind "zz")는 값이 지표 파라미터라 **지표 메뉴 ⚙에도 같은 세 줄이 있다**
+          (2026-08-14 사용자 요청). 같은 값을 가리키는 거울이므로 한쪽을 바꾸면 양쪽이 바뀐다 —
+          줄 순서(표시 → 개수 → 거래량 비교)를 양쪽 같게 유지할 것 */}
       {isChoch && (
         <>
           <ToggleRow
@@ -228,16 +238,18 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
             onChange={n => d.setMaxChoch?.(popup.id, n)}
             theme={theme}
           />
-          {/* 레그 hover의 거래량 비교 3줄(피크/상위3/평균).
+          {/* 레그 hover의 거래량 비교 3줄(상위3/평균/총량) — **수동 구조에만** 있다.
               등락률(%)은 이 설정과 무관하게 계속 뜬다 — 끄고 싶은 건 거래량 쪽이고,
               등락률까지 사라지면 "hover가 통째로 죽었다"로 보인다 */}
-          <ToggleRow
-            label="거래량 비교" on={showVol}
-            onClick={() => d.toggleLegVol?.(popup.id)}
-            title={showVol ? "레그 hover 시 거래량 비교 표시 중 — 클릭하여 숨김"
-                           : "레그 hover 시 거래량 비교 숨김 — 클릭하여 표시"}
-            theme={theme}
-          />
+          {LEGVOL_KINDS.has(kind) && (
+            <ToggleRow
+              label="거래량 비교" on={showVol}
+              onClick={() => d.toggleLegVol?.(popup.id)}
+              title={showVol ? "레그 hover 시 거래량 비교 표시 중 — 클릭하여 숨김"
+                             : "레그 hover 시 거래량 비교 숨김 — 클릭하여 표시"}
+              theme={theme}
+            />
+          )}
         </>
       )}
     </div>

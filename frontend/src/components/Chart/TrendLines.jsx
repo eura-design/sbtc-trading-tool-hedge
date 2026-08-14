@@ -49,8 +49,6 @@ export const TrendLines = memo(function TrendLines({ lines, selectedLineId, line
         const pts = isLog ? toPolyStr(vis) : null;
         const A   = isLog ? vis[0] : { x: seg.x1, y: seg.y1 };
         const Bp  = isLog ? vis[vis.length - 1] : { x: seg.x2, y: seg.y2 };
-        const mx  = (A.x + Bp.x) / 2;
-        const my  = (A.y + Bp.y) / 2;
         return (
           <g key={ln.id}>
             {(alert || selected) && (
@@ -69,11 +67,10 @@ export const TrendLines = memo(function TrendLines({ lines, selectedLineId, line
                   opacity={opacity}
                   strokeDasharray={alert && !selected ? "6,3" : undefined} />
             }
-            {alert && !selected && (
-              <text x={mx} y={my - 7} textAnchor="middle"
-                fontSize="11" fill="#fbbf24" opacity={opacity}
-                style={{ pointerEvents: "none" }}>🔔</text>
-            )}
+            {/* ※ 알림 ON을 나타내던 🔔 아이콘은 2026-08-14 사용자 요청으로 제거했다.
+                알림 여부는 **호박색 + 점선**만으로 나타낸다 (채널/원/수동 구조도 동일 —
+                한쪽만 되살리면 같은 🔔인데 도형 종류마다 다르게 보인다).
+                켜고 끄는 곳은 더블클릭 팝업의 🔔 토글이다 — 그건 그대로 있다 */}
             {selected && <>
               <circle cx={a.x} cy={a.y} r={5} fill="#f0b90b" opacity={0.9} />
               <circle cx={b.x} cy={b.y} r={5} fill="#f0b90b" opacity={0.9} />
