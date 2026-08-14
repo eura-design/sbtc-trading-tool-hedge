@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
+import { drawingKey, drawingReadOnly } from "../replay/drawingKeys";
 import { normalizeStructurePoints } from "../chart/deriveStructure";
 
 // 신규 구조 기본 투명도 — 사용자 지정값. 1.0으로 되돌리지 말 것 ([R2] 참고).
@@ -88,8 +89,10 @@ function inheritSettings(item) {
   return out;
 }
 
-export function useStructures() {
-  const store = useDrawableStore("structures");
+// @param mode { replayOn, showLive } — replay/drawingKeys.js 참고
+export function useStructures(mode = {}) {
+  const { replayOn = false, showLive = false } = mode;
+  const store = useDrawableStore(drawingKey("structures", replayOn, showLive), drawingReadOnly(replayOn, showLive));
 
   const [structMode,       setStructMode]       = useState(false);
   const [structDraft,      setStructDraft]      = useState(null);   // { points: [...] } — 그리는 중

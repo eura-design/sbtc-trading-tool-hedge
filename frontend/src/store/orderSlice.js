@@ -1,10 +1,17 @@
 import { calcPosition }  from "../utils/calc";
 import { api }           from "../api/client";
 import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from "../utils/side";
+import { paperActions }  from "../replay/paperActions";
+
+// 리플레이(페이퍼) 모드면 같은 이름의 페이퍼 핸들러로 넘긴다.
+// 각 액션 첫 줄에서 한 번만 갈라지므로 아래 실거래 코드는 원래대로 읽힌다.
+// ⚠ 새 주문 액션을 추가하면 **이 위임 한 줄도 같이 넣을 것.** 빠뜨리면 리플레이
+//   중에 그 액션만 실계좌로 가려다 api() 가드에 막혀 에러가 난다 (조용히 나가지는 않는다).
 
 export const createOrderSlice = (set, get) => ({
 
   executeOrder: async (orderType) => {
+    if (get().replayOn) return paperActions.executeOrder(get, orderType);
     const { drawing, leverage, riskPct, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos } = get();
     if (!drawing) return;
     try {
@@ -52,6 +59,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   saveTpsl: async (newTp, newSl, dragSide) => {
+    if (get().replayOn) return paperActions.saveTpsl(get, newTp, newSl, dragSide);
     const { position, tpsl, tpslSaving, setTpslSaving, setTpsl, setOrderStatus, setDragTpsl } = get();
     if (!position || tpslSaving) return;
     if (!newTp && !newSl) return;
@@ -87,6 +95,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   updatePendingTpsl: async () => {
+    if (get().replayOn) return paperActions.updatePendingTpsl(get);
     const { drawing, setOrderStatus } = get();
     if (!drawing?.orderId) return;
     try {
@@ -98,6 +107,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   replacePendingOrder: async () => {
+    if (get().replayOn) return paperActions.replacePendingOrder(get);
     const { drawing, leverage, riskPct, balance, position, setDrawing, setOrderStatus, _refetchPos, _refetchBal } = get();
     if (!drawing?.orderId) return;
 
@@ -137,6 +147,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   scaleIn: async (side, orderType, price, quantity) => {
+    if (get().replayOn) return paperActions.scaleIn(get, side, orderType, price, quantity);
     const { setOrderStatus, _refetchPos } = get();
     setOrderStatus(null);
     try {
@@ -152,6 +163,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   cancelScaleIn: async (orderId) => {
+    if (get().replayOn) return paperActions.cancelScaleIn(get, orderId);
     const { setOrderStatus, _refetchPos } = get();
     setOrderStatus(null);
     try {
@@ -164,6 +176,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   moveScaleIn: async (orderId, newPrice) => {
+    if (get().replayOn) return paperActions.moveScaleIn(get, orderId, newPrice);
     const { position, setOrderStatus, _refetchPos } = get();
     const target = (position?.scaleInOrders ?? []).find(o => o.orderId === orderId);
     if (!target) return;
@@ -178,6 +191,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   addSplitTp: async (side, price, qty, pct) => {
+    if (get().replayOn) return paperActions.addSplitTp(get, side, price, qty, pct);
     const { tpsl, setTpsl, setOrderStatus, _refetchTpsl } = get();
     setOrderStatus(null);
     try {
@@ -194,6 +208,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   cancelSplitTp: async (orderId) => {
+    if (get().replayOn) return paperActions.cancelSplitTp(get, orderId);
     const { setOrderStatus, _refetchTpsl } = get();
     setOrderStatus(null);
     try {
@@ -206,6 +221,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   moveSplitTp: async (orderId, newPrice) => {
+    if (get().replayOn) return paperActions.moveSplitTp(get, orderId, newPrice);
     const { tpsl, setOrderStatus, _refetchTpsl } = get();
     const allSplitTps = [...(tpsl.long?.splitTps ?? []), ...(tpsl.short?.splitTps ?? [])];
     const target = allSplitTps.find(o => o.orderId === orderId);
@@ -225,6 +241,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   closePosition: async (side, quantity, partial = false) => {
+    if (get().replayOn) return paperActions.closePosition(get, side, quantity, partial);
     const { setOrderStatus, _refetchBal, _refetchPos, _refetchTpsl } = get();
     setOrderStatus(null);
     try {
@@ -237,6 +254,7 @@ export const createOrderSlice = (set, get) => ({
   },
 
   deleteBox: async (sideOverride) => {
+    if (get().replayOn) return paperActions.deleteBox(get, sideOverride);
     const { drawing, position, setDrawing, setPosition, setOrderStatus } = get();
     // 사이드 결정 우선순위: 명시적 sideOverride > drawing의 사이드
     const side = sideOverride

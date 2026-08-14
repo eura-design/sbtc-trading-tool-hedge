@@ -2,14 +2,21 @@ import { useState, useEffect, useRef } from "react";
 import { BN_PUBLIC, BN_WS } from "../constants";
 import { useStore } from "../store";
 
-export function useCandles(interval, onTickRef) {
+/**
+ * @param enabled false면 REST·WebSocket 둘 다 붙지 않는다 — 리플레이 모드용.
+ *   실시간 캔들이 계속 흐르면 liveClose가 현재가로 덮이고(과거를 보는 중인데 현재가가
+ *   뜬다) WS도 쓸데없이 열려 있다. 리플레이는 useReplay가 같은 계약으로 대체한다.
+ */
+export function useCandles(interval, onTickRef, enabled = true) {
   const [candles, setCandles] = useState([]);
   const [loading, setLoading] = useState(true);
   const candlesRef = useRef([]);
   const wsRafRef   = useRef(null);
 
   useEffect(() => {
-    candlesRef.current = []; setCandles([]); setLoading(true);
+    candlesRef.current = []; setCandles([]);
+    if (!enabled) { setLoading(false); return; }
+    setLoading(true);
     let ws = null, closed = false, retryTimer = null;
 
     const connectWS = () => {
@@ -93,7 +100,7 @@ export function useCandles(interval, onTickRef) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (ws) ws.close();
     };
-  }, [interval]);
+  }, [interval, enabled]);
 
   return { candles, candlesRef, loading };
 }

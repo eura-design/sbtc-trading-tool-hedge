@@ -4,7 +4,7 @@ import { POLLING } from "../constants";
 import { useStore } from "../store";
 import { usePoll } from "./usePoll";
 
-export function useTpsl() {
+export function useTpsl(enabled = true) {
   const hasPos  = useStore(s => !!(s.position?.long || s.position?.short));
   const setTpsl = useStore(s => s.setTpsl);
 
@@ -24,5 +24,5 @@ export function useTpsl() {
     catch(e) { console.error(e); }
   }, [hasPos, setTpsl]);
 
-  usePoll(fetch_, POLLING.TPSL_MS, "_refetchTpsl");
+  usePoll(fetch_, POLLING.TPSL_MS, "_refetchTpsl", enabled);
 }

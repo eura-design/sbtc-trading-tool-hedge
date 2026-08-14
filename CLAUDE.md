@@ -59,6 +59,9 @@ frontend/src/
 │   ├── settingsSlice.js       ← 설정(localStorage 동기화): riskPct/leverage/interval_/indicators
 │   │                             riskPct/leverage 변경 시 800ms debounce 후 pending 주문 자동 재등록
 │   ├── uiSlice.js             ← UI/드로잉/드래그 상태: drawing/drawMode/orderStatus/criticalAlert/selectedBox/opacityPopup/dragTpsl/dragScaleIn/dragSplitTp
+│   ├── replaySlice.js         ← 리플레이 모드 상태 (replayOn/구간/시계/페이퍼 브로커/도형 토글)
+│   │                             replayOn은 **저장 안 함** — 새로고침하면 항상 실거래로 시작
+│   │                             SESSION_MAX_MS(90일) = 한 세션 최대 길이
 │   └── orderSlice.js          ← 주문 액션: executeOrder/saveTpsl/scaleIn/cancelScaleIn/moveScaleIn/
 │                                 addSplitTp/cancelSplitTp/moveSplitTp/closePosition/
 │                                 updatePendingTpsl/replacePendingOrder/deleteBox 등
@@ -70,6 +73,21 @@ frontend/src/
 │   └── side.js                ← 헷지모드 side 매핑 헬퍼 (sideToPosition/positionToSide/closeToPosition/positionToClose/isLongToPosition/isLongToSide)
 ├── api/
 │   └── client.js              ← api(method, path, body) — fetch 래퍼
+│                                 setReplayGuard: 리플레이 중 **GET 외 전부 차단** (실주문 방지)
+├── replay/                    ← 리플레이 트레이딩 (아래 "리플레이 트레이딩" 절 참고)
+│   │                             ⚠ 이 폴더만 상대 import에 `.js` 확장자 — node 검산용
+│   ├── soa.js                 ← 캔들 SoA(Float64Array 6개) — 봉당 48바이트
+│   ├── timeframes.js          ← tfMs(1m 포함) + DRIVE_TF 사다리(1h→5m 12틱) + 실측 근거
+│   ├── klines.js              ← 과거 캔들 페이지네이션 + weight 버킷 + 펀딩비 이력
+│   ├── history.js             ← IndexedDB 청크 캐시(1000봉) — 빠진 구간만 조회
+│   ├── engine.js              ← ReplayEngine — 커서 하나로 "지금 몇 시인가"를 정한다
+│   │                             재생 중 배열 identity 유지(ZZ 누적 보존) / 시크 시 교체(리셋)
+│   ├── paperBroker.js         ← 페이퍼 체결 엔진 — 스냅샷이 **백엔드와 같은 모양**
+│   ├── paperActions.js        ← orderSlice 12개 액션의 페이퍼 버전 (이름을 똑같이 유지할 것)
+│   ├── tradeStats.js          ← 연습 성적 집계 + equityCurve(UI 미사용)
+│   ├── dailyLoss.js           ← 페이퍼 일일 손실 한도 (재생 시각의 UTC 하루 기준)
+│   ├── drawingKeys.js         ← 도형 저장 키 분리 (`replay_` 접두사) + 읽기 전용 판정
+│   └── session.js             ← 세션 저장/복원 — 진행 위치를 **시각**으로 저장
 ├── hooks/
 │   ├── useCandles.js          ← REST 1500봉 로드 + WebSocket 실시간 업데이트
 │   ├── useRealtimeData.js     ← 백엔드 WebSocket 연결 (체결/TP·SL/포지션 즉시 반영), 5초 재연결
@@ -117,6 +135,8 @@ frontend/src/
 │   │                               + 직전 동일방향 레그의 같은 지표 대비 [LV8]
 │   ├── useRsiResize.js        ← RSI 패널 높이 드래그 조절 (localStorage 저장, 50~300px)
 │   ├── useVolResize.js        ← 거래량 패널 높이 드래그 조절 (localStorage 저장, 40~200px)
+│   ├── useReplay.js           ← 리플레이 캔들 피드 — **useCandles와 같은 계약**을 돌려준다
+│   │                             재생 루프 + 페이퍼 브로커 동기화 + 세션 저장/복원
 │   └── useHealth.js           ← 서버 헬스 체크
 ├── chart/
 │   ├── candleRenderer.js      ← renderCandles() (캔들+축+오버레이 호출)
@@ -196,6 +216,8 @@ frontend/src/
 │   │                                 ON/OFF 버튼으로 되돌리지 말 것: 다중 선택이 모양에서 안 읽힌다
 │   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (7TF × RSI OB/OS/봉마감)
 │   ├── ShortcutMenu.jsx       ← 단축키 커스텀 설정 UI (녹음 모드로 각 action 키 재바인딩 + 초기화)
+│   ├── ReplayBar.jsx          ← 리플레이 컨트롤 (재생/틱/봉/배속/시크/시작일/🎲/기존 도형/종료)
+│   │                             색은 보라(#a78bfa) — 실거래에서 뜻이 있는 색을 피한다
 │   ├── Toast.jsx              ← 토스트 알림 컴포넌트 (일반: 금색, sticky: 빨강 + 확인 버튼)
 │   ├── Slider.jsx             ← 리스크/레버리지 슬라이더 (index.css `.slim-range` — 손잡이 9px)
 │   │                             ⚠ 손잡이 크기를 줄이려면 `appearance:none`이 필요하고, 그러면
@@ -249,7 +271,9 @@ frontend/src/
 │       ├── PlanCard.jsx       ← 드로잉 플랜 카드 + OrphanPendingCard
 │       ├── ScaleInCard.jsx    ← 추가 진입 카드 (LIMIT/MARKET, 가격 방향 검증) — PositionCard 아코디언 내 embedded
 │       ├── SplitTPCard.jsx    ← 분할 TP 카드 (지정가, 잔여 수량 표시) — PositionCard 아코디언 내 embedded
-│       └── StatsCard.jsx      ← 거래 통계 카드 (날짜 필터, 승률/PnL/수수료/펀딩비)
+│       ├── StatsCard.jsx      ← 거래 통계 카드 (날짜 필터, 승률/PnL/수수료/펀딩비)
+│       └── ReplayStatsCard.jsx ← 연습 성적 카드 — 리플레이면 "거래 통계" 자리를 대신 채운다
+│                                 거래수/승패/승률/PF/평균/최대낙폭/수수료/펀딩비/순손익
 ├── App.jsx                    ← 메인 컴포넌트 — hooks 조합 + TopBar/SidebarPanel/ChartArea 조립
 │                                 derivePositionFlags로 hasLong/hasShort/hasPos/hasBoth/hasPending/drawLocked 파생
 │                                 sidebarOpen/isLog는 App 로컬 상태 (localStorage 동기화)
@@ -1086,6 +1110,105 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - 오버레이 (박스/포지션 라인/트렌드라인/채널/원/피보나치/수동 구조): React SVG (`ChartSvg` 내)
 - `useChartRenderer.js`의 `forceUpdate`(renderTick)로 캔버스 렌더 후 React 오버레이 동기화
 - pan 중: `redrawChart()`가 redrawCanvas+redrawVolume+redrawRSI+forceUpdate 동시 호출
+
+### 리플레이 트레이딩 (2026-08-14~15)
+트레이딩뷰 바 리플레이에 해당. 과거 구간을 재생하며 **가짜 돈으로 연습**한다.
+`frontend/src/replay/` + `hooks/useReplay.js` + `components/ReplayBar.jsx` + `store/replaySlice.js`.
+
+- **같은 화면 + 모드 전환**이다(별도 페이지 아님, 2026-08-14 사용자 확정). TopBar의 보라색
+  `▶ 리플레이` 버튼 → TopBar 아래에 `ReplayBar` 등장. 보라(`#a78bfa`)를 쓴 이유는 금색·초록·빨강이
+  실거래에서 이미 뜻을 갖기 때문이다 — **이 바가 떠 있다 = 화면이 과거다**
+- **`replayOn` 하나가 모든 분기의 기준**이다. 캔들 소스·지표 미래 차단·알림·주문 경로가 전부 이걸 본다
+
+#### ⚠ 실주문 차단 (안전장치)
+- `api/client.js`의 `setReplayGuard` — 리플레이 중 **GET 외 모든 요청을 던진다**
+- `orderSlice`의 주문 액션 12개는 각각 첫 줄에서 `paperActions`로 위임한다
+- ⚠ **새 주문 액션을 추가하면 위임 한 줄도 같이 넣을 것.** 빠뜨리면 그 액션만 에러가 난다
+  (조용히 실주문이 나가지는 않는다 — 그게 가드를 이중으로 둔 이유다)
+- **`replayOn`은 저장하지 않는다** — 새로고침하면 항상 실거래로 시작. 페이퍼 화면을
+  실거래로 착각하는 사고를 막는다. 저장하는 건 시작 날짜뿐
+- 실계좌 폴링(`useBalance`/`usePosition`/`useTpsl`/`useDailyLoss`)은 리플레이 중 멈춘다.
+  안 그러면 페이퍼 포지션이 몇 초마다 실계좌 값으로 덮인다
+
+#### 하위 TF 구동 (`replay/timeframes.js`)
+1h 리플레이를 **5m 12틱**으로 굴린다 (4h→15m, 1d→1h …). 봉 단위 재생은 거절됨.
+- **근거는 실측**: 구동 TF로 **99.5%의 봉에서 고가·저가 순서가 판명**되고, 어느 쪽이 먼저인지는
+  거의 반반(1h 48.4/51.1)이다. 즉 "SL 우선" 같은 고정 규칙은 **모호한 봉의 절반에서 틀린다**
+- 남는 0.5%(고가·저가가 같은 구동봉 안)는 체결 엔진이 SL 우선으로 처리한다
+
+#### 체결 규칙 (`replay/paperBroker.js`) — 전부 "모르면 불리하게"
+| 규칙 | 되돌리면 생기는 문제 |
+|---|---|
+| 봉 하나에 TP·SL 둘 다 닿으면 **SL 우선** | 유리한 쪽을 고르면 연습 성적이 실제보다 좋게 나온다 |
+| 체결 판정은 **방향**(`crossedUp`/`crossedDown`) — "범위 안에 있나"가 아님 | 갭이 손절을 통째로 건너뛴다. 롱 SL 90인데 고가 85로 갭 하락하면 포지션이 살아남았다(실제 버그) |
+| SL·강제청산이 갭이면 **갭 시가**에 체결 | 청산가에 그대로 체결시키면 손실이 작게 나온다 (−$9.60 vs −$30.00) |
+| 처리 순서 = 펀딩비 → 진입 → 강제청산 → 종료주문 | 진입을 뒤로 미루면 "같은 봉에서 들어갔다 손절"이 사라진다 |
+| 승패는 **수수료를 뺀 뒤**로 판정 | +$0.50 벌고 수수료 $4 낸 거래가 "승"이 되어 승률이 부풀려진다 |
+| "거래 1건" = **청산 1건** | 포지션 단위로 묶으면 "절반 익절 + 절반 손절"이 뭉개진다 |
+| 손실 0이면 PF는 `null`("—") | "∞"를 띄우면 표본 2건짜리가 완벽한 전략처럼 보인다 |
+- 수수료 메이커 0.02% / 테이커 0.04%, 펀딩비는 **그 시점 실제 이력**을 8시간마다 반영
+- 청산가는 격리 근사(유지증거금률 0.4%). SL이 청산가보다 멀면 **청산이 먼저** 터진다(정상)
+- 스냅샷 3종(position/tpsl/balance)은 **백엔드 라우트와 글자 그대로 같은 모양**이다.
+  그래서 사이드바·차트 오버레이가 리플레이인지 모른 채 그대로 돈다 — 필드를 바꾸지 말 것
+- **일일 손실 한도는 연습에도 건다**(`replay/dailyLoss.js`, 재생 시각의 UTC 하루 기준).
+  연습에서만 무제한이면 실전에서 막히는 매매를 계속 연습하게 된다
+
+#### 동작 규칙
+- ⚠ **뒤로 시크하면 연습 계좌가 초기화된다.** 안 그러면 "손실만 지우고 다시 하기"가 된다.
+  앞으로 시크는 건너뛴 봉을 브로커에 먹여 체결을 재현하므로 계좌가 유지된다
+- **세션 길이 상한 90일**(`SESSION_MAX_MS`). 끝을 "현재"로 두면 2024년을 고른 순간 구동 봉이
+  23만 개(155회 요청, 1분+)가 된다(실측). 시작일이 바뀌면 `setReplayRange`가 끝도 다시 잡는다
+- **세션은 localStorage에 저장된다**(`replay/session.js`). 새로고침해도 계좌·포지션·진행 위치가
+  남는다. 진행 위치를 **커서가 아니라 시각으로** 저장하므로 도중에 TF를 바꿔도 이어진다.
+  구간(시작·끝)이 다르면 복원하지 않는다 — 진입가가 화면 밖인 유령 포지션이 되기 때문
+- **모드 전환·시크 뒤에는 `chartActionsRef.current?.resetDomain()`을 부른다.** 가격대가 통째로
+  바뀌는데 y축이 그대로면 캔들이 화면 밖으로 나가 차트가 텅 빈 것처럼 보인다(실제 증상)
+- `engine.price`는 커서 0에서도 **null을 돌려주지 않는다**(직전 확정봉 종가). null이면 화면이
+  `liveClose`에 남은 **오늘 시세**를 써서, 방금 진입한 포지션의 미실현이 −$2,104로 찍혔다
+
+#### 미래 누출 차단 — 리플레이의 품질을 결정하는 부분
+- `usePivotLevels(params, endMs)`: **반드시 재생 시각까지만** 계산. 없으면 2023년을 재생하는 중에
+  오늘까지의 고/저점으로 만든 지지·저항이 그려진다
+- `useAlertMonitor(..., enabled)`: TF별 실시간 RSI 감시를 끈다 ("지금 1h가 과매수"는 재생 시점에서
+  알 수 없는 사실이다). ↔ **차트 기반 알림(추세선 근접·CHoCH)은 살아 있다** — 리플레이 가격으로 동작
+- `useMarketInfo(replayNowMs)`: 펀딩비·공포탐욕을 그 시점 이력으로. 카운트다운도 **재생 시각** 기준이라
+  일시정지 중에는 멈춘다. 공포탐욕(api.alternative.me)은 **2018-02-01부터** 있어 전 구간을 덮는다
+- `usePositionCloseAlert` / `useRealtimeData`의 `criticalAlert`: 실계좌 알림이라 리플레이 중 억제
+- ⚠ **가드는 "실주문 차단"이지 "쓰기 금지"가 아니다.** 계좌와 무관한 UI 설정은 통과시킨다
+  (`api/client.js`의 `ALLOW_IN_REPLAY` — 지금은 `/api/indicator-params`).
+  막아 뒀더니 `useIndicatorParams`가 `.catch(() => {})`로 삼켜서, 연습 중에 바꾼 지표 설정이
+  아무 말 없이 사라졌다
+- 레버리지 변경은 리플레이에서 **페이퍼 포지션에 직접 적용**한다(`SidebarPanel`).
+  백엔드 POST를 그대로 두면 가드에 막혀 에러만 뜬다
+
+#### 도형 분리 (`replay/drawingKeys.js`)
+리플레이 중에는 `replay_` 접두사 키를 쓰고, 컨트롤 바의 `기존 도형` 토글(기본 OFF)을 켜면
+원래 도형을 **읽기 전용**으로 본다.
+- ⚠ **"미래 좌표만 숨기기"로는 안 풀린다.** 5월 저점 두 개를 이은 선은 좌표가 전부 과거지만
+  **8월에 그은 것**이다. 그 선이 지켜졌다는 걸 알고 그었으므로 좌표가 과거여도 hindsight다.
+  판단 기준은 좌표가 아니라 **"언제 그렸나"**이고, 실거래 모드에서 그린 건 전부 재생 시점 이후다
+- 읽기 전용인 이유: 연습하다 실제 분석선을 끌어 옮기면 원본이 조용히 바뀐다
+- ⚠ `useDrawableStore`는 **키가 바뀌면 렌더 도중에 다시 읽는다**(useEffect 아님).
+  useEffect로 하면 한 프레임 동안 실거래 도형이 깜빡이는데, 그게 이 기능이 막으려던 것이다
+- ⚠ **플랜 박스(`drawing`)도 나눈다** — 스토어에 있어서 처음엔 빠져 있었고, 그 탓에
+  **리플레이 진입만으로 실거래 플랜 박스가 지워졌다**(App의 drawing↔pending 동기화가
+  페이퍼 position의 pending 없음을 보고 `setDrawing(null)`). `uiSlice.swapDrawingStorage`가
+  모드 전환 때 키(`drawing` ↔ `replay_drawing`)를 갈아끼운다.
+  전환 전에 **보류 중인 debounce 저장을 먼저 흘려보내야** 이전 모드 박스가 새 키에 덮이지 않는다
+
+#### 일부러 구현하지 않은 것
+| 안 한 것 | 이유 |
+|---|---|
+| 구간 자동 연장 | 구간이 바뀌면 엔진을 다시 만들어야 해서 재생 위치·계좌가 초기화된다. 90일을 다 보면 시작일을 옮긴다 |
+| 호가창 깊이 / 시장 충격 / 부분 체결 / 지정가 대기열 | "내 주문이 시장을 움직이지 않는다" 가정. 개인 규모에서는 무난하다 |
+| 리플레이 구간별 도형 분리 | 연습용은 한 벌뿐. 구간마다 나누면 localStorage에 쓰레기가 쌓이고 "아까 그린 게 어디 갔나"가 된다 |
+| 자본 곡선 그래프 | `tradeStats.js`의 `equityCurve()`는 있고 검산도 됐다. UI만 안 붙였다 |
+| 1분 미만 구동 | 바이낸스 선물 klines 최소 단위가 1m이라 불가능 |
+
+#### ⚠ 이 폴더만 상대 import에 `.js` 확장자를 붙인다
+Vite는 양쪽 다 되지만 node ESM은 확장자가 없으면 못 찾는다. `pivotLevels.js`가 node에서 도는 건
+import이 하나도 없어서고, 여기는 그렇지 않다. 확장자를 떼면 **"실제 응답으로 검산한다"는
+이 계층의 설계 근거가 사라진다** (엔진·브로커·통계 로직은 전부 node에서 실측 검증했다).
 
 ## 실행
 - 백엔드: 포트 3002 (`node server.js`)

@@ -4,7 +4,7 @@ import { POLLING } from "../constants";
 import { useStore } from "../store";
 import { usePoll } from "./usePoll";
 
-export function useBalance() {
+export function useBalance(enabled = true) {
   const setBalance  = useStore(s => s.setBalance);
   const setBalError = useStore(s => s.setBalError);
 
@@ -17,5 +17,5 @@ export function useBalance() {
     }
   }, [setBalance, setBalError]);
 
-  usePoll(fetch_, POLLING.BALANCE_MS, "_refetchBal");
+  usePoll(fetch_, POLLING.BALANCE_MS, "_refetchBal", enabled);
 }

@@ -17,20 +17,21 @@ import { MarketInfoCard }            from "./MarketInfoCard";
 import { PositionCard }  from "./PositionCard";
 import { PlanCard, OrphanPendingCard } from "./PlanCard";
 import { StatsCard }    from "./StatsCard";
+import { ReplayStatsCard } from "./ReplayStatsCard";
+import { computePaperDailyLoss } from "../../replay/dailyLoss";
 
 
 export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   onScaleIn, onCancelScaleIn, onAddSplitTp, onCancelSplitTp, onDrawModeToggle }) {
   const { theme } = useTheme();
   const online = useHealth();
-  const dailyLoss = useDailyLoss();
 
   const {
     balance, balError, _refetchBal,
     position, tpsl, tpslSaving,
     riskPct, setRiskPct, leverage, setLeverage,
     drawMode, drawing, orderStatus, setOrderStatus,
-    liveClose, executeOrder,
+    liveClose, executeOrder, replayOn, paperBroker, replayNowMs,
   } = useStore(useShallow(s => ({
     balance: s.balance, balError: s.balError, _refetchBal: s._refetchBal,
     position: s.position, tpsl: s.tpsl, tpslSaving: s.tpslSaving,
@@ -38,7 +39,25 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     leverage: s.leverage, setLeverage: s.setLeverage,
     drawMode: s.drawMode, drawing: s.drawing, orderStatus: s.orderStatus, setOrderStatus: s.setOrderStatus,
     liveClose: s.liveClose, executeOrder: s.executeOrder,
+    replayOn: s.replayOn, paperBroker: s.paperBroker, replayNowMs: s.replayNowMs,
   })));
+
+  // ⚠ 스토어 구독 **뒤에** 와야 한다 — replayOn 등을 쓰므로 위로 올리면 TDZ 오류로
+  //   사이드바가 통째로 렌더되지 않는다 (빈 화면이 된다)
+  //
+  // 리플레이면 연습 계좌의 한도를 **재생 시각 기준**으로 계산한다.
+  // 실거래 값을 그대로 두면 과거를 보는 중에 오늘의 계좌 상태가 뜬다
+  const realDailyLoss  = useDailyLoss(!replayOn);
+  const paperDailyLoss = useMemo(
+    () => replayOn
+      ? computePaperDailyLoss(paperBroker?.trades ?? [], paperBroker?.startBalance ?? 0,
+                              paperBroker?.balance ?? 0, replayNowMs)
+      : null,
+    // balance는 값 자체를 안 쓰지만, 체결이 일어날 때마다 새 객체가 되므로
+    // 이걸 넣어야 trades가 in-place로 자란 걸 놓치지 않는다
+    [replayOn, paperBroker, replayNowMs, balance],  // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const dailyLoss = replayOn ? paperDailyLoss : realDailyLoss;
 
   const {
     hasLong, hasShort, hasPos, hasBoth,
@@ -74,7 +93,21 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     setLeverageLoading(true);
     setLeverageErr(null);
     try {
-      if (hasPos) await api("POST", "/api/leverage", { leverage: pendingLeverage });
+      if (replayOn) {
+        // 연습 계좌는 백엔드가 없다. 보유 중인 페이퍼 포지션의 레버리지를 직접 바꾼다
+        // (청산가·증거금이 여기서 나오므로 반영해야 화면이 맞는다).
+        // 안 하면 POST가 가드에 막혀 "실제 주문을 보낼 수 없습니다" 에러만 뜬다
+        const b = useStore.getState().paperBroker;
+        if (b) {
+          for (const side of ["LONG", "SHORT"]) {
+            if (b.pos[side]) b.pos[side].leverage = pendingLeverage;
+          }
+          useStore.getState().syncPaper();
+          useStore.getState().scheduleReplaySave?.();
+        }
+      } else if (hasPos) {
+        await api("POST", "/api/leverage", { leverage: pendingLeverage });
+      }
       setLeverage(pendingLeverage);
       setPendingLeverage(null);
     } catch (e) {
@@ -82,7 +115,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     } finally {
       setLeverageLoading(false);
     }
-  }, [hasPos, pendingLeverage, setLeverage]);
+  }, [hasPos, pendingLeverage, setLeverage, replayOn]);
 
   const cancelLeverageChange = useCallback(() => {
     setPendingLeverage(null);
@@ -177,10 +210,18 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
             background:"transparent", border:"none", cursor:"pointer", padding:0,
           }}
         >
-          <span style={{ fontSize:"12px", color:theme.textMuted }}>거래 통계</span>
+          {/* 리플레이면 같은 자리에 연습 성적을 띄운다 — 실계좌 통계가 섞이면
+              어느 쪽 성적인지 알 수 없고, 그 조회는 백엔드를 부른다 */}
+          <span style={{ fontSize:"12px", color:theme.textMuted }}>
+            {replayOn ? "연습 성적" : "거래 통계"}
+          </span>
           <span style={{ fontSize:"10px", color:theme.textFaint }}>{statsOpen ? "▲" : "▼"}</span>
         </button>
-        {statsOpen && <div style={{ marginTop:"6px" }}><StatsCard /></div>}
+        {statsOpen && (
+          <div style={{ marginTop:"6px" }}>
+            {replayOn ? <ReplayStatsCard /> : <StatsCard />}
+          </div>
+        )}
       </div>
 
       {/* 설정 — 리스크% + 레버리지 */}

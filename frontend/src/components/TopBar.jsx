@@ -7,7 +7,7 @@ import { NotificationMenu }  from "./NotificationMenu";
 import { ShortcutMenu }      from "./ShortcutMenu";
 
 
-export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, fibEnabled, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset }) {
+export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, fibEnabled, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
@@ -121,6 +121,20 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
       }}>Log</button>
 
       <ShortcutMenu shortcuts={shortcuts} onUpdate={onShortcutUpdate} onReset={onShortcutReset} />
+
+      {sep}
+
+      {/* 리플레이 모드 — 색은 실거래에서 뜻이 있는 금색/초록/빨강을 피해 보라 계열이다
+          (ReplayBar와 같은 ACCENT). 이 버튼이 켜져 있다 = 화면이 과거다 */}
+      <button onClick={onReplayToggle} title="리플레이 트레이딩 — 과거 구간을 재생하며 연습" style={{
+        height:"22px", padding:"0 7px", borderRadius:"3px",
+        cursor:"pointer", flexShrink:0, whiteSpace:"nowrap",
+        fontSize:"12px", fontFamily:"inherit", fontWeight: replayOn ? "700" : "400",
+        background: replayOn ? "#a78bfa" : "transparent",
+        border:`1px solid ${replayOn ? "#a78bfa" : theme.textFaint}`,
+        color: replayOn ? "#000" : theme.textMuted,
+        transition:"all 0.15s",
+      }}>▶ 리플레이</button>
 
       {sep}
 

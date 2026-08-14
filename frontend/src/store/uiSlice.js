@@ -1,9 +1,29 @@
 // Module-level timer: drawing localStorage 동기화 debounce
 let _drawingTimer = null;
 
+// ── 플랜 박스도 모드별로 나눈다 ──────────────────────────────────────────
+// 다른 도형(추세선·구조 등)은 replay/drawingKeys.js가 나누는데, 진입/TP/SL 박스는
+// 스토어에 있어서 빠져 있었다. 그대로 두면 **실거래 박스가 지워진다**:
+// 리플레이에 들어가면 App의 drawing↔pending 동기화가 페이퍼 position(pending 없음)을
+// 보고 `setDrawing(null)`을 실행한다. 반대로 연습 중 그린 박스가 실거래로 새기도 한다.
+const LIVE_KEY = "drawing";
+const REPLAY_KEY = "replay_drawing";
+let _drawingKey = LIVE_KEY;
+
+/** 저장 키를 바꾸고 그 키의 내용을 돌려준다. 전환 전 보류 중인 저장은 먼저 흘려보낸다 */
+export function swapDrawingStorage(replayOn, current) {
+  // ⚠ debounce 타이머가 남아 있으면 **이전 모드의 박스가 새 키에 덮인다**
+  clearTimeout(_drawingTimer);
+  if (current) localStorage.setItem(_drawingKey, JSON.stringify(current));
+  else localStorage.removeItem(_drawingKey);
+
+  _drawingKey = replayOn ? REPLAY_KEY : LIVE_KEY;
+  return loadDrawing();
+}
+
 function loadDrawing() {
   try {
-    const saved = JSON.parse(localStorage.getItem("drawing") || "null");
+    const saved = JSON.parse(localStorage.getItem(_drawingKey) || "null");
     if (saved) {
       // tStart/tEnd는 숫자 타임스탬프로 유지
       if (typeof saved.tStart === "string") saved.tStart = +new Date(saved.tStart);
@@ -36,9 +56,10 @@ export const createUiSlice = (set, get) => ({
     const next = typeof v === "function" ? v(get().drawing) : v;
     set({ drawing: next });
     clearTimeout(_drawingTimer);
+    const key = _drawingKey;   // 저장 시점이 아니라 **호출 시점**의 키로 쓴다
     _drawingTimer = setTimeout(() => {
-      if (next) localStorage.setItem("drawing", JSON.stringify(next));
-      else      localStorage.removeItem("drawing");
+      if (next) localStorage.setItem(key, JSON.stringify(next));
+      else      localStorage.removeItem(key);
     }, 200);
   },
 

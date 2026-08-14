@@ -1,10 +1,15 @@
 import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
+import { drawingKey, drawingReadOnly } from "../replay/drawingKeys";
 
-export function useTrendLines() {
+// @param mode { replayOn, showLive } — 리플레이에서는 연습용 키를 쓰거나
+//   기존 도형을 읽기 전용으로 본다 (replay/drawingKeys.js)
+export function useTrendLines(mode = {}) {
+  const { replayOn = false, showLive = false } = mode;
+  const ro = drawingReadOnly(replayOn, showLive);
 
   // ── 트렌드 라인 ───────────────────────────────────────────────────────────
-  const lineStore = useDrawableStore("trendLines");
+  const lineStore = useDrawableStore(drawingKey("trendLines", replayOn, showLive), ro);
   const [lineMode,       setLineMode]       = useState(false);
   const [lineStart,      setLineStart]      = useState(null);
   const [linePreview,    setLinePreview]    = useState(null);
@@ -32,7 +37,7 @@ export function useTrendLines() {
   }, [lineStore]);
 
   // ── 원 ───────────────────────────────────────────────────────────────────
-  const circleStore = useDrawableStore("trendCircles");
+  const circleStore = useDrawableStore(drawingKey("trendCircles", replayOn, showLive), ro);
   const [circleMode,       setCircleMode]       = useState(false);
   const [circleCenter,     setCircleCenter]     = useState(null);
   const [circlePreview,    setCirclePreview]    = useState(null);
@@ -56,7 +61,7 @@ export function useTrendLines() {
   }, [circleStore]);
 
   // ── 채널 ─────────────────────────────────────────────────────────────────
-  const channelStore = useDrawableStore("trendChannels");
+  const channelStore = useDrawableStore(drawingKey("trendChannels", replayOn, showLive), ro);
   const [channelMode,       setChannelMode]       = useState(false);
   const [channelStep,       setChannelStep]       = useState(0);
   const [channelPoints,     setChannelPoints]     = useState(null);

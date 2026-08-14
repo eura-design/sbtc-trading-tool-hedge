@@ -1,10 +1,14 @@
 import { useTheme } from "../../ThemeContext";
 import { useMarketInfo } from "../../hooks/useMarketInfo";
+import { useStore } from "../../store";
 import { useAccordion } from "../../hooks/useAccordion";
 
 export function MarketInfoCard() {
   const { theme } = useTheme();
-  const { fundingRate, fundingCountdown, fearGreed } = useMarketInfo();
+  // 리플레이면 재생 시각의 과거 값을 보여준다 — 오늘의 펀딩비·심리 지표가 뜨면
+  // 그것 자체가 미래 정보다 (둘 다 이력 API가 있다 — useMarketInfo 상단 참고)
+  const replayNowMs = useStore(s => s.replayOn ? s.replayNowMs : null);
+  const { fundingRate, fundingCountdown, fearGreed } = useMarketInfo(replayNowMs);
   const [open, toggle] = useAccordion("accordion_marketInfo");
 
   const row = (label, value, sub) => (

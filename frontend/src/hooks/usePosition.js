@@ -4,7 +4,7 @@ import { POLLING } from "../constants";
 import { useStore } from "../store";
 import { usePoll } from "./usePoll";
 
-export function usePosition() {
+export function usePosition(enabled = true) {
   const setPosition = useStore(s => s.setPosition);
 
   const fetch_ = useCallback(async () => {
@@ -12,5 +12,5 @@ export function usePosition() {
     catch(e) { console.error(e); }
   }, [setPosition]);
 
-  usePoll(fetch_, POLLING.POSITION_MS, "_refetchPos");
+  usePoll(fetch_, POLLING.POSITION_MS, "_refetchPos", enabled);
 }

@@ -137,7 +137,12 @@ function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef) {
 
 // ── 메인 훅 ───────────────────────────────────────────────────────────────────
 
-export function useAlertMonitor(settings, onAlert, rsiParams = {}) {
+/**
+ * @param enabled false면 TF별 WebSocket을 아예 열지 않는다 — 리플레이 모드용.
+ *   과거를 재생하는 중에 **현재 시각의 RSI 알림**이 울리면 그 자체가 미래 정보다
+ *   ("지금 1h가 과매수"는 재생 중인 시점에서는 알 수 없는 사실이다).
+ */
+export function useAlertMonitor(settings, onAlert, rsiParams = {}, enabled = true) {
   const settingsRef  = useRef(settings);
   settingsRef.current = settings;
   const onAlertRef   = useRef(onAlert);
@@ -147,6 +152,7 @@ export function useAlertMonitor(settings, onAlert, rsiParams = {}) {
   const stateRef     = useRef({});
 
   useEffect(() => {
+    if (!enabled) return;
     const cleanups = ALL_TF.map(tf =>
       startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef)
     );
@@ -154,7 +160,7 @@ export function useAlertMonitor(settings, onAlert, rsiParams = {}) {
       cleanups.forEach(fn => fn());
       stateRef.current = {};
     };
-  }, []); // 마운트/언마운트 시에만 — settings는 ref로 항상 최신값 참조
+  }, [enabled]); // settings는 ref로 항상 최신값 참조 — enabled만 재연결 대상이다
 
   // rsiParams.period 변경 시 rsiState를 새 기간으로 재빌드 (틱 RSI 연속성 유지)
   useEffect(() => {

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 
 import { useTheme }  from "./ThemeContext";
 import { useStore }  from "./store";
+import { SESSION_MAX_MS } from "./store/replaySlice";
 import { INTERVALS } from "./constants";
 import { ZZ_ID }         from "./chart/drawables";
 import { normFibLevels } from "./chart/fib";
@@ -9,6 +10,7 @@ import { installStructDebug } from "./chart/structDebug";
 import { installLegDebug }    from "./chart/legDebug";
 
 import { useCandles }                from "./hooks/useCandles";
+import { useReplay }                 from "./hooks/useReplay";
 import { useBalance }                from "./hooks/useBalance";
 import { usePosition }               from "./hooks/usePosition";
 import { useTpsl }                   from "./hooks/useTpsl";
@@ -35,6 +37,7 @@ import { derivePositionFlags }      from "./hooks/usePositionFlags";
 import { TopBar }       from "./components/TopBar";
 import { SidebarPanel } from "./components/Sidebar/SidebarPanel";
 import { ChartArea }    from "./components/ChartArea";
+import { ReplayBar }    from "./components/ReplayBar";
 import { Toast }        from "./components/Toast";
 
 export default function App() {
@@ -47,7 +50,21 @@ export default function App() {
     criticalAlert, setCriticalAlert,
     selectedBox, setSelectedBox,
     position,
+    // ── 리플레이 ──
+    // replayOn 하나가 "지금 화면은 과거다"의 기준이다 — 캔들 소스·지표 미래 차단·
+    // 알림 차단이 전부 이 값을 본다 (store/replaySlice.js)
+    replayOn, setReplayOn,
+    replayStartMs, replayEndMs, setReplayRange,
+    replayNowMs, setReplayClock,
+    replayShowLive, setReplayShowLive,
   } = useStore();
+
+  // 도형 저장소 선택 — 리플레이 중에는 연습용 키를 쓰고, "기존 도형 보기"를 켜면
+  // 원래 도형을 **읽기 전용**으로 읽는다 (replay/drawingKeys.js)
+  const drawingMode = useMemo(
+    () => ({ replayOn, showLive: replayShowLive }),
+    [replayOn, replayShowLive],
+  );
 
   const {
     hasLong, hasShort, hasPos, hasBoth,
@@ -55,9 +72,12 @@ export default function App() {
   } = derivePositionFlags(position);
 
   // ── 폴링 / 실시간 ────────────────────────────────────────────────────────
-  useBalance();
-  usePosition();
-  useTpsl();
+  // 리플레이 중에는 실계좌를 읽지 않는다 — 폴링이 돌면 페이퍼 잔고·포지션을
+  // 실계좌 값으로 덮어써서, 연습 중이던 포지션이 몇 초마다 화면에서 사라진다.
+  // (주문 전송 차단은 별개로 api/client.js가 맡는다)
+  useBalance(!replayOn);
+  usePosition(!replayOn);
+  useTpsl(!replayOn);
   useRealtimeData();
 
   // ── 지표 파라미터 ─────────────────────────────────────────────────────────
@@ -156,10 +176,10 @@ export default function App() {
   const chartActionsRef = useRef(null);
 
   // ── 트렌드 라인 ───────────────────────────────────────────────────────────
-  const trendLines = useTrendLines();
+  const trendLines = useTrendLines(drawingMode);
 
   // ── 피보나치 되돌림 ───────────────────────────────────────────────────────
-  const fibTool = useFibs();
+  const fibTool = useFibs(drawingMode);
 
   // 지표를 끄면 그리던 draft와 선택을 정리한다 (수동 구조의 showStruct와 같은 이유 —
   // 안 보이는 draft가 남아 있다가 다시 켤 때 그리던 중간부터 튀어나온다)
@@ -170,7 +190,7 @@ export default function App() {
   }, [showFib]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 수동 구조 (지그재그 + 자동 CHoCH) ─────────────────────────────────────
-  const structs = useStructures();
+  const structs = useStructures(drawingMode);
 
   // 그리는 도중/선택한 채로 Custom Structure Zigzag를 끄거나(지표 토글),
   // 표시 대상이 아닌 TF로 넘어가면 편집 상태를 정리한다.
@@ -181,13 +201,60 @@ export default function App() {
     structs.setSelectedStructId(null);
   }, [showStruct]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 리플레이 진입·이탈과 "기존 도형 보기" 전환은 **도형 저장소를 통째로 갈아끼운다**.
+  // 그리던 draft와 선택은 이전 저장소의 것이라, 안 지우면 없는 도형을 가리키거나
+  // 연습 캔버스에 실거래에서 그리던 선이 이어져 그려진다.
+  useEffect(() => {
+    trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
+    fibTool.cancelFibDraw(); structs.cancelStructDraw();
+    trendLines.setSelectedLineId(null);
+    trendLines.setSelectedChannelId(null);
+    trendLines.setSelectedCircleId(null);
+    fibTool.setSelectedFibId(null);
+    structs.setSelectedStructId(null);
+  }, [replayOn, replayShowLive]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { toasts, addToast, addLineAlert, removeToast } = useToast();
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
-  useAlertMonitor(notifSettings, addToast, indicatorParams.rsi);
+  // 리플레이 중에는 끈다 — 재생 시점에서는 알 수 없는 "현재 시각의 RSI"가 울리면
+  // 그 자체가 미래 정보다
+  useAlertMonitor(notifSettings, addToast, indicatorParams.rsi, !replayOn);
 
   // ── 캔들 데이터 ───────────────────────────────────────────────────────────
+  // 실거래와 리플레이는 **같은 계약**(`{ candles, candlesRef, loading }`)을 돌려주므로
+  // 아래 지표·렌더는 어느 쪽이 물렸는지 모른 채 그대로 동작한다.
+  // 훅은 둘 다 항상 호출하고(리액트 규칙), 꺼진 쪽이 스스로 아무것도 안 한다.
   const onTickRef = useRef(null);
-  const { candles, candlesRef, loading: candleLoading } = useCandles(interval_, onTickRef);
+  const live   = useCandles(interval_, onTickRef, !replayOn);
+  const replay = useReplay({
+    enabled: replayOn, tf: interval_, onTickRef,
+    startMs: replayStartMs,
+    // ⚠ 여기서 `?? Date.now()`로 채우지 말 것. 렌더마다 새 값이 나와 useReplay의
+    //   effect deps가 매번 바뀌고, 리플레이 데이터가 무한 재로드된다.
+    //   끝 시각은 리플레이에 **진입할 때 한 번** 스토어에 고정한다 (onReplayToggle)
+    endMs: replayEndMs,
+  });
+  const { candles, candlesRef } = replayOn ? replay : live;
+  const candleLoading = replayOn ? replay.loading : live.loading;
+
+  // 리플레이 시계를 스토어로 — 지표(usePivotLevels)가 이걸 보고 미래를 자르고,
+  // TopBar·사이드바가 현재가 자리에 리플레이 가격을 쓴다.
+  // ⚠ liveClose까지 리플레이 값으로 덮는다. 실시간 useCandles가 꺼져 있어 충돌은 없고,
+  //   이걸 안 하면 과거를 보는 중인데 헤더에 오늘 시세가 뜬다
+  useEffect(() => {
+    if (!replayOn) return;
+    setReplayClock(replay.nowMs, replay.price);
+    if (replay.price != null) useStore.getState().setLiveClose(replay.price);
+  }, [replayOn, replay.nowMs, replay.price, setReplayClock]);
+
+  // ⚠ 모드를 바꾸거나 시작 시점을 옮기면 **x 도메인을 되돌려야 한다.**
+  // 캔들의 시간 범위가 통째로 바뀌는데 뷰포트가 그대로면 화면이 텅 빈다 —
+  // 리플레이를 켰을 때 2024년 캔들을 다 받아 놓고도 도메인이 오늘을 가리켜
+  // 빈 차트가 나왔다(실제 증상). 로드가 끝난 뒤에 불러야 캔들 기준으로 잡힌다.
+  useEffect(() => {
+    if (candleLoading) return;
+    chartActionsRef.current?.resetDomain();
+  }, [replayOn, replayStartMs, candleLoading]);
 
   // 콘솔에서 `__legDebug()` — 레그 hover의 거래량 비교(↑↓%)가 안 뜨는 이유를 레그별로 출력.
   // 진행 중 레그는 candlesRef(진행 중 봉 최신값)로 판정해야 화면과 값이 같다.
@@ -205,7 +272,9 @@ export default function App() {
     // 피보나치는 레벨 가로선 각각이 근접 대상이다 (지표가 꺼져 있으면 대상에서 빠진다)
     showFib ? fibTool.fibs : [], fibTool.setFibAlertOff, fibLevels,
   );
-  usePositionCloseAlert(position, addLineAlert);
+  // 실계좌 포지션 종료 알림 — 리플레이 중에는 억누른다. 페이퍼 화면 위로 실거래
+  // 알림이 뜨면 어느 쪽 포지션이 닫힌 건지 구분이 안 된다
+  usePositionCloseAlert(replayOn ? null : position, addLineAlert);
 
   // CHoCH 발생 알림 — 자동 ZZ + 수동 구조. 둘 다 기본 ON,
   // 자동 ZZ는 indicatorParams.zz.alert_choch / 수동 구조는 구조별 alertChoch로 끈다.
@@ -224,7 +293,9 @@ export default function App() {
   const obData  = useOrderBlock(candles, indicatorParams.ob);
   // ZZ(Structure Zigzag)는 진행 중 봉까지 반영해야 하므로 candleRenderer가 candlesRef로 직접 계산 — 여기서 계산하지 않음
   // 멀티 TF — 차트 캔들이 아니라 pivot.tfs에서 고른 TF들을 직접 받아 계산한다
-  const pivotLevels = usePivotLevels(indicatorParams.pivot);
+  // ⚠ 리플레이에서는 **반드시 시뮬 시각까지만** 계산한다. 안 그러면 2023년을 재생하는
+  //   중에 오늘까지의 고/저점으로 만든 지지·저항이 그려져 연습이 무의미해진다
+  const pivotLevels = usePivotLevels(indicatorParams.pivot, replayOn ? replayNowMs : null);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
   const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp } = useOrderFlow();
@@ -348,6 +419,17 @@ export default function App() {
     onIntervalChange:  val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain(); },
   });
 
+  // 리플레이 진입 — 시작 시점을 한 번도 고른 적 없으면 90일 전으로 채운다.
+  // (빈 채로 들어가면 아무것도 안 뜨고 왜 안 되는지 알 수 없다)
+  const onReplayToggle = () => {
+    if (!replayOn) {
+      // 시작일을 넘기면 setReplayRange가 끝 시각까지 함께 잡는다 (세션 길이 상한)
+      const start = replayStartMs ?? (Date.now() - SESSION_MAX_MS);
+      setReplayRange({ startMs: start });
+    }
+    setReplayOn(v => !v);
+  };
+
   const { theme, isDark, toggle: toggleTheme } = useTheme();
   const last = candles[candles.length - 1];
 
@@ -399,7 +481,24 @@ export default function App() {
             const next = !v; localStorage.setItem("chart_isLog", next); return next;
           })}
           shortcuts={shortcuts} onShortcutUpdate={updateShortcut} onShortcutReset={resetShortcuts}
+          replayOn={replayOn} onReplayToggle={onReplayToggle}
         />
+
+        {/* 리플레이 컨트롤 — 모드일 때만. TopBar 바로 아래라 항상 눈에 들어온다 */}
+        {replayOn && (
+          <ReplayBar
+            replay={replay}
+            startMs={replayStartMs}
+            onRangeChange={setReplayRange}
+            onExit={() => setReplayOn(false)}
+            showLive={replayShowLive}
+            onShowLiveToggle={() => setReplayShowLive(v => !v)}
+            // ⚠ 시크 뒤에는 **y 도메인도 되돌려야 한다.** 크게 건너뛰면 가격대가
+            //   통째로 바뀌는데(실측: $78k 구간에서 $64k 구간으로) y축이 그대로라
+            //   캔들이 화면 밖으로 나가 차트가 텅 빈 것처럼 보인다
+            onSeek={(p) => { replay.seekProgress(p); chartActionsRef.current?.resetDomain(); }}
+          />
+        )}
 
         {criticalAlert && (
           <div onClick={() => setCriticalAlert(null)} style={{
