@@ -22,17 +22,16 @@ const PREFIX = "replay_";
 export const DRAWING_KEYS = ["trendLines", "trendChannels", "trendCircles", "fibs", "structures"];
 
 /**
- * @param base       원래 키 ("trendLines" 등)
- * @param replayOn   리플레이 모드인가
- * @param showLive   리플레이 중 "기존 도형 보기"가 켜져 있는가
- *                   → 켜져 있으면 원래 키를 읽되 **읽기 전용**으로 쓴다
+ * @param base     원래 키 ("trendLines" 등)
+ * @param replayOn 리플레이 모드인가
+ *
+ * ※ 예전엔 "기존 도형 보기"(showLive) 인자가 있어서, 켜면 실거래 키를 **읽기 전용**으로
+ *   읽었다. 2026-08-15 사용자 요청으로 기능째 제거됐다 — 리플레이는 항상 연습용 키만 쓴다.
+ *   되살리려면 이 인자와 `useDrawableStore`의 readOnly가 같이 필요하다
  */
-export function drawingKey(base, replayOn, showLive) {
-  return replayOn && !showLive ? PREFIX + base : base;
+export function drawingKey(base, replayOn) {
+  return replayOn ? PREFIX + base : base;
 }
-
-/** 리플레이에서 도형을 읽기 전용으로 다뤄야 하는가 */
-export const drawingReadOnly = (replayOn, showLive) => !!(replayOn && showLive);
 
 export function clearReplayDrawings() {
   for (const k of DRAWING_KEYS) localStorage.removeItem(PREFIX + k);

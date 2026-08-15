@@ -1,4 +1,4 @@
-import { useRef, useMemo, useEffect, useState } from "react";
+import { useRef, useMemo, useEffect, useState, useCallback } from "react";
 import { M, RSI_GAP, VOL_GAP, TF_MS } from "../constants";
 import { useStore }          from "../store";
 import { useShallow }        from "zustand/react/shallow";
@@ -71,7 +71,7 @@ export function ChartArea({
   structures, structMode, structDraft, structPreview, setStructPreview,
   selectedStructId, setSelectedStructId,
   cancelStructDraw, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-  moveStructPoint, normalizeStruct,
+  moveStructPoint, normalizeStruct, commitLiveStructPoint,
   structPart, selectStructPart, clearStructPart,   // 꼭짓점/선분 부분 선택 (Delete 대상)
   // 도형 통합 인터페이스 (App.jsx에서 구성)
   drawables,
@@ -89,6 +89,8 @@ export function ChartArea({
     dragSplitTp, setDragSplitTp,
     selectedBox, setSelectedBox,
     opacityPopup, setOpacityPopup,
+    closeConfirm, setCloseConfirm,
+    cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition,
   } = useStore(useShallow(s => ({
     drawing: s.drawing, setDrawing: s.setDrawing,
     drawMode: s.drawMode, setDrawMode: s.setDrawMode,
@@ -98,11 +100,39 @@ export function ChartArea({
     dragSplitTp: s.dragSplitTp, setDragSplitTp: s.setDragSplitTp,
     selectedBox: s.selectedBox, setSelectedBox: s.setSelectedBox,
     opacityPopup: s.opacityPopup, setOpacityPopup: s.setOpacityPopup,
+    closeConfirm: s.closeConfirm, setCloseConfirm: s.setCloseConfirm,
+    cancelTpsl: s.cancelTpsl, cancelScaleIn: s.cancelScaleIn,
+    cancelSplitTp: s.cancelSplitTp, closePosition: s.closePosition,
   })));
+
+  // 마커 옆 × 버튼 클릭 — 무엇을 지우는지는 kind가 정한다 (hitDetection.markerCloseButtons)
+  //
+  // ⚠ `entry`(포지션 청산)만 **두 번 눌러야** 나간다. 되돌릴 수 없는 시장가 청산이라
+  //   차트의 작은 버튼 한 번으로 나가면 안 된다 — 사이드바 PositionCard도
+  //   슬라이더 → 확인 → ✓ 로 여러 단계를 거친다.
+  //   나머지(TP/SL/추가/분할)는 주문 취소일 뿐이라 한 번에 지운다. 다시 걸면 그만이다
+  const onMarkerClose = useCallback((b) => {
+    if (b.kind === "tp" || b.kind === "sl") { setCloseConfirm(null); cancelTpsl(b.side, b.kind); return; }
+    if (b.kind === "scale_in")              { setCloseConfirm(null); cancelScaleIn(b.orderId);   return; }
+    if (b.kind === "split_tp")              { setCloseConfirm(null); cancelSplitTp(b.orderId);   return; }
+    if (b.kind === "entry") {
+      if (closeConfirm === b.side) { setCloseConfirm(null); closePosition(b.side, b.size, false); }
+      else setCloseConfirm(b.side); // 1회차 — ✓ 로 바뀌며 확인 대기
+    }
+  }, [closeConfirm, setCloseConfirm, cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition]);
 
   // 헷지모드: 양쪽 모두 점유(포지션 or pending)됐을 때만 신규 박스 드로잉 차단
   const { hasLong, hasShort, hasPos, drawLocked } = derivePositionFlags(position);
   const locked = drawLocked;
+
+  // 청산 확인 대기는 오래 무장돼 있으면 안 된다 — 4초 뒤 스스로 풀리고,
+  // 그 사이 포지션이 닫히면 즉시 푼다 (다음에 그 자리를 눌렀을 때 바로 청산되면 위험하다)
+  useEffect(() => {
+    if (!closeConfirm) return;
+    if (!(closeConfirm === "LONG" ? hasLong : hasShort)) { setCloseConfirm(null); return; }
+    const id = setTimeout(() => setCloseConfirm(null), 4000);
+    return () => clearTimeout(id);
+  }, [closeConfirm, hasLong, hasShort, setCloseConfirm]);
 
   // 수동 구조 표시 OFF면 렌더뿐 아니라 히트 판정에서도 빼야 한다.
   // 안 그러면 안 보이는 구조가 클릭에 잡혀 선택·드래그된다.
@@ -245,6 +275,7 @@ export function ChartArea({
       setLineStart, setLinePreview, setSelectedLineId,
       addLine, updateLineEndpoint, setLinePosition,
       hasPos, hasLong, hasShort, tpsl, scaleInOrders: position?.scaleInOrders, splitTps,
+      position, onMarkerClose,
       dragTpsl, setDragTpsl, saveTpsl,
       dragScaleIn, setDragScaleIn, moveScaleIn,
       dragSplitTp, setDragSplitTp, moveSplitTp,
@@ -264,6 +295,7 @@ export function ChartArea({
       structures: visibleStructures, selectedStructId, setSelectedStructId,
       addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
       moveStructPoint, normalizeStruct, structPart, selectStructPart, clearStructPart,
+      commitLiveStructPoint,
       drawables,
       overlaysRef,
     });
@@ -321,6 +353,7 @@ export function ChartArea({
         vLineRef={vLineRef} hLineMainRef={hLineMainRef} hLineRsiRef={hLineRsiRef}
         priceTextRef={priceTextRef} bodyPctRef={bodyPctRef} legRefs={legRefs}
         hasPos={hasPos} hasLong={hasLong} hasShort={hasShort} position={position} tpsl={tpsl} dragTpsl={dragTpsl} tpslSaving={tpslSaving}
+        closeConfirm={closeConfirm}
         scaleInOrders={position?.scaleInOrders} dragScaleIn={dragScaleIn}
         splitTps={splitTps} dragSplitTp={dragSplitTp}
         lines={lines} selectedLineId={selectedLineId} lineStart={lineStart} linePreview={linePreview} isLog={isLog}

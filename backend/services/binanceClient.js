@@ -149,6 +149,12 @@ async function placeTPSL({ closeSide, tp, sl }) {
   return results;
 }
 
+// 해당 방향에 TP / SL이 각각 걸려 있는지 확인 → { hasTP, hasSL }
+//
+// ⚠ 예전에는 `hasTP || hasSL` 하나로 합쳐서 돌려줬다. 되돌리지 말 것 —
+//   SL만 등록되고 TP가 실패한 상태에서도 "TP/SL 있음"이 되어 reconcile이
+//   TPSL_PLACED로 확정해버리고, 빠진 쪽은 두 번 다시 재시도되지 않았다.
+//   조회 자체가 실패하면 { hasTP: false, hasSL: false } — "없다"로 보고 재시도하는 쪽이 안전하다
 async function checkExistingTPSL(positionSide) {
   try {
     const [regularRes, algoRes] = await Promise.allSettled([
@@ -170,8 +176,8 @@ async function checkExistingTPSL(positionSide) {
                   algo.filter(matchAlgo).some(o => o.orderType === "TAKE_PROFIT_MARKET");
     const hasSL = regular.filter(matchReg).some(o => o.type === "STOP_MARKET") ||
                   algo.filter(matchAlgo).some(o => o.orderType === "STOP_MARKET");
-    return hasTP || hasSL;
-  } catch { return false; }
+    return { hasTP, hasSL };
+  } catch { return { hasTP: false, hasSL: false }; }
 }
 
 module.exports = { binance, roundPrice, cancelOrder, placeTPSL, checkExistingTPSL, syncServerTime };

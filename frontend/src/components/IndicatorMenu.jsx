@@ -3,7 +3,7 @@ import { useTheme } from "../ThemeContext";
 import { INDICATOR_DEFAULTS } from "../hooks/useIndicatorParams";
 import { getZzChochTotal } from "../chart/structureZigzag";
 import { getRsiZoneCount } from "../chart/overlayRenderers";
-import { INTERVALS, RSI_ZONE_MAX } from "../constants";
+import { INTERVALS } from "../constants";
 import { FIB_ALL_LEVELS, FIB_DEFAULT_LEVELS } from "../chart/fib";
 
 export const INDICATORS = [
@@ -23,7 +23,7 @@ export const INDICATORS = [
   { key: "struct", label: "Custom Structure Zigzag" },
   // 피보나치 되돌림 — 선/채널/원과 같은 **도형**인데 여기 행이 있는 이유는
   // 레벨 목록이 전역 파라미터라서다 (chart/fib.js [F1]). 체크박스는 표시 on/off이고,
-  // OFF면 렌더·히트 판정에서 빠지고 TopBar "피보" 버튼도 죽는다 (수동 구조와 같은 규칙)
+  // OFF면 렌더·히트 판정에서 빠지고 TopBar "피보나치" 버튼도 죽는다 (수동 구조와 같은 규칙)
   { key: "fib", label: "Fibonacci" },
   { key: "ema", label: "EMA" },
 ];
@@ -130,21 +130,15 @@ function DetectedCountRow({ label, total, theme }) {
  * "전체"를 숫자와 따로 두는 이유: 항목이 늘어났을 때 저장값이 옛 개수에 묶여 있으면
  * 새 항목이 조용히 잘려 "왜 안 뜨지"가 된다. 그래서 끝까지 올리면 제한을 해제한다.
  *
- * 숫자 구간의 상한(`hi`)만 두 가지다:
- *   ① `cap` 없음 (ZZ의 CHoCH 개수) — 상한 = **실제 검출 개수**. 데이터에 따라 움직인다
- *   ② `cap` 있음 (RSI의 구간 개수, `RSI_ZONE_MAX` = 10) — 상한 **고정 10** (2026-08-14 사용자 지정).
- *      검출이 실측 90개를 넘어서 상한을 검출 개수로 두면 슬라이더 한 칸이 의미를 잃는다.
- *      ※ 검출 개수는 바로 위 `검출된 …N개` 행이 계속 보여주므로 정보가 사라지진 않는다
+ * 상한(`hi`) = **실제 검출 개수**이고, 맨 오른쪽 칸이 곧 "전체"다 (둘이 같은 뜻이라 겹쳐 둔다).
+ * 구조/ZZ 팝업의 `CountRow`와 같은 규칙 — 두 곳이 같은 값을 조작하므로 맞춰야 한다.
  *
- * 맨 오른쪽 칸(`top`)이 "전체"인 건 두 모드 공통인데, 그 칸의 위치가 다르다:
- *   ① cap 없음 — `top = hi`. 상한이 곧 검출 개수라 "hi개 = 전체"가 같은 뜻이라 겹쳐 둔다
- *      (구조/ZZ 팝업의 `CountRow`와 같은 규칙 — 두 곳이 같은 값을 조작하므로 맞춰야 한다)
- *   ② cap 있음 — `top = hi + 1`. 겹쳐 두면 **"10개"를 고를 방법이 없어진다**
- *      (상한이 10인데 10이 곧 전체가 되어버린다). 그래서 칸을 하나 더 둔다
+ * ※ 예전엔 `cap` 인자가 있어서 RSI의 구간 개수만 상한을 10으로 고정했다.
+ *   그 슬라이더가 2026-08-15에 제거되면서 분기도 같이 뺐다 (지금 쓰는 곳은 ZZ 하나뿐)
  */
-function RecentCountSlider({ label, value, detected, onChange, theme, cap }) {
-  const hi   = cap ?? Math.max(1, detected);
-  const top  = cap != null ? hi + 1 : hi;      // "전체" 칸의 위치
+function RecentCountSlider({ label, value, detected, onChange, theme }) {
+  const hi   = Math.max(1, detected);
+  const top  = hi;      // "전체" 칸의 위치
   const all  = value == null || value >= top;
   const cur  = all ? hi : Math.max(1, value);
   const pos  = all ? top : cur;
@@ -521,9 +515,9 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
   const zzTotal = isZZ ? getZzChochTotal() : 0;
 
   // RSI: 검출된 과매수/과매도 구간 개수 — ZZ와 같은 이유로 모듈 상태 직접 조회.
-  // 개수 슬라이더(zone_max)의 상한이자 "몇 개 중 몇 개인지"를 보여주는 값이다.
+  // ※ 예전엔 개수 슬라이더의 상한이기도 했다. 그 슬라이더는 2026-08-15에 제거됐고
+  //   지금은 순수 정보 표시다 (실제로 칠하는 건 마지막 연속 구간뿐이다)
   const zoneTotal = isRSI ? getRsiZoneCount() : 0;
-  const zoneBgOn  = indParams.zone_bg !== false;
 
   return (
     <div style={{
@@ -595,16 +589,9 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
           />
         </>
       )}
-      {/* 구간 개수는 상한이 검출 개수라 정적 PARAMS_META로 못 만든다 → 전용 슬라이더.
-          배경이 꺼져 있으면 조절할 대상이 없으므로 같이 숨긴다 */}
-      {isRSI && zoneBgOn && (
-        <RecentCountSlider
-          label="구간 개수" value={indParams.zone_max} detected={zoneTotal}
-          cap={RSI_ZONE_MAX}                 /* 숫자 상한 10 + 맨 오른쪽 한 칸은 "전체" */
-          onChange={n => setParam("rsi", "zone_max", n)}
-          theme={theme}
-        />
-      )}
+      {/* ※ RSI `구간 개수` 슬라이더는 2026-08-15 사용자 요청으로 제거됐다.
+          이제 몇 개를 칠할지는 설정이 아니라 데이터가 정한다 — 마지막 구간과 같은
+          종류로 **연속된 꼬리**만 나온다 (overlayRenderers의 lastRsiZoneRun) */}
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         <button
           onClick={() => resetIndicator(indKey)}

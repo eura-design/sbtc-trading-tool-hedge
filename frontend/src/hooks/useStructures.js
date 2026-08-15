@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
-import { drawingKey, drawingReadOnly } from "../replay/drawingKeys";
+import { drawingKey } from "../replay/drawingKeys";
 import { normalizeStructurePoints } from "../chart/deriveStructure";
 
 // 신규 구조 기본 투명도 — 사용자 지정값. 1.0으로 되돌리지 말 것 ([R2] 참고).
@@ -89,10 +89,10 @@ function inheritSettings(item) {
   return out;
 }
 
-// @param mode { replayOn, showLive } — replay/drawingKeys.js 참고
+// @param mode { replayOn, gen } — replay/drawingKeys.js 참고
 export function useStructures(mode = {}) {
-  const { replayOn = false, showLive = false } = mode;
-  const store = useDrawableStore(drawingKey("structures", replayOn, showLive), drawingReadOnly(replayOn, showLive));
+  const { replayOn = false } = mode;
+  const store = useDrawableStore(drawingKey("structures", replayOn), mode.gen ?? 0);
 
   const [structMode,       setStructMode]       = useState(false);
   const [structDraft,      setStructDraft]      = useState(null);   // { points: [...] } — 그리는 중
@@ -219,6 +219,21 @@ export function useStructures(mode = {}) {
     store.update(id, item => (item.locked ? {} : { points: normalizeStructurePoints(item.points) }));
   }, [store]);
 
+  // 진행 중 레그(점선)의 끝점을 **실제 꼭짓점으로 확정**한다 (2026-08-15 사용자 요청).
+  //
+  // 점선은 이미 "다음 꼭짓점이 여기쯤 잡힌다"를 보여주고 있으므로, 그게 마음에 들면
+  // 구조 모드로 들어가 끝점을 다시 클릭할 것 없이 **그 점만 눌러서** 이어붙인다.
+  // 좌표는 화면에 그려진 점 그대로다 — 구간 극값이라 스냅이 따로 필요 없다
+  // (`deriveStructure`가 꼬리 기준으로 뽑은 값이고, 꼭짓점 스냅도 같은 기준이다).
+  //
+  // [SL1] 잠긴 구조는 꼭짓점을 바꾸는 **모든 경로**에서 막힌다 — 여기도 예외가 아니다
+  const commitLiveStructPoint = useCallback((id, pt) => {
+    if (!pt) return;
+    store.update(id, item => (item.locked ? {} : {
+      points: normalizeStructurePoints([...item.points, pt]),
+    }));
+  }, [store]);
+
   // 선분 중간 삽입은 제공하지 않는다 — 고/저 교대 구조라 점 하나를 끼우면
   // 반드시 양옆 중 하나와 타입이 겹쳐 normalizeStructurePoints가 병합해버린다.
   // 점을 늘리는 경로는 startExtendStruct(끝점에서 이어 그리기) 하나로 통일.
@@ -301,7 +316,7 @@ export function useStructures(mode = {}) {
     selectedStructId, setSelectedStructId,
     structPart, selectStructPart, clearStructPart,
     cancelStructDraw, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-    moveStructPoint, normalizeStruct, removeStructPoint,
+    moveStructPoint, normalizeStruct, removeStructPoint, commitLiveStructPoint,
     deleteStruct, deleteStructSelection,
     setStructOpacity:  store.setOpacity,
     toggleStructLock:  store.toggleLock,

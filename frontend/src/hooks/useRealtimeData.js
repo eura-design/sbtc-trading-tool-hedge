@@ -28,10 +28,20 @@ export function useRealtimeData() {
 
           if (msg.type === "update") {
             const targets = msg.targets || [];
-            if (targets.includes("position")) _refetchPos?.();
             if (targets.includes("balance"))  _refetchBal?.();
-            if (targets.includes("tpsl"))     _refetchTpsl?.();
             if (targets.includes("stats"))    window.dispatchEvent(new CustomEvent("stats-update"));
+
+            // ⚠ position → tpsl **순서**를 지킨다. useTpsl은 "포지션이 있나"를 보고
+            //   조회 여부를 정하는데, 체결 직후엔 아직 포지션이 스토어에 없어서
+            //   동시에 부르면 TP/SL을 조회 없이 지워버린다 (그 뒤 60초 폴링까지 공백).
+            const wantPos  = targets.includes("position");
+            const wantTpsl = targets.includes("tpsl");
+            if (wantPos && wantTpsl) {
+              Promise.resolve(_refetchPos?.()).finally(() => useStore.getState()._refetchTpsl?.());
+            } else {
+              if (wantPos)  _refetchPos?.();
+              if (wantTpsl) _refetchTpsl?.();
+            }
           }
 
           if (msg.type === "alert") {

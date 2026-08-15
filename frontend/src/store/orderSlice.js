@@ -12,7 +12,7 @@ export const createOrderSlice = (set, get) => ({
 
   executeOrder: async (orderType) => {
     if (get().replayOn) return paperActions.executeOrder(get, orderType);
-    const { drawing, leverage, riskPct, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos } = get();
+    const { drawing, leverage, riskPct, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos, _refetchTpsl } = get();
     if (!drawing) return;
     try {
       const dl = await api("GET", "/api/daily-loss");
@@ -52,7 +52,16 @@ export const createOrderSlice = (set, get) => ({
       } else {
         setOrderStatus({ type: "success", msg: data.message || "주문 완료 — 진입 / TP / SL 전송됨" });
       }
-      setTimeout(() => { _refetchBal(); _refetchPos(); }, 1500);
+      // ⚠ TP/SL도 같이 새로 읽는다. 시장가는 백엔드가 진입과 **같은 요청 안에서** TP/SL을
+      //   등록해 끝내므로, 여기서 안 부르면 useTpsl의 60초 폴링 전까지 화면에 안 나온다.
+      //   특히 반대쪽 포지션을 이미 들고 있으면 useTpsl의 hasPos가 계속 true라
+      //   "포지션 생김"으로 인한 즉시 조회조차 트리거되지 않는다.
+      //   포지션 → TP/SL **순서**로 부를 것 (useTpsl이 포지션 유무를 보고 조회를 건너뛴다)
+      setTimeout(async () => {
+        _refetchBal();
+        await _refetchPos();
+        _refetchTpsl();
+      }, 1500);
     } catch (e) {
       setOrderStatus({ type: "error", msg: e.message });
     }
@@ -91,6 +100,27 @@ export const createOrderSlice = (set, get) => ({
     } finally {
       setTpslSaving(false);
       setDragTpsl(null);
+    }
+  },
+
+  // 차트의 × 버튼 — 걸려 있는 TP 또는 SL 하나를 취소한다 (분할 TP는 cancelSplitTp)
+  // ⚠ SL을 지우면 그 포지션은 무방비가 된다. 백엔드 reconcile이 60초 안에
+  //   critical 알림을 띄우는데 **정상 동작**이다 (일부러 지운 것도 무방비는 무방비다)
+  cancelTpsl: async (side, which) => {
+    if (get().replayOn) return paperActions.cancelTpsl(get, side, which);
+    const { tpsl, setTpsl, setOrderStatus, _refetchTpsl } = get();
+    const sideKey = side === "LONG" ? "long" : "short";
+    const target  = tpsl?.[sideKey]?.[which];
+    if (!target?.orderId) return;
+    const label = which.toUpperCase();
+    setOrderStatus(null);
+    try {
+      await api("DELETE", "/api/tpsl", { orderId: target.orderId, isAlgo: target.isAlgo });
+      setTpsl(prev => ({ ...prev, [sideKey]: { ...prev[sideKey], [which]: null } }));
+      setOrderStatus({ type: "success", msg: `${side} ${label} 제거 완료` });
+      setTimeout(() => { _refetchTpsl(); }, 500);
+    } catch (e) {
+      setOrderStatus({ type: "error", msg: `${label} 제거 실패: ${e.message}` });
     }
   },
 

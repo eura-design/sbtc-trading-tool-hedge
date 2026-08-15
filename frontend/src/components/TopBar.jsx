@@ -13,7 +13,6 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
   const price   = liveClose ?? last?.c ?? 0;
   const isGreen = last ? price >= last.o : true;
-  const pct     = last ? (((price - last.o) / last.o) * 100).toFixed(2) : "0.00";
 
   const sep = <div style={{ width:"1px", height:"14px", background:theme.borderSec, flexShrink:0, margin:"0 2px" }} />;
 
@@ -93,7 +92,7 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
         color: fibMode ? "#000" : theme.textMuted,
         opacity: fibEnabled ? 1 : 0.35,
         transition:"all 0.15s",
-      }}>피보</button>
+      }}>피보나치</button>
 
       {/* 지표가 꺼져 있거나 현재 TF가 표시 대상이 아니면 그려도 화면에 안 나오므로 아예 막는다 (App.jsx에서도 가드) */}
       <button onClick={onStructModeToggle} disabled={!structEnabled}
@@ -129,7 +128,10 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
       <button onClick={onReplayToggle} title="리플레이 트레이딩 — 과거 구간을 재생하며 연습" style={{
         height:"22px", padding:"0 7px", borderRadius:"3px",
         cursor:"pointer", flexShrink:0, whiteSpace:"nowrap",
-        fontSize:"12px", fontFamily:"inherit", fontWeight: replayOn ? "700" : "400",
+        // ⚠ 굵기는 켜져 있어도 400 고정 (2026-08-15 사용자 요청).
+        //   700으로 바꾸면 글자가 커 보일 뿐 아니라 **버튼 폭이 늘어나** 옆 버튼들이 밀린다.
+        //   켜짐 표시는 색(보라 채움)만으로 한다
+        fontSize:"12px", fontFamily:"inherit", fontWeight:"400",
         background: replayOn ? "#a78bfa" : "transparent",
         border:`1px solid ${replayOn ? "#a78bfa" : theme.textFaint}`,
         color: replayOn ? "#000" : theme.textMuted,
@@ -161,13 +163,8 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
             fontVariantNumeric:"tabular-nums" }}>
             {fmtI(price)}
           </span>
-          {last && (
-            <span style={{ fontSize:"14px", fontWeight:"600",
-              color: isGreen ? "#0ecb81" : "#f6465d",
-              fontVariantNumeric:"tabular-nums" }}>
-              {pct >= 0 ? "+" : ""}{pct}%
-            </span>
-          )}
+          {/* ※ 옆에 있던 등락률(+0.42%)은 2026-08-15 사용자 요청으로 제거.
+              색(초록/빨강)이 이미 방향을 말해준다 */}
         </div>
       )}
 

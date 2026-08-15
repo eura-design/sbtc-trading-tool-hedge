@@ -70,6 +70,13 @@ export const paperActions = {
     finally { setDragTpsl(null); }
   },
 
+  cancelTpsl: (get, side, which) => {
+    const { paperBroker } = get();
+    if (!paperBroker?.tpsl?.[side]) return;
+    paperBroker.tpsl[side][which] = null;
+    ok(get, `${side} ${which.toUpperCase()} 제거 완료`);
+  },
+
   updatePendingTpsl: (get) => {
     const { drawing, paperBroker } = get();
     if (!drawing?.orderId || !paperBroker) return;

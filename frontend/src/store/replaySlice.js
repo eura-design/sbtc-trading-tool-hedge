@@ -42,13 +42,7 @@ export const createReplaySlice = (set, get) => ({
   replayStartMs: loadStart(),
   replayEndMs: null,          // null = 현재 시각까지
 
-  // 리플레이 중 **기존(실거래) 도형 보기**. 기본은 숨김이다.
-  // 켜면 원래 도형을 읽되 **읽기 전용**으로 다룬다 (replay/drawingKeys.js).
-  // 저장하지 않는다 — 리플레이를 켤 때마다 숨김에서 시작하는 게 안전한 기본값이다
-  replayShowLive: false,
-  setReplayShowLive: (v) => set({
-    replayShowLive: typeof v === "function" ? v(get().replayShowLive) : !!v,
-  }),
+  // ※ `replayShowLive`(기존 도형 보기)는 2026-08-15 사용자 요청으로 기능째 제거됐다
 
   // 엔진이 매 틱 밀어 넣는 값 (지표·알림이 이걸 보고 미래를 자른다)
   replayNowMs: null,
@@ -72,7 +66,6 @@ export const createReplaySlice = (set, get) => ({
     // 그 에러 배너가 잔고 카드 자리를 계속 차지해 연습 잔고가 아예 안 보인다
     // 끌 때 시계를 비운다 — 남아 있으면 실거래로 돌아온 뒤에도 지표가
     // 과거 시각으로 잘린 채 계산된다
-    // 나갈 때 replayShowLive도 되돌린다 — 다음에 켤 때 다시 숨김에서 시작해야 한다
     //
     // ⚠ 플랜 박스(drawing)도 여기서 갈아끼운다. 안 하면 리플레이에 들어가는 순간
     //   App의 drawing↔pending 동기화가 페이퍼 position(pending 없음)을 보고
@@ -80,7 +73,30 @@ export const createReplaySlice = (set, get) => ({
     const drawing = swapDrawingStorage(on, get().drawing);
     set(on
       ? { replayOn: true, balError: null, drawing }
-      : { replayOn: false, replayNowMs: null, replayPrice: null, replayShowLive: false, drawing });
+      : {
+          replayOn: false, replayNowMs: null, replayPrice: null, drawing,
+          // ⚠ 나갈 때 페이퍼 스냅샷을 **앱 시작 직후 상태로 되돌린다**
+          //   (serverSlice의 초기값과 글자 그대로 같은 값 — 이미 모든 화면이 다루는 상태다).
+          //
+          //   syncPaper가 연습 계좌를 실계좌와 **같은 슬롯**에 써 넣으므로, 안 지우면
+          //   실계좌 응답이 도착할 때까지 페이퍼 값이 남는다. 그 사이에
+          //   usePositionCloseAlert이 "페이퍼 → 실계좌" 교체를 청산으로 오인해
+          //   `롱/숏 포지션 종료`를 sticky 알림(빨강 + 3초 소리 반복)으로 띄웠다.
+          //   연습에서 매매를 안 해도 떴다 — 리플레이 진입 전 실계좌에 포지션이 있으면
+          //   그게 기준선으로 얼어붙고, 나갈 때 **빈 페이퍼 스냅샷**과 비교되기 때문.
+          //
+          //   ⚠ 반드시 replayOn과 **같은 set 호출**에 둘 것. 나눠 쓰면 그 사이에
+          //     "replayOn=false인데 position은 아직 페이퍼"인 렌더가 한 번 생겨
+          //     정확히 같은 오알림이 다시 난다.
+          //   ※ 실거래 알림 동작은 그대로다. 리플레이 중에도 usePositionCloseAlert의
+          //     기준선(prevLong/prevShort)은 그대로 얼어 있으므로, 연습하는 사이에
+          //     실제로 청산된 포지션은 실계좌 값이 도착하는 순간 정상적으로 알림이 뜬다.
+          //   ※ 비우기만 하면 된다 — 직후에 usePosition/useBalance/useTpsl의 enabled가
+          //     바뀌며 usePoll이 재실행돼 곧바로 실계좌를 다시 읽는다.
+          position: null,
+          balance:  null,
+          tpsl: { long: { tp: null, sl: null, splitTps: [] }, short: { tp: null, sl: null, splitTps: [] } },
+        });
   },
 
   // 시작일이 바뀌면 끝도 같이 다시 잡는다. 안 그러면 리플레이 도중 날짜를 과거로
@@ -105,6 +121,11 @@ export const createReplaySlice = (set, get) => ({
    */
   syncPaper: () => {
     const s = get();
+    // ⚠ 리플레이가 꺼져 있으면 **아무것도 쓰지 않는다.** 종료 직후에도 재생 루프의
+    //   setTimeout이 한 번 더 남아 applyMove → syncBroker로 여기 도달할 수 있는데,
+    //   그때 페이퍼 값이 실계좌 슬롯을 덮으면 setReplayOn이 비워둔 게 무의미해지고
+    //   `롱/숏 포지션 종료` 오알림이 그대로 재현된다
+    if (!s.replayOn) return;
     const b = s.paperBroker;
     if (!b) return;
     const mark = s.replayPrice ?? b.lastPrice;

@@ -4,7 +4,9 @@ const store   = require("../store/pendingOrders");
 const { validateOrder } = require("../middleware/validate");
 const { checkDailyLoss } = require("./dailyloss");
 const { sideToPosition } = require("../utils/side");
-const { onFilled } = require("../services/orderWatcher");
+const { verifyImmediateFill } = require("../services/orderWatcher");
+const push     = require("../services/pushService");
+const tradeLog = require("../store/tradeLog");
 
 const router  = express.Router();
 
@@ -57,11 +59,27 @@ router.post("/", validateOrder, async (req, res) => {
 
       const tpsl       = await placeTPSL(orderInfo);
       const hasFailure = tpsl.failed.length > 0;
-      // 실패 시 store에 저장 → reconcileWithBinance가 15초 내 재시도
+      tradeLog.append({ event: "FILLED", orderId, side, qty: quantity, fillPrice, tp, sl });
+      // 실패 시 store에 저장 → reconcileWithBinance가 재시도
       if (hasFailure) {
         store.set(orderId, { ...orderInfo, status: "TPSL_PARTIAL", tpsl, fillPrice, filledAt: Date.now() });
-        console.error(`[MARKET] TP/SL 실패 → store 저장 (reconcile 재시도 대기) orderId=${orderId}`);
+        console.error(`[MARKET] TP/SL 실패 → store 저장 (reconcile 재시도 대기) orderId=${orderId}`,
+          tpsl.failed.map(f => `${f.type}: ${f.error}`).join(" / "));
+        tradeLog.append({
+          event: "TPSL_PARTIAL", orderId, failed: tpsl.failed.map(f => f.type).join(", "),
+          errors: tpsl.failed.map(f => `${f.type}: ${f.error}`), side, tp, sl,
+        });
+        if (tpsl.failed.some(f => f.type === "SL")) {
+          push.pushAlert("critical", `⚠ 시장가 체결됐으나 SL 등록 실패 (orderId=${orderId})`);
+        }
+      } else {
+        tradeLog.append({ event: "TPSL_PLACED", orderId, tp, sl });
       }
+
+      // ⚠ 프론트에 TP/SL 갱신을 **반드시 알릴 것.** 없으면 거래소엔 0.2초 만에 걸려 있는데
+      //   화면에는 useTpsl의 60초 폴링 전까지 안 나온다. 특히 반대쪽 포지션을 이미 들고
+      //   있으면 useTpsl의 hasPos가 계속 true라 즉시 조회가 아예 트리거되지 않는다
+      push.pushUpdate(["position", "balance", "tpsl"]);
       const warnings   = [
         hasFailure ? `${tpsl.failed.map(f => f.type).join(", ")} 등록 실패 — 자동 재시도 중` : null,
         slippageWarn,
@@ -77,12 +95,12 @@ router.post("/", validateOrder, async (req, res) => {
       // LIMIT: User Data Stream이 체결을 감지하므로 store에만 등록
       store.set(orderId, orderInfo);
 
-      // 지정가 주문이 현재가를 초과해 즉시 체결된 경우 (박스를 현재가 위로 올린 경우)
-      // → UDS FILLED 이벤트가 store 등록 전에 이미 지나쳤을 수 있으므로 직접 처리
+      // 지정가가 호가를 먹어 즉시 체결된 경우(박스를 현재가 너머로 올린 경우)
+      // → UDS FILLED가 위 store.set보다 **먼저** 도착해 `!store.has`에 걸려 버려진다
+      // → 응답 status만 믿으면 안 된다: 바이낸스는 즉시 체결돼도 보통 "NEW"를 돌려준다
+      // → verifyImmediateFill이 실제 주문 상태를 한 번 더 확인한다 (fire-and-forget)
       // → safePlaceTPSL의 placingTpsl Set이 UDS와 동시 호출 시 중복 방지
-      if (entryOrder.status === "FILLED") {
-        onFilled(orderId, entryOrder); // fire-and-forget
-      }
+      verifyImmediateFill(orderId, entryOrder);
 
       res.json({
         success: true, type: "LIMIT",

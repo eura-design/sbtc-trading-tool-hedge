@@ -195,12 +195,12 @@ frontend/src/
 │                                 피보나치: fib_ep/fib_move (레벨선 개별 이동은 없다 — 위치가 곧 비율이다)
 ├── components/
 │   ├── ChartArea.jsx          ← 차트 전체 영역 조합 (hooks + ChartSvg + RSI/Volume 패널 + LineOpacityPopup)
-│   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원/피보 모드 버튼,
+│   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원/피보나치 모드 버튼,
 │   │                             로그 스케일 토글, 지표 메뉴, 알림 메뉴, 단축키 메뉴, 테마 토글
 │   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/**Pivot**/OB/FVG/EMA/ZZ/Custom ZZ/**Fibonacci**)
 │   │                             FibLevelPanel: 표시할 레벨 체크박스 10개 (전역 — 모든 피보나치 공통)
 │   │                               Fibonacci 행의 체크박스는 표시 on/off — OFF면 렌더·히트에서 빠지고
-│   │                               TopBar "피보" 버튼도 죽는다 (수동 구조와 같은 규칙)
+│   │                               TopBar "피보나치" 버튼도 죽는다 (수동 구조와 같은 규칙)
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
 │   │                             StructTfPanel: Custom ZZ 표시 타임프레임 다중 선택 (struct.tfs, 기본 1h) **전용**
 │   │                               ※ 수동 구조엔 CHoCH 관련이 없다 — 표시 on/off·개수·거래량 비교
@@ -216,7 +216,12 @@ frontend/src/
 │   │                                 ON/OFF 버튼으로 되돌리지 말 것: 다중 선택이 모양에서 안 읽힌다
 │   ├── NotificationMenu.jsx   ← 타임프레임별 알림 설정 체크박스 (7TF × RSI OB/OS/봉마감)
 │   ├── ShortcutMenu.jsx       ← 단축키 커스텀 설정 UI (녹음 모드로 각 action 키 재바인딩 + 초기화)
-│   ├── ReplayBar.jsx          ← 리플레이 컨트롤 (재생/틱/봉/배속/시크/시작일/🎲/기존 도형/종료)
+│   ├── ReplayBar.jsx          ← 리플레이 컨트롤 (시작일/RANDOM/재생/한 틱/배속/시크/종료)
+│   │                             ⚠ 2026-08-15 정리: **한 봉 전진(⏭⏭)·%·시각·가격·기존 도형** 제거.
+│   │                               가격은 최상단 바에 이미 있고, 나머지는 바를 복잡하게만 했다
+│   │                             ⚠ 진행 슬라이더는 **폭 고정**(PROGRESS_W) — `flex:1`이면 옆 문구가
+│   │                               나타났다 사라질 때마다 바 길이가 출렁인다
+│   │                             ⚠ 글리프는 `▶` / `▶|` — `⏭`(U+23ED)는 이모지 표현이라 `▶`보다 크게 그려진다
 │   │                             색은 보라(#a78bfa) — 실거래에서 뜻이 있는 색을 피한다
 │   ├── Toast.jsx              ← 토스트 알림 컴포넌트 (일반: 금색, sticky: 빨강 + 확인 버튼)
 │   ├── Slider.jsx             ← 리스크/레버리지 슬라이더 (index.css `.slim-range` — 손잡이 9px)
@@ -237,6 +242,18 @@ frontend/src/
 │   │   │                               (판정은 hitDetection이 따로 갖는다) — 조작성은 그대로다
 │   │   │                             ※ TP·SL 둘 다 **실선**이다 (SL만 점선이던 것을 맞췄다)
 │   │   ├── PositionLines.jsx      ← 헷지모드: 롱/숏 포지션 각각 진입/TP/SL/분할TP/추가진입 수평선 (드래그 핸들)
+│   │   │                             + 진입선 옆 `+TP`/`+SL` 버튼 — **없을 때만** 뜨는 신규 등록 입구
+│   │   │                             좌표는 `hitDetection.posTpSlButtons` 하나가 정한다 (렌더·히트 공용)
+│   │   │                             ⚠ TP/SL/추가대기/분할TP의 **우측 라벨은 없다** (2026-08-15) —
+│   │   │                               왼쪽 버튼이 같은 말을 하고 있어 지웠다. 되살리려면 넷을 같이.
+│   │   │                               진입선 라벨만 남는다(왼쪽에 버튼이 없어 유일한 표시) — 모양은 버튼과 통일
+│   │   │                             좌측 핸들은 **전부 버튼 모양**(`MarkerButton`, 2026-08-15) —
+│   │   │                               삼각형 ▶ + 옆 글자를 사용자 요청으로 바꿨다.
+│   │   │                               크기·가로 위치를 `TPSL_BTN`에서 가져와 `+TP`와 같은 레인에 정렬한다
+│   │   │                               글자: `TP`/`SL` / `추가`(추가대기) / `분할`(분할TP)
+│   │   │                               — `+`·`TP`를 그대로 두면 신규 등록 버튼과 뜻이 겹친다
+│   │   │                             각 버튼 옆 `×`(`CloseButton`) — 눌러서 제거. 진입 라벨의 ×만 2회 확인
+│   │   │                               (드래그 시스템 절의 "마커 옆 × 버튼" 참고)
 │   │   ├── TrendLines.jsx         ← 트렌드 라인 SVG (선택 시 끝점 핸들)
 │   │   ├── Channels.jsx           ← 채널 SVG (메인선+미러선+채우기, 알림 글로우, 선택 핸들)
 │   │   ├── Circles.jsx            ← 원 SVG (채우기+테두리, 선택 핸들)
@@ -352,6 +369,38 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - 수동 구조 타입: `struct_point` (꼭짓점 이동 — 봉 꼬리에 스냅, onUp에서만 정규화.
   실제로 움직였을 때만 `drag.moved`로 부분 선택 해제 → 제자리 클릭은 "선택"으로 남는다)
 - 포지션 오버레이 타입: `scale_in`, `split_tp`
+- **마커 옆 `×` 버튼 (2026-08-15)** — TP/SL/추가/분할/진입 라벨 옆에서 눌러 제거한다
+  - 사각형은 `hitDetection`의 `closeBtnRect`/`entryCloseRect`/`markerCloseButtons`가 정한다
+    (렌더·클릭 공용 — 각자 만들면 보이는 자리와 눌리는 자리가 어긋난다)
+  - ⚠ **드래그가 아니라 클릭**이고, 히트 체인에서 **드래그 단계보다 먼저(3.85)** 와야 한다.
+    왼쪽 ×는 x 41~56이라 TP/SL 드래그 영역(0~60) 안에 있다 — 순서를 뒤집으면
+    누를 때마다 드래그가 먼저 잡혀 영영 눌리지 않는다
+  - ⚠ **진입 라벨(LONG/SHORT)의 ×만 두 번 눌러야 한다.** 1회차엔 `✓`(호박색)로 바뀌고
+    4초 뒤 스스로 풀린다(`uiSlice.closeConfirm`). 되돌릴 수 없는 시장가 청산이라
+    차트의 작은 버튼 한 번으로 나가면 안 된다 — 사이드바 PositionCard도
+    슬라이더 → 확인 → ✓ 로 여러 단계를 거친다. 한 번 클릭으로 바꾸지 말 것
+  - 나머지(TP/SL/추가/분할)는 주문 취소일 뿐이라 한 번에 지운다 — 다시 걸면 그만이다
+  - 끄는 중(`isDragging`)에는 ×를 감춘다. 클릭 판정은 **저장된 가격** 기준이라
+    끌려가는 선을 따라가지 않는다 (보이는 자리와 눌리는 자리가 어긋난다)
+  - TP/SL 취소는 `DELETE /api/tpsl` (2026-08-15 신설). 분할 TP는 `/split`, 진입 미체결은 `/api/orders`
+  - ⚠ SL을 지우면 그 포지션은 무방비다 → reconcile이 60초 안에 critical 알림을 띄운다. **정상 동작**이다
+- **TP/SL 신규 등록 (`+TP`/`+SL` 버튼, 2026-08-15)** — 포지션은 있는데 TP(또는 SL)가 **없을 때**
+  진입선 옆에 뜨는 작은 버튼. 잡고 위아래로 끌면 놓은 가격에 새로 등록된다
+  - 드래그 타입은 기존 `pos_tp`/`pos_sl` **그대로**다 — 옮기기와 새로 걸기가 같은 경로다.
+    백엔드도 그대로 동작한다: `saveTpsl`이 `tpOrderId`를 안 실으면 `routes/tpsl.js` PUT이
+    취소 단계를 건너뛰고 새로 등록한다(`if (tpOrderId)`). 페이퍼도 동일(`paperBroker.setTpsl`)
+  - ⚠ 좌표는 **`hitDetection.posTpSlButtons` 하나가 정한다.** 렌더(`PositionLines.jsx`)와
+    히트 판정(`buildHitChain` 3.9)이 같은 함수를 부른다 — 각자 계산하면 보이는 자리와
+    잡히는 자리가 어긋난다 (피보나치 레벨 배열을 셋이 나눠 쓰는 것과 같은 이유)
+  - ⚠ **클릭만으로는 아무 일도 안 한다(의도).** "기본 거리에 자동 생성"은 넣지 않았다 —
+    실주문이 나가는 동작이라 오클릭 한 번이 곧 주문이 된다. 반드시 끌어야 등록된다
+  - **진입선 한가운데에 걸친다** (기존 TP/SL 핸들과 같은 규칙 `y = 선 - h/2`).
+    위/아래로 비켜 두면 같은 종류의 컨트롤인데 이것만 규칙이 달라 보인다.
+    롱·숏 진입가가 가까워 두 줄이 겹치면 아래쪽을 밀어낸다 — 겹치면 `hitTpSlButton`이
+    먼저 찾은 롱을 돌려줘 숏을 누를 수 없다 (밀린 쪽은 자기 선에서 살짝 벗어난다)
+  - ⚠ **가격 유효성은 검사하지 않는다** — 기존 "옮기기"와 같다. 롱 TP를 현재가 아래에 놓는
+    식이면 바이낸스가 -2021로 거절하고 `saveTpsl`이 에러 배너를 띄운다. 한쪽만 검사를
+    넣지 말 것 (같은 드래그 경로인데 새로 걸 때만 막히면 규칙이 둘이 된다)
 - `useChartInteraction.js`의 `buildHitChain`이 onMouseDown 히트 우선순위를 순서대로 처리
 
 ### 드로잉 도구 (TopBar 버튼 + 단축키)
@@ -359,7 +408,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - **라인 모드**: 트렌드 라인 (2점 클릭)
 - **채널 모드**: 평행 채널 (3클릭: 시작→끝→폭 확정)
 - **원 모드**: 원 (2클릭: 중심→반지름)
-- **피보나치 모드**: 되돌림 (기본 `f`) — 2클릭: 추세 시작 → 추세 끝
+- **피보나치 모드**: 되돌림 (기본 `f`, TopBar `피보나치` 버튼) — 2클릭: 추세 시작 → 추세 끝
 - **구조 모드**: 수동 시장 구조 (기본 `s`) — 클릭 반복으로 고/저점 찍기, 우클릭·더블클릭 확정
 - `Escape`: 그리기 취소 / 선택 해제
 - `Delete`: 선택된 도형 삭제 (수동 구조는 꼭짓점을 클릭해 뒀으면 **그 꼭짓점만** 삭제)
@@ -456,6 +505,20 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   - 꼭짓점 타입은 직전 점의 반대로 강제되고, `snapToStructurePoint`가 근처 봉의 고가/저가에 스냅
   - 스냅 반경은 `STRUCT_SNAP_BARS`(hitDetection.js) 하나로 관리 — 클릭 배치와 미리보기가
     같은 값을 써야 커서에 보이던 위치와 실제 찍히는 위치가 어긋나지 않는다. 드래그만 0(커서 추종)
+- **진행 중 레그 끝점 클릭 = 그 자리를 꼭짓점으로 확정** (2026-08-15 사용자 요청)
+  - 점선은 이미 "다음 꼭짓점이 여기쯤 잡힌다"를 보여주므로, 그게 마음에 들면
+    **구조 모드에 들어가지 않고** 점선 끝의 속 빈 원만 눌러 이어붙인다
+    (`useStructures.commitLiveStructPoint` ← `buildHitChain` 3.95번)
+  - 좌표는 화면에 그려진 점 그대로다 — 구간 극값이라 스냅이 따로 필요 없다
+    (`deriveStructure`가 꼬리 기준으로 뽑은 값이고 꼭짓점 스냅도 같은 기준)
+  - 타입은 교대 규칙에서 나온다: 마지막이 `L`이면 진행 중 레그는 상승이므로 찍힐 점은 `H`
+  - ⚠ **구조 모드에서는 동작하지 않는다** — 거기선 클릭이 이미 꼭짓점 추가라 뜻이 겹친다.
+    draft(그리는 중)도 `ownerId`를 주지 않아 제외된다
+  - ⚠ `ownerId`/`type`은 `Structures.jsx`가 `setStructLiveSegment`에 실어 보낸다 —
+    진행 중 레그는 구조 목록에 없어서 hitDetection이 직접 알아낼 수 없다
+    (`prev`/`showVol`을 같이 보내는 것과 같은 이유)
+  - [SL1] 잠긴 구조는 여기서도 막힌다 (꼭짓점을 바꾸는 모든 경로)
+  - 커서는 구조 모드 끝점 잇기와 **같은 `+`**(`STRUCT_LINK_CURSOR`) — 하는 일이 같다
 - **이어 그리기 / 두 구조 잇기**: 구조 모드에서 **기존 구조의 양 끝 꼭짓점 클릭** = 이어붙이기
   - draft 없을 때 클릭 → `startExtendStruct` (그 구조를 연장, `extendId` 부여 → finishStruct가 update)
   - draft 있을 때 다른 구조의 끝점 클릭 → `mergeStructIntoDraft` (그 구조를 흡수, `mergeIds`에 기록
@@ -714,7 +777,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS/**zone_bg/zone_max/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs), **fib(levels)**
+- 대상: RSI(period/OB/OS/**zone_bg/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs), **fib(levels)**
 - ※ `fib`는 **levels 하나뿐이다** — 투명도·잠금·알림은 도형별(localStorage `"fibs"`)이라 여기 없다.
   도형별 레벨 편집을 새로 만들지 말 것 (위 피보나치 절 `[F1]`)
 - ※ `pivot`은 **6개를 저장하고 UI에는 5개**(TF 그리드 + 슬라이더 4개) — 숨긴 건 `lookback`(600).
@@ -728,7 +791,8 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
     제거됐다 (같은 날, 메뉴에 넣은 직후 사용자 요청). 프론트·백엔드 DEFAULTS 양쪽에서 키를 뺐다
   - `alert_choch`·`opacity`는 **팝업에만** 있다 (🔔 / 슬라이더 — 도형 공통 UI라 메뉴에 자리가 없다)
   - `max_choch` 슬라이더는 상한이 실제 검출 개수(`getZzChochTotal()`)라 PARAMS_META로 못 만든다 →
-    `RecentCountSlider`(RSI `zone_max`와 공유). 끝까지 올리면 `null`(전체)
+    `RecentCountSlider`. 끝까지 올리면 `null`(전체)
+    (※ RSI `zone_max`와 공유하던 `cap` 분기는 2026-08-15 그 슬라이더가 사라지며 함께 제거)
   - ⚠ **수동 구조(struct)에는 같은 걸 만들지 말 것.** 저쪽 세 값은 전부 구조별(localStorage)이라
     지표 메뉴가 가리킬 값 자체가 없다. 새로 전역 값을 만들면 구조별 값과 AND로 걸려
     전역 OFF일 때 구조별 ON이 먹지 않는데 그 사실이 구조 팝업에 드러나지 않는다 (아래 `struct.show_choch` 항목)
@@ -943,7 +1007,7 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 **레벨 목록만 전역 파라미터**라서다.
 
 - **데이터**: `{ id, t1, p1, t2, p2, opacity, locked, alert }` — localStorage `"fibs"`
-- **그리기**: TopBar `피보` 버튼(또는 `f`) → **2클릭** (원과 같은 구조).
+- **그리기**: TopBar `피보나치` 버튼(또는 `f`) → **2클릭** (원과 같은 구조).
   스냅 없음 — 트렌드라인·원과 같은 자유 좌표다
 - **편집**: 앵커 끝점 드래그(`fib_ep`) / 몸통 드래그로 전체 평행이동(`fib_move`) / `Delete`로 삭제.
   잠금(`l`)·투명도(`[` `]`)·근접 알림(`a`)은 다른 도형과 완전히 동일
@@ -987,6 +1051,11 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
   (`chart/pivotLevels.js` 순수 함수 + `usePivotLevels` 훅). **멀티 TF** — 선택한 TF들의
   캔들을 REST로 따로 받아 계산하므로, 여기서만 차트 캔들을 쓰지 않는다
 - **FVG**: 3캔들 패턴으로 갭 검출, 중간값 50% 진입 시 소멸
+- ⚠ **FVG·오더블록 박스는 최신 봉까지만 채운다** (2026-08-15 사용자 요청,
+  `overlayRenderers.js`의 `boxRightEdge`). 화면 오른쪽 끝(IW)까지 늘이면 마지막 봉 오른쪽
+  빈 자리(미래 영역)에도 색이 깔려, 아직 오지 않은 구간에 근거가 있는 것처럼 보인다.
+  마지막 봉의 오른쪽 가장자리에 맞추려고 봉 절반을 더한다(`renderRsiZones`와 같은 방식).
+  과거를 보는 중이라 마지막 봉이 화면 밖이면 IW로 클램프한다
 - **오더블록**: 스윙 감지 → BOS 탐지 → 직전 역방향 캔들을 OB로 등록, 미티게이션 시 소멸
 - **Structure Zigzag (ZZ)**: `기타/structure_zigzag.pine` 포팅 — 왼쪽 left_bars 봉만 보는 피벗(오른쪽 확인봉 없음),
   ※ **bias 규칙은 Custom Structure Zigzag(deriveStructure.js)와 동일하게 통일됨** (2026-08-12/13)
@@ -1050,10 +1119,16 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
     세로 줄무늬가 생긴다 (반투명 사각형을 이어 붙일 때의 고전적 문제)
   - **캔들보다 먼저 그린다**(배경). 다른 오버레이와 달리 **pan 중에도 그린다** —
     사각형 몇 개라 비용이 없고, 드래그할 때만 사라지면 구간이 깜빡이는 것처럼 보인다
-  - **최근 N개만 표시** (`rsi.zone_max`, **기본 5 / 숫자 상한 10 / `null` = 전체**) — 과거까지 온통 파래지면
-    배경이 아니라 노이즈가 된다는 사용자 요청. 제한은 **화면이 아니라 전체 목록 기준**
-    (`zones.slice(-max)`) — 뷰포트에 따라 "최근 5개"가 달라지면 스크롤할 때마다 밴드가
-    다른 데 찍혀 같은 지표로 보이지 않는다
+  - **마지막 구간과 같은 종류로 연속된 꼬리만 칠한다** (2026-08-15 사용자 지정,
+    `overlayRenderers.js`의 `lastRsiZoneRun`). 목록이 `… ob ob os os os`면 뒤의 `os` 셋만 나오고,
+    반대 종류를 만나는 순간 끊긴다("과매수 직전까지"). 마지막 둘의 종류가 다르면 **하나만** 뜬다
+    - ⚠ **개수 조절(`rsi.zone_max`) 방식으로 되돌리지 말 것** — 키·슬라이더·`RSI_ZONE_MAX`
+      상수까지 함께 제거됐다. 그 방식은 지금 흐름과 무관한 옛 구간까지 같이 물들었고,
+      몇 개를 보여줄지가 데이터가 아니라 사용자 설정에 달려 있었다
+      (실측 BTC 1h 1000봉: 전체 26개 중 "최근 5개"는 `ob os os os os`로 **종류가 섞였고**,
+      새 규칙은 `os` 4개만 나온다)
+    - 판정은 **화면이 아니라 전체 목록 기준**이다 — 뷰포트에 따라 달라지면 스크롤할 때마다
+      밴드가 다른 데 찍혀 같은 지표로 보이지 않는다 (이 원칙은 그대로)
   - **표시 타임프레임 필터** `rsi.tfs` (중복 선택, **기본 전 TF**, 2026-08-14 사용자 확정) —
     IndicatorMenu RSI ⚙ → `구간 배경 표시 타임프레임`. 여기서 고른 TF에서만 밴드가 칠해진다
     - ⚠ **거르는 건 배경뿐이다. RSI 패널(선)은 전 TF에서 계속 보인다.**
@@ -1070,24 +1145,10 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
     - ⚠ **알림은 이 필터와 무관하다.** `useAlertMonitor`는 TF별 WebSocket을 따로 감시하고
       설정도 NotificationMenu에 따로 있다 — 배경을 끈 TF의 RSI 알림도 계속 울려야 한다
     - 라벨에 "구간 배경"을 꼭 적을 것. 그냥 "표시 타임프레임"이면 RSI 전체가 사라지는 줄 안다
-  - 토글/개수: IndicatorMenu RSI ⚙ → `구간 배경`(`zone_bg`, 기본 ON) + `구간 개수` 슬라이더.
-    RSI 지표가 꺼져 있으면 함께 꺼지고, `zone_bg`가 OFF면 개수 슬라이더도 숨긴다
-  - **고를 수 있는 값 = 1~10 + 전체.** 숫자 상한이 `constants.js`의 `RSI_ZONE_MAX`(10,
-    2026-08-14 사용자 지정)이고, 슬라이더 **맨 오른쪽 한 칸이 `null`(전체)**이다.
-    `검출된 과매수/과매도 N개` 행은 그대로 실제 개수를 보여준다
-    - 왜 숫자 상한을 두나: 검출이 실측 **90개**를 넘는다. 상한을 검출 개수로 두면
-      슬라이더 한 칸이 의미를 잃는다 (배경 개수는 한 자릿수에서 조절하는 값이다)
-    - ⚠ **"전체"는 캡의 예외다** — 사용자가 명시적으로 고른 값이라 렌더에서 자르지 않는다.
-      숫자만 `Math.min(…, RSI_ZONE_MAX)`로 자른다 (`candleRenderer.js`)
-    - ⚠ `zone_max`는 **`null`이 "전체"**라 `?? 5`로 기본값을 채우면 안 된다 (null을 5로 덮어씀).
-      `=== undefined` 검사를 쓸 것
-    - ⚠ ZZ의 CHoCH 개수(`max_choch`)와 **"전체" 칸의 위치가 다르다.** `RecentCountSlider`의
-      `cap` prop이 가른다:
-        · cap 없음(ZZ) — 상한 = 검출 개수, 맨 오른쪽 칸이 곧 전체 (둘이 같은 뜻이라 겹쳐 둔다).
-          구조/ZZ 팝업의 `CountRow`와 같은 규칙 — 같은 값을 두 곳에서 조작하므로 맞춰야 한다
-        · cap 있음(RSI) — 칸이 하나 더 있다. 겹치면 **"10개"를 고를 방법이 없어진다**
-  - ⚠ 구간 계산(`computeRsiZones`)은 **`zone_bg`가 꺼져 있어도 돌린다** — 메뉴의 검출 개수
-    (= 슬라이더 상한)가 배경을 끄면 0으로 주저앉으면 안 되기 때문. rsiData 참조 비교
+  - 토글: IndicatorMenu RSI ⚙ → `구간 배경`(`zone_bg`, 기본 ON). RSI 지표가 꺼지면 함께 꺼진다.
+    `검출된 과매수/과매도 N개` 행은 남아 있지만 이제 순수 정보 표시다(칠하는 건 마지막 연속 구간뿐)
+  - ⚠ 구간 계산(`computeRsiZones`)은 **`zone_bg`가 꺼져 있어도 돌린다** — 메뉴의
+    `검출된 …N개`가 배경을 끄면 0으로 주저앉으면 안 되기 때문. rsiData 참조 비교
     캐시라 봉마감 전까지 재계산이 없어 비용은 없다. RSI 지표 자체가 꺼지면 `clearRsiZones()`
   - ⚠ `rsiData`는 React `candles` 기반이라 **진행 중 봉은 반영되지 않는다**(봉마감 시 갱신).
     RSI 패널도 같은 데이터를 쓰므로 둘은 항상 일치한다 — 여기만 `candlesRef`로 앞서가게
@@ -1101,6 +1162,27 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - **MARKET 주문**: 즉시 체결 → `placeTPSL()` 바로 실행
 - **SCALE_IN/SPLIT_TP 체결**: store 제거 후 position/tpsl refetch 트리거
 - 체결 발생 시 `statsCache.invalidateCache()` 호출 → 다음 /api/stats 요청 시 재계산
+
+#### ⚠ TP/SL이 늦거나 아예 안 걸리던 문제 (2026-08-15 수정, 되돌리지 말 것)
+실계좌에서 LONG 포지션이 **1.6시간 동안 SL 없이** 방치된 사고의 원인 4가지.
+`trade_log.json` 실측상 **체결을 인지한 뒤 TP/SL 등록까지는 0.13~0.28초**다 —
+느렸던 건 등록이 아니라 **"체결 인지"와 "화면 반영"**이었다.
+
+| 결정 | 되돌리면 재발하는 문제 |
+|---|---|
+| `position.js`는 WATCHING 주문을 **직접 지우지 않는다** — `resolveOrphans`가 바이낸스에 물어본 뒤 CANCELED/EXPIRED/REJECTED일 때만 삭제 | 체결과 취소는 **둘 다** openOrders에서 사라진다. 구분 없이 지우면 store 항목이 없어져 `onFilled`(`!store.has`)·`pollForFills`·`reconcile`이 **전부** 대상을 잃고 TP/SL이 영구 미등록. 게다가 옛 유예(30초)가 reconcile 주기(60초)보다 짧아 삭제가 먼저 도달하는 게 일반적이었다 |
+| LIMIT 접수 후 `verifyImmediateFill`로 실제 상태를 **한 번 더 확인** | 호가를 먹는 지정가는 접수와 동시에 체결돼 UDS FILLED가 `store.set`보다 먼저 도착 → `!store.has(o.i)`로 버려진다. POST 응답 status만 믿어도 안 된다 — 바이낸스는 즉시 체결돼도 보통 `NEW`를 돌려준다 |
+| `onFilled`은 **WATCHING일 때만** 실행 (멱등) | UDS·verifyImmediateFill·resolveOrphans·poll·reconcile 다섯 경로가 같은 주문에 동시 도달할 수 있다 |
+| `checkExistingTPSL`은 `{ hasTP, hasSL }` — **`hasTP \|\| hasSL` 금지** | SL만 걸리고 TP가 실패해도 "있음"이 되어 reconcile이 TPSL_PLACED로 확정 → 빠진 쪽이 영영 재시도되지 않음 |
+| MARKET 성공 시 `push.pushUpdate([...,"tpsl"])` + `executeOrder`가 `_refetchTpsl()` 호출 | 거래소엔 0.2초 만에 걸려 있는데 화면엔 60초 폴링 전까지 안 나온다. **반대쪽 포지션을 이미 들고 있으면 더 나쁘다** — `useTpsl`의 `hasPos`가 계속 true라 "포지션 생김"에 의한 즉시 조회가 아예 트리거되지 않는다 |
+| `useTpsl`은 포지션 유무를 `useStore.getState()`로 **즉시** 읽는다 (클로저 금지) / push는 **position → tpsl 순서** | 체결 push는 둘을 함께 보내는데, 클로저의 `hasPos`는 아직 false라 조회를 건너뛰고 TP/SL을 **지워버린다** |
+| `placeTPSL` 실패 시 **거부 사유**를 `trade_log.json`에 남긴다 (`errors`) | 예전엔 실패 타입만 남겨서 나중에 로그를 봐도 바이낸스가 왜 거절했는지 알 수 없었다 (콘솔은 이미 사라진 뒤) |
+| reconcile이 **SL 없는 포지션을 상시 감시** → critical 알림 (사이드당 1회 래치) | `recoveryService`의 안전망은 **서버 시작 때만** 돈다. 켜 둔 채로 생긴 무방비 포지션은 아무도 알려주지 않았다 |
+
+- ⚠ 미해결: 포지션 보유 중 추가 진입에서 `placeTPSL`이 **5회 전부 거부**된 사례가 3건 있다
+  (`trade_log.json`, 전부 31초 = 1+2+4+8+16 재시도 풀타임, SL 실패 → TP 스킵).
+  바이낸스 거부 사유는 당시 기록이 없어 특정하지 못했다 — 이제 `errors`에 남으므로
+  다음에 재현되면 그 값을 볼 것 (과거 `git log 1f1dfc3`에서 헷지모드 **-4130** 이력 있음)
 
 ### 차트 렌더링
 - 캔들: D3 imperative (`renderCandles`) → `canvasRef`에 직접 드로우
@@ -1163,8 +1245,37 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
   구간(시작·끝)이 다르면 복원하지 않는다 — 진입가가 화면 밖인 유령 포지션이 되기 때문
 - **모드 전환·시크 뒤에는 `chartActionsRef.current?.resetDomain()`을 부른다.** 가격대가 통째로
   바뀌는데 y축이 그대로면 캔들이 화면 밖으로 나가 차트가 텅 빈 것처럼 보인다(실제 증상)
+  - ⚠ **"차트가 납작하다"의 진짜 원인은 `getScales`의 폴백이었다** (2026-08-15).
+    도메인이 비어 있는 짧은 순간(리셋 직후, TF 전환 중)마다 폴백이 걸리는데, 예전엔
+    x는 최근 200봉인데 y는 **로드된 3000봉 전체의 고저**였다. 실측: 캔들이 화면 세로의
+    **12%**만 차지 → 지금은 89% (`scales.js`의 `FALLBACK_BARS` 주석).
+    휠을 굴리면 `useChartInteraction`이 보이는 봉으로 y를 다시 계산해 그때서야 정상으로 보였다.
+    → **폴백 y는 x 도메인 안의 봉만 본다.** 폭(300)·패딩(0.06)은 `applyInitialDomain`과 같은 값
+  - ⚠ **`resetDomain`의 `defer`를 정확히 고를 것** — 둘 다 실제로 버그를 냈다
+    - `resetDomain({ defer: true })` = 버리기만. **TF 전환처럼 `candlesRef`에 아직 옛 캔들이
+      들어 있을 때 반드시 이것.** 즉시 잡으면 **옛 TF의 봉 개수·가격대로 도메인이 확정**되고
+      `isInitialLoadRef`까지 꺼져서 새 캔들이 와도 다시 안 잡는다
+      (증상: "TF를 바꿨을 때 엉뚱한 곳을 보여준다")
+    - `resetDomain()` = 즉시 다시 잡음. **모드 전환·시크처럼 `candlesRef`가 이미 새 데이터일 때.**
+      여기서 비우기만 하면 candles identity가 안 바뀌어 `[candles]` 이펙트가 안 돌고
+      아무도 도메인을 다시 잡지 않는다
+  - ⚠ **호출 조건에 `candleLoading`을 쓰지 말 것.** 그건 "언제 부를지"지 "부를지 말지"가 아니다.
+    로딩이 false로 떨어지는 순간마다 리셋하면 ① 페이지 첫 로드에서 ChartArea가 방금 잡아둔
+    도메인을 도로 지우고(위 납작 증상의 방아쇠였다) ② TF 전환·WS 재로드 때마다 사용자의
+    팬/줌이 날아간다. `replayOn`/`replayStartMs`가 **실제로 바뀌었을 때만** 부른다 (App.jsx `domainKeyRef`)
 - `engine.price`는 커서 0에서도 **null을 돌려주지 않는다**(직전 확정봉 종가). null이면 화면이
   `liveClose`에 남은 **오늘 시세**를 써서, 방금 진입한 포지션의 미실현이 −$2,104로 찍혔다
+- ⚠ **나갈 때 `setReplayOn`이 `position`/`balance`/`tpsl`을 초기값으로 비운다** (2026-08-15).
+  페이퍼 스냅샷은 실계좌와 **같은 슬롯**을 쓰므로, 안 비우면 실계좌 응답이 도착할 때까지
+  연습 계좌가 화면에 남고 `usePositionCloseAlert`이 그 교체를 청산으로 오인해
+  `롱/숏 포지션 종료`를 sticky 알림으로 띄운다 (연습에서 매매를 안 해도 뜬다 —
+  진입 전 실계좌 포지션이 기준선으로 얼어붙고 나갈 때 **빈 페이퍼 스냅샷**과 비교되므로).
+  - **반드시 `replayOn`과 같은 `set` 호출**에 둘 것. 나누면 "replayOn=false인데 position은
+    아직 페이퍼"인 렌더가 한 번 생겨 같은 오알림이 재현된다
+  - `syncPaper`도 **`replayOn`이 false면 아무것도 쓰지 않는다** — 종료 직후 재생 루프의
+    setTimeout이 한 번 더 남아 `applyMove → syncBroker`로 도달할 수 있다
+  - ※ 실거래 알림 동작은 **그대로다.** 리플레이 중에도 기준선(prevLong/prevShort)은 얼어 있어,
+    연습하는 사이 실제로 청산된 포지션은 실계좌 값이 도착할 때 정상적으로 알림이 뜬다
 
 #### 미래 누출 차단 — 리플레이의 품질을 결정하는 부분
 - `usePivotLevels(params, endMs)`: **반드시 재생 시각까지만** 계산. 없으면 2023년을 재생하는 중에
@@ -1182,14 +1293,30 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
   백엔드 POST를 그대로 두면 가드에 막혀 에러만 뜬다
 
 #### 도형 분리 (`replay/drawingKeys.js`)
-리플레이 중에는 `replay_` 접두사 키를 쓰고, 컨트롤 바의 `기존 도형` 토글(기본 OFF)을 켜면
-원래 도형을 **읽기 전용**으로 본다.
+리플레이 중에는 `replay_` 접두사 키를 쓴다. 실거래 도형은 **보이지 않는다**.
 - ⚠ **"미래 좌표만 숨기기"로는 안 풀린다.** 5월 저점 두 개를 이은 선은 좌표가 전부 과거지만
   **8월에 그은 것**이다. 그 선이 지켜졌다는 걸 알고 그었으므로 좌표가 과거여도 hindsight다.
   판단 기준은 좌표가 아니라 **"언제 그렸나"**이고, 실거래 모드에서 그린 건 전부 재생 시점 이후다
-- 읽기 전용인 이유: 연습하다 실제 분석선을 끌어 옮기면 원본이 조용히 바뀐다
+- ※ 예전엔 컨트롤 바에 `기존 도형` 토글이 있어서 실거래 도형을 **읽기 전용**으로 볼 수 있었다.
+  2026-08-15 사용자 요청으로 **기능째 제거**됐다 — 되살리려면 `drawingKey`의 showLive 인자,
+  `drawingReadOnly`, `useDrawableStore`의 readOnly, `replaySlice.replayShowLive`가 전부 다시 필요하다
 - ⚠ `useDrawableStore`는 **키가 바뀌면 렌더 도중에 다시 읽는다**(useEffect 아님).
   useEffect로 하면 한 프레임 동안 실거래 도형이 깜빡이는데, 그게 이 기능이 막으려던 것이다
+- **🎲(무작위 시점)를 누르면 연습 도형을 지운다** (2026-08-15). 시작일을 **직접 입력**할 때는
+  지우지 않는다 — 같은 구간을 다시 보려는 의도일 수 있고, 🎲만이 "다 버리고 새로"라는 뜻이
+  분명한 버튼이다 (사용자 확정)
+  - 안 지우면 **메모리가 아니라 "유출"이 문제**다. 예전 연습 구간에서 그은 선이 새 구간에
+    그대로 살아 있는데, 좌표가 멀어 화면에는 클리핑돼 안 보이면서 계산에는 계속 들어간다.
+    특히 `useTrendLineAlert`의 `linePriceAt`은 선을 **현재 봉 시각까지 선형 외삽**하므로
+    수평에 가까운 선은 몇 년 떨어진 구간에서도 근접 알림을 띄운다
+    ("화면에 없는 선에서 알림이 온다" — 실제로 가능한 상태였다)
+  - ⚠ **localStorage만 지우면 안 된다.** 키는 그대로(`replay_*`)라 `useDrawableStore`가
+    다시 읽지 않고, React 상태에 남아 있던 도형이 다음 debounce 저장에 **되살아난다.**
+    `reloadToken`(App의 `drawingGen`)을 같이 올려야 하고, 그 경로는 대기 중인 저장 타이머도 버린다
+  - 연습 플랜 박스(`replay_drawing`)는 스토어에 있어 `clearReplayDrawings`가 못 건드린다 →
+    App이 `setDrawing(null)`로 따로 비운다
+  - 연습 계좌는 손댈 게 없다 — `session.js`는 **키 하나**(`replay_session`)에 구간을 값으로 넣어
+    저장하므로 구간이 바뀌면 복원되지 않고 다음 저장에 덮인다 (구간별 키가 쌓이지 않는다)
 - ⚠ **플랜 박스(`drawing`)도 나눈다** — 스토어에 있어서 처음엔 빠져 있었고, 그 탓에
   **리플레이 진입만으로 실거래 플랜 박스가 지워졌다**(App의 drawing↔pending 동기화가
   페이퍼 position의 pending 없음을 보고 `setDrawing(null)`). `uiSlice.swapDrawingStorage`가

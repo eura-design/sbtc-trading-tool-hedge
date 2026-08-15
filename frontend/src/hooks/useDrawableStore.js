@@ -12,50 +12,44 @@ const load = (key) => {
  * @param storageKey 리플레이 모드에서는 다른 키가 들어온다 (연습용 도형을 실거래
  *   차트와 섞지 않기 위해서다 — replay/drawingKeys.js 참고). **키가 바뀌면 그 키의
  *   내용을 다시 읽는다.**
- * @param readOnly true면 모든 변경이 무시되고 항목이 잠긴 것으로 보인다.
- *   리플레이 중 "기존 도형 보기"에서 쓴다 — 연습하다 실수로 실제 분석선을
- *   끌어 옮기면 원본이 조용히 바뀐다.
+ * ※ 예전엔 readOnly 인자가 있었다 (리플레이 "기존 도형 보기"용). 그 기능이
+ *   2026-08-15에 제거되면서 같이 뺐다 — 되살리려면 둘 다 다시 필요하다.
+ * @param reloadToken 값이 바뀌면 **키가 그대로여도** localStorage에서 다시 읽는다.
+ *   리플레이 🎲가 연습 도형을 지울 때 쓴다 — 그때는 키가 안 바뀌므로
+ *   이게 없으면 지운 도형이 React 상태에 남아 있다가 다음 저장에 되살아난다.
  */
-export function useDrawableStore(storageKey, readOnly = false) {
+export function useDrawableStore(storageKey, reloadToken = 0) {
   const [raw, setRaw] = useState(() => load(storageKey));
+  const timerRef = useRef(null);
 
-  // ⚠ 키가 바뀌면 **렌더 도중에** 다시 읽는다 (useEffect가 아니라).
+  // ⚠ 키(또는 reloadToken)가 바뀌면 **렌더 도중에** 다시 읽는다 (useEffect가 아니라).
   //   useEffect로 하면 한 프레임 동안 이전 키의 도형이 그대로 그려진다 —
   //   리플레이로 들어가는 순간 실거래 도형이 한 번 깜빡이는데,
   //   그게 바로 이 기능이 막으려던 것이다.
-  const [prevKey, setPrevKey] = useState(storageKey);
-  if (prevKey !== storageKey) {
-    setPrevKey(storageKey);
+  const [prev, setPrev] = useState({ key: storageKey, token: reloadToken });
+  if (prev.key !== storageKey || prev.token !== reloadToken) {
+    // ⚠ 대기 중인 debounce 저장을 **먼저 버린다.** 안 그러면 300ms 뒤에
+    //   방금 버린 목록이 그대로 다시 쓰여 초기화가 무효가 된다
+    clearTimeout(timerRef.current);
+    setPrev({ key: storageKey, token: reloadToken });
     setRaw(load(storageKey));
   }
 
-  const timerRef = useRef(null);
-
   const save = useCallback((list) => {
-    if (readOnly) return;
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       localStorage.setItem(storageKey, JSON.stringify(list));
     }, 300);
-  }, [storageKey, readOnly]);
+  }, [storageKey]);
 
-  // 읽기 전용일 때는 잠긴 것으로 보여 준다 — 드래그 핸들러가 locked를 이미 존중한다
-  const items = useMemo(
-    () => (readOnly ? raw.map(it => ({ ...it, locked: true })) : raw),
-    [raw, readOnly],
-  );
-
-  const setItems = useCallback((fn) => {
-    if (readOnly) return;
-    setRaw(fn);
-  }, [readOnly]);
+  const items = raw;
+  const setItems = setRaw;
 
   // 전체 교체 (마이그레이션 등에서 사용)
   const replaceAll = useCallback((list) => {
-    if (readOnly) return;
     setRaw(list);
     localStorage.setItem(storageKey, JSON.stringify(list));
-  }, [storageKey, readOnly]);
+  }, [storageKey]);
 
   const add = useCallback((props) => {
     setItems(prev => {

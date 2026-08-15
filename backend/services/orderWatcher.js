@@ -32,6 +32,68 @@ async function safePlaceTPSL(orderId, info) {
   }
 }
 
+// 중복 조회 방지 — /api/position이 30초마다 부르는 경로라 같은 주문이 여러 번 겹칠 수 있다
+const resolvingOrphans = new Set();
+
+// SL 없는 포지션 경보 래치 — 60초마다 같은 경보가 쌓이지 않게 사이드당 한 번만 띄운다
+// (SL이 생기거나 포지션이 닫히면 해제 → 다음에 또 벌거벗으면 다시 울린다)
+const nakedWarned = new Set();
+
+// 지정가 주문 접수 직후 "이미 체결됐는지"를 한 번 확인한다.
+//
+// ⚠ 이 검증을 빼지 말 것 (2026-08-15, 실계좌 재현). 호가를 먹는 가격의 지정가는
+//   접수와 동시에 체결되는데, 그때 UDS의 FILLED 이벤트가 **store.set보다 먼저** 도착해
+//   `if (!store.has(o.i)) return`에 걸려 통째로 버려진다. 그러면 TP/SL이 등록되지 않는다.
+//   POST 응답의 status만 믿는 것도 안 된다 — 바이낸스는 즉시 체결돼도 보통 "NEW"를 돌려준다
+//   (orderId 1103367652357: time === updateTime === 체결시각인데 응답은 NEW였다).
+async function verifyImmediateFill(orderId, entryOrder) {
+  try {
+    if (entryOrder?.status === "FILLED") return await onFilled(orderId, entryOrder);
+    // UDS가 정상 처리할 시간을 조금 주고 → 그래도 WATCHING이면 직접 확인
+    await new Promise(r => setTimeout(r, 700));
+    if (store.get(orderId)?.status !== "WATCHING") return;
+    const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+    if (data.status === "FILLED") {
+      console.log(`[즉시체결] UDS가 놓친 체결 감지 orderId=${orderId} → TP/SL 등록`);
+      await onFilled(orderId, data);
+    }
+  } catch (e) {
+    console.warn(`[즉시체결] 확인 실패 orderId=${orderId}:`, e.response?.data?.msg || e.message);
+  }
+}
+
+// openOrders에 없는 WATCHING 주문의 **실제 상태를 조회해서** 처리한다.
+//
+// ⚠ 체결과 취소는 둘 다 openOrders에서 사라진다. 구분 없이 store.delete하면
+//   체결된 주문의 항목이 없어져 onFilled / pollForFills / reconcile이 **전부**
+//   대상을 잃고 TP/SL이 영구 미등록으로 남는다 (실제로 그렇게 됐다).
+//   지우는 건 바이낸스가 CANCELED/EXPIRED/REJECTED라고 답했을 때뿐이다.
+async function resolveOrphans(entries) {
+  for (const [orderId] of entries) {
+    const key = String(orderId);
+    if (resolvingOrphans.has(key)) continue;
+    resolvingOrphans.add(key);
+    try {
+      const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+      if (data.status === "FILLED") {
+        console.log(`[고아] 체결됐는데 감지 못한 주문 발견 orderId=${orderId} → TP/SL 등록`);
+        if (store.get(orderId)?.status === "WATCHING") await onFilled(orderId, data);
+      } else if (data.status === "CANCELED" || data.status === "EXPIRED" || data.status === "REJECTED") {
+        console.log(`[고아] 주문 ${orderId} ${data.status} → store 제거`);
+        store.delete(orderId);
+        push.pushUpdate(["position"]);
+      } else {
+        console.log(`[고아] 주문 ${orderId} 상태 ${data.status} → 유지 (openOrders 응답 지연)`);
+      }
+    } catch (e) {
+      // 조회 실패 시엔 **지우지 않는다** — 못 지운 항목은 다음 사이클에 다시 본다
+      console.warn(`[고아] orderId=${orderId} 조회 실패:`, e.response?.data?.msg || e.message);
+    } finally {
+      resolvingOrphans.delete(key);
+    }
+  }
+}
+
 let listenKeyTimer    = null;
 let userDataWS        = null;
 let pollTimer         = null;
@@ -68,6 +130,10 @@ async function keepAliveListenKey(listenKey) {
 async function onFilled(orderId, executionData) {
   const info = store.get(orderId);
   if (!info) return;
+  // 멱등 보장 — UDS / verifyImmediateFill / resolveOrphans / poll / reconcile 다섯 경로가
+  // 같은 주문에 동시에 도달할 수 있다. 진입 주문은 WATCHING일 때 딱 한 번만 처리한다
+  // (그 뒤 상태는 reconcile의 retryable 경로가 맡는다)
+  if (info.status !== "WATCHING") return;
 
   // REST(/fapi/v1/order) 응답: avgPrice / UDS(ORDER_TRADE_UPDATE): ap(avg) | L(last fill)
   // price는 LIMIT 주문 가격이라 시장가 체결 시 0 → 최후 폴백
@@ -93,7 +159,7 @@ async function onFilled(orderId, executionData) {
   if (!info.tp || !info.sl) {
     console.error(`[경고] TP/SL 가격 없음 (orderId=${orderId}) — 수동 설정 필요!`);
     store.set(orderId, { ...info, status: "TPSL_MISSING" });
-    push.pushAlert("critical", `주문 ${orderId} 체결됨 — TP/SL 가격 없음! 즉시 수동 설정 필요`);
+    push.pushAlert("critical", `⚠ 주문 ${orderId} 체결됨 — TP/SL 가격 없음`);
     push.pushUpdate(["position", "balance"]);
     return;
   }
@@ -107,10 +173,16 @@ async function onFilled(orderId, executionData) {
     const failedTypes = tpsl.failed.map(f => f.type).join(", ");
     console.error(`[경고] TP/SL 부분 실패 orderId=${orderId}: ${failedTypes}`);
     store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
-    tradeLog.append({ event: "TPSL_PARTIAL", orderId, failed: failedTypes });
+    // ⚠ 거부 **사유**를 남길 것 — 예전엔 실패 타입만 남겨서, 나중에 로그를 봐도
+    //   바이낸스가 왜 거절했는지 알 수 없었다 (콘솔은 이미 사라진 뒤다)
+    tradeLog.append({
+      event: "TPSL_PARTIAL", orderId, failed: failedTypes,
+      errors: tpsl.failed.map(f => `${f.type}: ${f.error}`),
+      side: info.side, tp: info.tp, sl: info.sl,
+    });
 
     if (slFailed) {
-      const msg = `⚠ 긴급: SL 등록 5회 실패 — orderId=${orderId} 포지션 무방비! 즉시 수동 SL 설정 필요`;
+      const msg = `⚠ SL 등록 5회 실패 (orderId=${orderId})`;
       console.error(`[긴급] ${msg}`);
       push.pushAlert("critical", msg);
     }
@@ -205,13 +277,14 @@ async function reconcileWithBinance() {
         for (const [orderId, info] of retryable) {
           // 헤지 모드: 해당 포지션 방향의 TP/SL만 확인
           const orderPosSide = closeToPosition(info.closeSide);
-          const hasTpsl = await checkExistingTPSL(orderPosSide);
-          if (hasTpsl) {
+          // TP·SL **둘 다** 있어야 완료다 — 한쪽만 보고 넘기면 빠진 쪽이 영영 재시도되지 않는다
+          const { hasTP, hasSL } = await checkExistingTPSL(orderPosSide);
+          if (hasTP && hasSL) {
             // TP/SL이 이미 등록돼 있으면 PLACED로 전환
             store.set(orderId, { ...info, status: "TPSL_PLACED" });
             console.log(`[RECONCILE] TP/SL 이미 존재 → TPSL_PLACED 전환 orderId=${orderId}`);
           } else {
-            console.log(`[RECONCILE] TPSL 재시도 orderId=${orderId} (status=${info.status})`);
+            console.log(`[RECONCILE] TPSL 재시도 orderId=${orderId} (status=${info.status}, TP=${hasTP} SL=${hasSL})`);
             const tpsl = await safePlaceTPSL(orderId, info);
             if (!tpsl) continue; // 다른 호출자가 진행 중 → 다음 reconcile 사이클에 재확인
             if (tpsl.failed.length === 0) {
@@ -220,15 +293,40 @@ async function reconcileWithBinance() {
               push.pushUpdate(["tpsl"]);
             } else {
               const failed = tpsl.failed.map(f => f.type).join(", ");
-              console.error(`[RECONCILE] TPSL 재시도도 실패 (${failed}) orderId=${orderId}`);
+              console.error(`[RECONCILE] TPSL 재시도도 실패 (${failed}) orderId=${orderId}`,
+                tpsl.failed.map(f => `${f.type}: ${f.error}`).join(" / "));
               store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
+              tradeLog.append({
+                event: "TPSL_RETRY_FAILED", orderId, failed,
+                errors: tpsl.failed.map(f => `${f.type}: ${f.error}`),
+              });
               if (tpsl.failed.some(f => f.type === "SL")) {
-                push.pushAlert("critical", `⚠ SL 재등록 실패 (orderId=${orderId}) — 수동 설정 필요!`);
+                push.pushAlert("critical", `⚠ SL 재등록 실패 (orderId=${orderId})`);
               }
             }
           }
         }
       }
+    }
+
+    // ── 안전망: 포지션이 있는데 SL이 없으면 알린다 ────────────────────────────
+    // recoveryService의 3단계 안전망은 **서버 시작 때만** 돌아서, 켜 둔 채로 생긴
+    // 무방비 포지션은 아무도 알려주지 않았다 (실제로 1.6시간 방치된 적이 있다).
+    // 여기선 등록을 대신 해주지 않는다 — store에 tp/sl이 없으면 가격을 지어내는 셈이라
+    // 위 retryable 경로가 못 고친 건 사람이 판단해야 한다. 알리기만 한다.
+    for (const side of ["LONG", "SHORT"]) {
+      const open = side === "LONG" ? hasLong : hasShort;
+      if (!open) { nakedWarned.delete(side); continue; }
+      const { hasSL } = await checkExistingTPSL(side);
+      if (hasSL) { nakedWarned.delete(side); continue; }
+      // 위 retryable이 이번 사이클에 고칠 예정이면 중복 경보를 내지 않는다
+      const willRetry = retryable.some(([, o]) => closeToPosition(o.closeSide) === side);
+      if (willRetry || nakedWarned.has(side)) continue;
+      nakedWarned.add(side);
+      const msg = `⚠ ${side} 포지션에 SL이 없습니다`;
+      console.error(`[안전망] ${msg}`);
+      tradeLog.append({ event: "NAKED_POSITION", side });
+      push.pushAlert("critical", msg);
     }
 
     if (!relevant.length) return;
@@ -379,4 +477,4 @@ function stop() {
   stopPolling();
 }
 
-module.exports = { startUserDataStream, stop, onFilled };
+module.exports = { startUserDataStream, stop, onFilled, verifyImmediateFill, resolveOrphans };

@@ -191,11 +191,19 @@ export const Structures = memo(function Structures({
   const liveShowVol = liveOwnerId === DRAFT_ID
     ? true
     : visible.find(st => st.id === liveOwnerId)?.showLegVol !== false;
+  // ownerId / type — 점선 끝점을 **클릭해서 확정**하는 경로가 쓴다 (2026-08-15).
+  // hitDetection이 "어느 구조에, 어떤 타입으로 붙일지"를 알아야 하는데 진행 중 레그는
+  // 구조 목록에 없어서 직접 알아낼 수 없다 (prev·showVol을 여기서 실어 보내는 것과 같은 이유).
+  // draft는 ownerId를 주지 않는다 — 그리는 중에는 클릭이 이미 꼭짓점 추가다
+  const liveOwnerLast = n > 0 ? liveOwnerPts[n - 1] : null;
   setStructLiveSegment(
     liveSeg
       ? {
           ...liveSeg,
           showVol: liveShowVol,
+          ownerId: liveOwnerId === DRAFT_ID ? null : liveOwnerId,
+          // 마지막이 저점(L)이면 진행 중 레그는 상승 → 찍힐 점은 고점(H)
+          type: liveOwnerLast?.type === "L" ? "H" : "L",
           ...(n >= 3 ? { prev: { t1: liveOwnerPts[n - 3].t, t2: liveOwnerPts[n - 2].t } } : {}),
         }
       : liveSeg,
@@ -271,9 +279,22 @@ export const Structures = memo(function Structures({
               const b = toXY(liveSegment.t2, liveSegment.p2);
               const s = clipSegmentX(a.x, a.y, b.x, b.y, -VIEW_PAD, IW + VIEW_PAD);
               if (!s) return null;
-              return <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
-                stroke={color} strokeWidth={1} opacity={0.45 * opacity}
-                strokeDasharray="4,3" />;
+              return (
+                <g>
+                  <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+                    stroke={color} strokeWidth={1} opacity={0.45 * opacity}
+                    strokeDasharray="4,3" />
+                  {/* 끝점 핸들 — **누르면 그 자리가 꼭짓점으로 확정된다** (2026-08-15 사용자 요청).
+                      속을 비운 원인 이유: "아직 확정 아님"을 확정 꼭짓점(꽉 찬 원)과 구분한다.
+                      판정은 hitDetection이 하고 여기선 보이기만 한다 — Structures 전체가
+                      pointerEvents:none이라 이 노드가 클릭을 받지는 않는다 */}
+                  {inViewX(b.x, IW) && (
+                    <circle cx={b.x} cy={b.y} r={SEL_HANDLE_R + 0.5}
+                      fill="none" stroke={color} strokeWidth={1.2}
+                      opacity={0.75 * opacity} />
+                  )}
+                </g>
+              );
             })()}
 
             <ChochMarks chochs={shown(chochs, st)} candles={candles}

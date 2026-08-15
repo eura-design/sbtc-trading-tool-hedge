@@ -1,7 +1,33 @@
 import { HIT } from "../constants";
 import { distToSeg } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
-import { channelXYs, lineXY, findHitStructPointIdx, findStructEndpointHit, findHitFib, fibXs } from "./hitDetection";
+import { channelXYs, lineXY, findStructEndpointHit, findHitFib, fibXs, STRUCT_LIVE_HIT } from "./hitDetection";
+
+// 구조 끝점 연결 커서 — **크기를 직접 정한 작은 + 표시** (2026-08-15 사용자 지정)
+//
+// ⚠ 표준 CSS 커서로는 이 요구를 만족할 수 없다. 플러스 모양은 `cell`(두껍고 큼)과
+//   `crosshair`(얇음) 둘뿐인데, `crosshair`는 useChartInteraction의 setCursor가
+//   `none`으로 바꿔 **앱 자체 크로스헤어만 남기므로** 끝점 신호가 사라진다.
+//   그래서 SVG data URI로 직접 그린다. 크기를 바꾸려면 아래 PLUS_PX 하나만 고치면 된다.
+//
+// ※ 색은 흰 획 + 검은 테두리 — OS 기본 커서와 같은 방식이라 다크/라이트 양쪽에서 보인다.
+//   테마 토큰을 쓰지 않는 이유: 커서는 캔들·오버레이 위 어디에나 놓이므로
+//   배경색을 특정할 수 없다 (테마가 아니라 대비로 해결해야 한다)
+const PLUS_PX = 13;                       // cell(약 20px)보다 확실히 작게
+const PLUS_MID = PLUS_PX / 2;
+const PLUS_PAD = 1.5;                     // 획 끝이 잘리지 않도록 여백
+const PLUS_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${PLUS_PX}" height="${PLUS_PX}" viewBox="0 0 ${PLUS_PX} ${PLUS_PX}">` +
+  `<g stroke-linecap="round" fill="none">` +
+  `<path d="M${PLUS_MID} ${PLUS_PAD}V${PLUS_PX - PLUS_PAD}M${PLUS_PAD} ${PLUS_MID}H${PLUS_PX - PLUS_PAD}" stroke="#000" stroke-width="3" opacity="0.55"/>` +
+  `<path d="M${PLUS_MID} ${PLUS_PAD}V${PLUS_PX - PLUS_PAD}M${PLUS_PAD} ${PLUS_MID}H${PLUS_PX - PLUS_PAD}" stroke="#fff" stroke-width="1.5"/>` +
+  `</g></svg>`;
+// 핫스팟은 정중앙 픽셀 — 십자의 교차점이 곧 "이어 붙을 지점"이라 어긋나면 안 된다.
+// (핫스팟은 정수 픽셀 인덱스라 13px이면 0~12의 한가운데인 6이다. round(6.5)=7이 아니다)
+// 뒤의 `cell`은 data URI를 못 읽는 환경용 폴백이다
+const PLUS_HOTSPOT = Math.floor(PLUS_PX / 2);
+const STRUCT_LINK_CURSOR =
+  `url("data:image/svg+xml,${encodeURIComponent(PLUS_SVG)}") ${PLUS_HOTSPOT} ${PLUS_HOTSPOT}, cell`;
 
 export const CURSOR_RULES = [
   {
@@ -184,6 +210,20 @@ export const CURSOR_RULES = [
     },
     cursor: "move",
   },
+  // 진행 중 레그(점선)의 끝점 위 — 누르면 그 자리가 꼭짓점으로 확정된다
+  // (구조 모드 밖에서만. 모드 안에서는 클릭이 이미 꼭짓점 추가라 뜻이 겹친다)
+  {
+    test: ({ structMode, structLive, pos, xScale, yScale, candles }) => {
+      if (structMode || !structLive?.ownerId) return false;
+      const x = xScale(tsToIdx(structLive.t2, candles));
+      const y = yScale(structLive.p2);
+      return Math.hypot(pos.x - x, pos.y - y) <= STRUCT_LIVE_HIT;
+    },
+    // 구조 모드의 끝점 이어붙이기와 **같은 커서**다 (2026-08-15 사용자 지정).
+    // 하는 일이 같기 때문 — "여기를 누르면 구조에 이어 붙는다".
+    // 손가락(pointer)으로 바꾸지 말 것: 같은 동작인데 커서만 달라 보인다
+    cursor: STRUCT_LINK_CURSOR,
+  },
   // 구조 모드에서 기존 구조의 끝점 위 — 클릭하면 이어진다는 신호
   // (draft 없으면 이어 그리기 시작, 있으면 그 구조를 흡수해 두 구조를 잇는다)
   {
@@ -194,18 +234,16 @@ export const CURSOR_RULES = [
       // 이미 draft에 들어와 있는 구조는 다시 이을 게 없다
       return hit.id !== structDraft?.extendId && !structDraft?.mergeIds?.includes(hit.id);
     },
-    cursor: "cell",
+    // ⚠ `cell`(두꺼운 십자)로 되돌리지 말 것 — 크다는 이유로 사용자가 바꾼 값이다.
+    //   `alias`(화살표+링크)도 한 번 거쳤다가 "+ 모양이 낫다"고 되돌아왔다.
+    //   지금은 위 STRUCT_LINK_CURSOR — 같은 십자인데 13px로 줄인 것이다
+    cursor: STRUCT_LINK_CURSOR,
   },
-  // 구조 선택 시 꼭짓점 핸들
-  {
-    test: ({ selectedStructId, structures, pos, xScale, yScale, candles }) => {
-      if (selectedStructId == null || !structures?.length) return false;
-      const st = structures.find(s => s.id === selectedStructId);
-      if (!st) return false;
-      return findHitStructPointIdx(st, pos.x, pos.y, xScale, yScale, candles) !== -1;
-    },
-    cursor: "move",
-  },
+  // ⚠ 구조 선택 시 **꼭짓점 위 커서 규칙은 없다** (2026-08-15 사용자 요청으로 제거).
+  //   예전엔 `move`(4방향 화살표)를 띄웠는데 필요 없다고 해서 뺐다.
+  //   ※ 커서 힌트만 없앤 것이다 — 꼭짓점 드래그·선택은 그대로다
+  //     (판정은 hitDetection의 buildHitChain이 따로 갖는다). 되살리려면
+  //     findHitStructPointIdx로 규칙을 다시 만들면 되지만, 먼저 사용자에게 확인할 것
 ];
 
 export function getCursor(ctx) {

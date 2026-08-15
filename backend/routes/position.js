@@ -1,6 +1,7 @@
 const express = require("express");
 const { binance } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
+const { resolveOrphans } = require("../services/orderWatcher");
 const router  = express.Router();
 
 router.get("/", async (req, res) => {
@@ -54,17 +55,26 @@ router.get("/", async (req, res) => {
       ? { long: longPending, short: shortPending }
       : null;
 
-    // store에 WATCHING인데 바이낸스에 없는 주문 → 제거
+    // store에 WATCHING인데 바이낸스 미체결 목록에 없는 주문 → 실제 상태를 확인해 처리
+    //
+    // ⚠ **여기서 바로 store.delete를 하지 말 것** (2026-08-15, 실계좌 재현).
+    //   체결된 주문과 취소된 주문은 **둘 다** openOrders에서 사라진다. 구분 없이 지우면
+    //   체결된 주문의 store 항목이 없어지고, 그 순간 TP/SL을 등록할 경로가 **전부** 죽는다
+    //   (onFilled의 `!store.has` / pollForFills의 WATCHING 필터 / reconcile의 relevant 필터).
+    //   실제로 orderId 1103367652357(LIMIT BUY LONG)이 이렇게 SL 없이 1.6시간 방치됐다.
+    //   게다가 이 유예(30초)가 reconcile 주기(60초)보다 **짧아서**, 복구가 오기 전에
+    //   삭제가 먼저 도달하는 게 오히려 일반적이었다.
+    //   → 지우는 판단은 바이낸스에 물어본 뒤 resolveOrphans가 한다.
     const GRACE_PERIOD = 30_000;
     const now = Date.now();
     const openIds = new Set(openOrders.map(o => String(o.orderId)));
-    for (const [orderId, info] of store.entries()) {
-      if (info.status === "WATCHING" && !openIds.has(String(orderId))) {
-        if (info.createdAt && now - info.createdAt < GRACE_PERIOD) continue;
-        console.log(`[POSITION] store 주문 ${orderId}이 바이낸스에 없음 → 제거`);
-        store.delete(orderId);
-      }
-    }
+    const orphans = [...store.entries()].filter(([orderId, info]) =>
+      info.status === "WATCHING" &&
+      !openIds.has(String(orderId)) &&
+      !(info.createdAt && now - info.createdAt < GRACE_PERIOD)
+    );
+    // fire-and-forget — 폴링 응답을 주문 조회만큼 늦추지 않는다
+    if (orphans.length) resolveOrphans(orphans).catch(e => console.warn("[POSITION] 고아 주문 처리 실패:", e.message));
 
     // 바이낸스에 살아있는 SCALE_IN 주문 목록
     const scaleInOrders = openOrders

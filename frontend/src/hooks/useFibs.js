@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
-import { drawingKey, drawingReadOnly } from "../replay/drawingKeys";
+import { drawingKey } from "../replay/drawingKeys";
 
 /**
  * 피보나치 되돌림 도형 스토어 + 그리기 상태.
@@ -14,10 +14,10 @@ import { drawingKey, drawingReadOnly } from "../replay/drawingKeys";
  * 원(circle)과 같은 2클릭 도형이라 상태 구성도 같다: 첫 클릭 = 시작점,
  * 마우스 이동 = 프리뷰, 둘째 클릭 = 확정.
  */
-// @param mode { replayOn, showLive } — replay/drawingKeys.js 참고
+// @param mode { replayOn, gen } — replay/drawingKeys.js 참고
 export function useFibs(mode = {}) {
-  const { replayOn = false, showLive = false } = mode;
-  const store = useDrawableStore(drawingKey("fibs", replayOn, showLive), drawingReadOnly(replayOn, showLive));
+  const { replayOn = false } = mode;
+  const store = useDrawableStore(drawingKey("fibs", replayOn), mode.gen ?? 0);
   const [fibMode,       setFibMode]       = useState(false);
   const [fibStart,      setFibStart]      = useState(null);
   const [fibPreview,    setFibPreview]    = useState(null);

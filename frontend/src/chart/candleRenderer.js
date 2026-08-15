@@ -1,5 +1,5 @@
 import * as d3 from "d3";
-import { M, CANVAS_C, RSI_ZONE_MAX } from "../constants";
+import { M, CANVAS_C } from "../constants";
 import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
 import { renderFVG, renderOrderBlock, renderPivotLevels, renderEMA, renderStructureZigzag,
          computeRsiZones, clearRsiZones, renderRsiZones } from "./overlayRenderers";
@@ -57,14 +57,10 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   if (ov.showRsi && ov.rsiData?.length) {
     const zones = computeRsiZones(ov.rsiData, ov.rsiParams);
     if (ov.showRsiZones && ov.rsiParams?.zone_bg !== false) {
-      // zone_max: `undefined` = 미설정(기본 5) / `null` = **전체**(제한 없음) / 숫자 = 최근 N개.
-      // ⚠ null이 "전체"라 `?? 5`로 기본값을 채우면 안 된다 (null을 5로 덮어씀) — `=== undefined` 검사를 쓸 것.
-      // 숫자는 **RSI_ZONE_MAX(10)로 자른다** (2026-08-14 사용자 지정): 슬라이더가 10을 넘지
-      // 못하게 막지만, 구버전이 10보다 큰 값을 저장해뒀을 수 있어 렌더에서도 한 번 더 건다.
-      // "전체"는 캡의 예외다 — 사용자가 명시적으로 고른 값이라 자르지 않는다
-      const zm = ov.rsiParams?.zone_max;
-      const zoneMax = zm === undefined ? 5 : zm === null ? null : Math.min(zm, RSI_ZONE_MAX);
-      renderRsiZones(ctx, zones, xScale, IW, IH, isDark, zoneMax);
+      // ⚠ 몇 개를 그릴지는 **설정이 아니라 데이터가 정한다** (2026-08-15).
+      //   renderRsiZones가 `lastRsiZoneRun`으로 "마지막 구간과 같은 종류로 연속된 꼬리"만 고른다.
+      //   개수 슬라이더(`rsi.zone_max`)는 그때 함께 제거됐다 — 되살리지 말 것
+      renderRsiZones(ctx, zones, xScale, IW, IH, isDark);
     }
   } else {
     clearRsiZones();
@@ -149,8 +145,10 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   // ── Canvas 오버레이 ────────────────────────────────────────────────────────
   ctx.globalAlpha = 1;
   if (!ov._panning) {
-    if (ov.showFVG && ov.fvgData?.length)   renderFVG(ctx, ov.fvgData, xScale, yScale, IW, IH);
-    if (ov.showOB  && ov.obData?.length)    renderOrderBlock(ctx, ov.obData, xScale, yScale, IW, IH);
+    // ⚠ 마지막 인자는 봉 개수 — FVG/OB 박스를 **최신 봉까지만** 채우기 위해서다
+    //   (2026-08-15 사용자 요청). 없으면 화면 오른쪽 끝까지 늘어나 미래 영역까지 물든다
+    if (ov.showFVG && ov.fvgData?.length)   renderFVG(ctx, ov.fvgData, xScale, yScale, IW, IH, candles.length);
+    if (ov.showOB  && ov.obData?.length)    renderOrderBlock(ctx, ov.obData, xScale, yScale, IW, IH, candles.length);
     // 멀티 TF라 레벨 좌표가 timestamp다 → 변환에 현재 차트 캔들이 필요
     if (ov.showPivot && ov.pivotLevels?.length) renderPivotLevels(ctx, ov.pivotLevels, candles, xScale, yScale, IW, IH, isDark);
     if (ov.showEMA && ov.emaData?.length)   renderEMA(ctx, ov.emaData, xScale, yScale, IW, IH);

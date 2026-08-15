@@ -56,19 +56,29 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     forceUpdate();
   }, [redrawCanvas, redrawVolume, redrawRSI]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 최근 300봉 기준으로 x/y 도메인을 처음부터 다시 잡는다.
+  // 캔들이 아직 없으면 아무것도 하지 않고 false — 그때는 isInitialLoadRef를 true로 남겨
+  // 캔들이 도착했을 때 아래 [candles] 이펙트가 잡게 한다
+  const applyInitialDomain = useCallback((cIn) => {
+    const c = cIn ?? candlesRef.current;
+    if (!c?.length) return false;
+    const lastIdx = c.length - 1;
+    xDomainRef.current = [lastIdx - 300, lastIdx + 50];
+    const i0 = Math.max(0, lastIdx - 300);
+    const visible = c.slice(i0);
+    const yC = visible.length > 0 ? visible : c;
+    const lo = d3.min(yC, d => d.l), hi = d3.max(yC, d => d.h);
+    yDomainRef.current = padYDomain(lo, hi, 0.06, isLog);
+    isInitialLoadRef.current   = false;
+    prevCandleCountRef.current = c.length;
+    return true;
+  }, [isLog]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!candles.length) return;
 
     if (!xDomainRef.current || isInitialLoadRef.current) {
-      const lastIdx = candles.length - 1;
-      xDomainRef.current = [lastIdx - 300, lastIdx + 50];
-      const i0 = Math.max(0, lastIdx - 300);
-      const visible = candles.slice(i0);
-      const yC = visible.length > 0 ? visible : candles;
-      const lo = d3.min(yC, d => d.l), hi = d3.max(yC, d => d.h);
-      yDomainRef.current = padYDomain(lo, hi, 0.06, isLog);
-      isInitialLoadRef.current   = false;
-      prevCandleCountRef.current = candles.length;
+      applyInitialDomain(candles);
       redrawChart(); return;
     }
 
@@ -103,13 +113,27 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
   }, [isLog]);
   useEffect(() => { redrawChart(); }, [isDark]);    // eslint-disable-line react-hooks/exhaustive-deps
 
-  const resetDomain = useCallback(() => {
+  // 뷰포트를 버리고 다시 잡게 한다.
+  //
+  // ⚠ **`defer`를 정확히 골라야 한다.** 둘 다 실제로 버그를 냈다:
+  //   · `defer: true`  — 버리기만 하고, 새 캔들이 도착하면 아래 [candles] 이펙트가 잡는다.
+  //       **TF 전환처럼 candlesRef에 아직 옛 캔들이 들어 있을 때 반드시 이것.**
+  //       즉시 잡으면 옛 TF의 봉 개수·가격대로 도메인이 확정돼(그리고 isInitialLoadRef가
+  //       꺼져서 다시 잡히지도 않아) 새 TF에서 엉뚱한 구간이 보인다
+  //   · 기본(즉시)   — 그 자리에서 다시 잡고 그린다. 모드 전환·시크처럼 candlesRef가
+  //       **이미 새 데이터**일 때 쓴다. 비우기만 하면 candles identity가 안 바뀌어
+  //       [candles] 이펙트가 안 돌고, 아무도 도메인을 다시 잡지 않는다
+  // ※ 어느 쪽이든 도메인이 비어 있는 동안은 getScales의 폴백이 그린다.
+  //   그 폴백도 "보이는 봉"만 보므로 납작해지지 않는다 (scales.js FALLBACK_BARS 주석)
+  const resetDomain = useCallback((opts) => {
     isInitialLoadRef.current   = true;
     prevCandleCountRef.current = 0;
     xDomainRef.current         = null;
     yDomainRef.current         = null;
     scalesRef.current          = null;
-  }, []);
+    if (opts?.defer) { redrawChart(); return; }
+    if (applyInitialDomain()) redrawChart();
+  }, [applyInitialDomain, redrawChart]);
 
   return { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawVolumeTick, redrawRSI, resetDomain, renderTick };
 }

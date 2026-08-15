@@ -116,6 +116,21 @@ router.put("/", async (req, res) => {
   }
 });
 
+// DELETE /api/tpsl — 단일 TP 또는 SL 취소 (차트의 × 버튼)
+// 분할 TP는 /split, 진입 미체결 주문은 /api/orders — 여기는 알고 TP/SL 하나만 다룬다
+router.delete("/", async (req, res) => {
+  const { orderId, isAlgo } = req.body ?? {};
+  if (!orderId) return res.status(400).json({ error: "orderId 필요" });
+  try {
+    await cancelOrder({ orderId, algoId: orderId, isAlgo });
+    res.json({ success: true });
+  } catch (err) {
+    const msg = err.response?.data?.msg || err.message;
+    console.error("[DELETE /api/tpsl]", msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
 // POST /api/tpsl/split — 분할 TP 추가 (기존 단일 TP 취소 후 LIMIT positionSide 등록)
 router.post("/split", async (req, res) => {
   const { side, price, qty, pct, tpOrderId, tpIsAlgo } = req.body;

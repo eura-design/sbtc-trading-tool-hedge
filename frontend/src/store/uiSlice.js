@@ -47,6 +47,12 @@ export const createUiSlice = (set, get) => ({
   selectedBox:   false,
   opacityPopup:  null,
 
+  // 진입 라벨 × 를 한 번 눌러 "정말 청산?" 상태인 사이드 ("LONG" | "SHORT" | null).
+  // ⚠ 청산은 되돌릴 수 없다 — 차트의 작은 버튼 한 번으로 시장가 청산이 나가면 안 된다.
+  //   사이드바 PositionCard도 슬라이더 → 확인 → ✓ 로 여러 단계를 거친다. 여기선 두 번 누르기.
+  //   (TP/SL/추가/분할의 × 는 주문 취소일 뿐이라 한 번에 지운다 — 다시 걸면 그만이다)
+  closeConfirm:  null,
+
   // ── 드래그 상태 ──────────────────────────────────────────────────────────
   dragTpsl:    null,
   dragScaleIn: null,
@@ -69,6 +75,7 @@ export const createUiSlice = (set, get) => ({
   setTpslSaving:    (v) => set({ tpslSaving: v }),
   setSelectedBox:   (v) => set({ selectedBox: v }),
   setOpacityPopup:  (v) => set({ opacityPopup: v }),
+  setCloseConfirm:  (v) => set({ closeConfirm: v }),
 
   setDragTpsl:    (v) => set({ dragTpsl: v }),
   setDragScaleIn: (v) => set({ dragScaleIn: v }),

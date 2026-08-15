@@ -5,15 +5,14 @@ import { FIB_DEFAULT_LEVELS } from "../chart/fib";
 export const INDICATOR_DEFAULTS = {
   vol: { colorMode: "neutral" },
   // zone_bg  — 과매수/과매도 구간을 **메인 차트** 배경에 세로 밴드로 표시 (2026-08-13)
-  // zone_max — 그중 **최근 몇 개만** 칠할지. 기본 5 / `null`이면 전체 /
-  //   숫자 상한 **10** (constants.js `RSI_ZONE_MAX`, 2026-08-14 — 검출이 실측 90개를 넘어
-  //   슬라이더 상한을 검출 개수로 두면 한 칸이 의미를 잃는다). 고를 수 있는 값 = 1~10 + 전체
-  //   ⚠ `null`이 "전체"라 `?? 5`로 기본값을 채우면 안 된다 — `=== undefined` 검사를 쓸 것
+  //   ⚠ `zone_max`(최근 N개)는 2026-08-15 사용자 요청으로 **키째 제거**됐다.
+  //     몇 개를 칠할지는 이제 설정이 아니라 데이터가 정한다 — 마지막 구간과 같은 종류로
+  //     연속된 꼬리만 나온다 (chart/overlayRenderers.js의 lastRsiZoneRun). 되살리지 말 것
   // tfs      — **구간 배경을 칠할 타임프레임** (중복 선택, 2026-08-14 사용자 확정).
   //   ⚠ 거르는 건 **배경뿐이다. RSI 패널(선)은 전 TF에서 계속 보인다** —
   //     App.jsx가 showRsi(패널)와 showRsiZones(배경)로 나눠 갖는다. 다시 합치지 말 것
   //   ⚠ 기본값은 **전 TF**다 — struct처럼 ["1h"]로 두면 기존 사용자에게 기능이 사라진 것처럼 보인다
-  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_max: 5,
+  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true,
          tfs: ["5m", "15m", "1h", "4h", "1d", "1w", "1M"] },
   // ※ RSI 다이버전스(`rsidiv`)는 2026-08-13 지표째로 제거됐다 — 키를 되살리지 말 것
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },

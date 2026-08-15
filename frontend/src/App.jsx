@@ -56,14 +56,16 @@ export default function App() {
     replayOn, setReplayOn,
     replayStartMs, replayEndMs, setReplayRange,
     replayNowMs, setReplayClock,
-    replayShowLive, setReplayShowLive,
   } = useStore();
 
-  // 도형 저장소 선택 — 리플레이 중에는 연습용 키를 쓰고, "기존 도형 보기"를 켜면
-  // 원래 도형을 **읽기 전용**으로 읽는다 (replay/drawingKeys.js)
+  // 도형 저장소 선택 — 리플레이 중에는 연습용 키(`replay_*`)를 쓴다 (replay/drawingKeys.js).
+  // ※ "기존 도형 보기"는 2026-08-15 사용자 요청으로 제거됐다 — 리플레이에서 실거래 도형은 안 보인다
+  // gen — 🎲로 연습 도형을 통째로 지웠을 때 증가한다. 키는 그대로라
+  // 이게 없으면 지운 도형이 React 상태에 남아 다음 저장에 되살아난다
+  const [drawingGen, setDrawingGen] = useState(0);
   const drawingMode = useMemo(
-    () => ({ replayOn, showLive: replayShowLive }),
-    [replayOn, replayShowLive],
+    () => ({ replayOn, gen: drawingGen }),
+    [replayOn, drawingGen],
   );
 
   const {
@@ -212,7 +214,7 @@ export default function App() {
     trendLines.setSelectedCircleId(null);
     fibTool.setSelectedFibId(null);
     structs.setSelectedStructId(null);
-  }, [replayOn, replayShowLive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [replayOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { toasts, addToast, addLineAlert, removeToast } = useToast();
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
@@ -251,8 +253,21 @@ export default function App() {
   // 캔들의 시간 범위가 통째로 바뀌는데 뷰포트가 그대로면 화면이 텅 빈다 —
   // 리플레이를 켰을 때 2024년 캔들을 다 받아 놓고도 도메인이 오늘을 가리켜
   // 빈 차트가 나왔다(실제 증상). 로드가 끝난 뒤에 불러야 캔들 기준으로 잡힌다.
+  //
+  // ⚠ **실제로 바뀌었을 때만 부른다.** 예전엔 candleLoading이 deps에 있다는 이유로
+  //   페이지를 처음 열 때도(로딩 false로 떨어지는 순간) 한 번 돌았다. 그때는 이미
+  //   ChartArea가 캔들 기준으로 도메인을 잡아 둔 뒤라, 그걸 도로 지워서 차트가
+  //   납작하게 그려졌다 (useChartRenderer의 resetDomain 주석 참고).
+  //   candleLoading은 "언제 부를지"를 정할 뿐 "부를지 말지"의 근거가 아니다 —
+  //   TF 전환·WS 재로드로도 오르내리므로 그때마다 리셋하면 사용자의 팬/줌이 날아간다.
+  const domainKeyRef = useRef(null);
   useEffect(() => {
-    if (candleLoading) return;
+    if (candleLoading) return;           // 로딩이 끝나면 이 이펙트가 다시 들어온다
+    const key = `${replayOn ? 1 : 0}|${replayStartMs ?? ""}`;
+    if (domainKeyRef.current === key) return;
+    const first = domainKeyRef.current === null;
+    domainKeyRef.current = key;
+    if (first) return;                   // 최초 로드 — 이미 캔들 기준으로 잡혀 있다
     chartActionsRef.current?.resetDomain();
   }, [replayOn, replayStartMs, candleLoading]);
 
@@ -416,7 +431,7 @@ export default function App() {
     drawing, hasPending, locked: drawLocked, selectedBox,
     deleteBox,
     interval_,
-    onIntervalChange:  val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain(); },
+    onIntervalChange:  val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain({ defer: true }); },
   });
 
   // 리플레이 진입 — 시작 시점을 한 번도 고른 적 없으면 90일 전으로 채운다.
@@ -445,7 +460,7 @@ export default function App() {
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, overflow: "hidden" }}>
 
         <TopBar
-          interval_={interval_} onIntervalChange={val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain(); }}
+          interval_={interval_} onIntervalChange={val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain({ defer: true }); }}
           lineMode={trendLines.lineMode} onLineModeToggle={() => {
             setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); structs.cancelStructDraw();
             trendLines.setLineMode(m => { if (m) trendLines.cancelDraw(); return !m; });
@@ -491,8 +506,11 @@ export default function App() {
             startMs={replayStartMs}
             onRangeChange={setReplayRange}
             onExit={() => setReplayOn(false)}
-            showLive={replayShowLive}
-            onShowLiveToggle={() => setReplayShowLive(v => !v)}
+            // 🎲(무작위 시점)가 부른다 — localStorage의 도형 5종을 지우는 건 ReplayBar가 하고,
+            // 여기선 ① gen을 올려 **React 상태까지** 새로 읽게 하고 (둘 다 해야 한다.
+            // 상태에 남아 있으면 다음 저장에 그대로 되살아난다)
+            // ② 연습 플랜 박스도 비운다 — 저건 스토어에 있어서 clearReplayDrawings가 못 건드린다
+            onDrawingsCleared={() => { setDrawingGen(g => g + 1); setDrawing(null); }}
             // ⚠ 시크 뒤에는 **y 도메인도 되돌려야 한다.** 크게 건너뛰면 가격대가
             //   통째로 바뀌는데(실측: $78k 구간에서 $64k 구간으로) y축이 그대로라
             //   캔들이 화면 밖으로 나가 차트가 텅 빈 것처럼 보인다
@@ -506,7 +524,7 @@ export default function App() {
             fontSize: "13px", color: "#fff", fontWeight: "700", cursor: "pointer",
             display: "flex", justifyContent: "space-between", alignItems: "center",
           }}>
-            <span>🚨 {criticalAlert}</span>
+            <span>{criticalAlert}</span>
             <span style={{ opacity: 0.7, fontSize: "11px" }}>클릭하여 닫기</span>
           </div>
         )}

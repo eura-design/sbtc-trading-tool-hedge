@@ -31,7 +31,7 @@ export function ChartSvg({
   showVol, volH, onVolDividerMouseDown,
   vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef,
   legRefs,
-  hasPos, hasLong, hasShort, position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp,
+  hasPos, hasLong, hasShort, position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, closeConfirm,
   lines, selectedLineId, lineStart, linePreview, isLog,
   drawing, current, locked, selectedBox,
   channels, selectedChannelId, channelStep, channelPoints, channelPreview,
@@ -75,6 +75,7 @@ export function ChartSvg({
             position={position} tpsl={tpsl} dragTpsl={dragTpsl}
             tpslSaving={tpslSaving} scaleInOrders={scaleInOrders} dragScaleIn={dragScaleIn}
             splitTps={splitTps} dragSplitTp={dragSplitTp}
+            closeConfirm={closeConfirm}
             scales={scales} IW={IW} IH={IH}
           />
         )}

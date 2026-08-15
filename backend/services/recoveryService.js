@@ -80,8 +80,9 @@ async function recoverPendingOrders() {
           );
 
           if (pos) {
-            const hasTpsl = await checkExistingTPSL(orderPosSide);
-            if (!hasTpsl) {
+            // TP·SL 둘 다 있을 때만 완료로 본다 (한쪽만 있으면 placeTPSL이 양쪽 다시 건다)
+            const { hasTP, hasSL } = await checkExistingTPSL(orderPosSide);
+            if (!(hasTP && hasSL)) {
               const tpsl = await placeTPSL(info);
               if (tpsl.failed.length > 0) {
                 store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
@@ -115,11 +116,11 @@ async function recoverPendingOrders() {
       const openPosSide = openPos.positionSide === "LONG" || openPos.positionSide === "SHORT"
         ? openPos.positionSide
         : parseFloat(openPos.positionAmt) > 0 ? "LONG" : "SHORT";
-      const hasTpsl = await checkExistingTPSL(openPosSide);
-      if (!hasTpsl) {
+      const { hasTP, hasSL } = await checkExistingTPSL(openPosSide);
+      if (!(hasTP && hasSL)) {
         const posEntry = parseFloat(openPos.entryPrice);
         console.error("==================================================");
-        console.error("[안전망] 포지션이 열려 있지만 TP/SL이 없습니다!");
+        console.error(`[안전망] 포지션이 열려 있지만 ${!hasSL && !hasTP ? "TP/SL이" : !hasSL ? "SL이" : "TP가"} 없습니다!`);
         console.error(`  방향: ${openPosSide}`);
         console.error(`  수량: ${Math.abs(parseFloat(openPos.positionAmt))} BTC`);
         console.error(`  진입가: ${posEntry}`);

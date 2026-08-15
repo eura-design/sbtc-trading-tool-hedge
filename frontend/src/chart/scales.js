@@ -67,11 +67,32 @@ export function padYDomain(lo, hi, padFrac, isLog) {
   return [safeLo / logPad, safeHi * logPad];
 }
 
+// ⚠ **폴백 도메인은 "화면에 보일 봉"만 본다.** 되돌리지 말 것 (2026-08-15).
+//   예전 y 폴백은 `d3.min/max(candles)` — 로드된 **전체 3000봉**의 고저였다.
+//   x는 300봉인데 y는 3000봉 범위라, 도메인이 비어 있는 짧은 순간(도메인 리셋 직후,
+//   TF 전환 중)마다 캔들이 세로로 눌려 그려졌다 = "차트가 납작하다".
+//   휠을 굴리면 useChartInteraction이 보이는 봉으로 y를 다시 계산해 그때서야 정상으로 보였다.
+//   폭(300)과 패딩(0.06)은 useChartRenderer의 applyInitialDomain과 **같은 값**이어야
+//   폴백에서 확정 도메인으로 넘어갈 때 화면이 튀지 않는다
+const FALLBACK_BARS = 300;
+
 export function getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog = false) {
   if (!candles.length || IW <= 0 || IH <= 0) return null;
   const lastIdx = candles.length - 1;
-  const xDom = xDomainRef.current ?? [lastIdx - 150, lastIdx + 50];
-  const yDom = yDomainRef.current ?? [d3.min(candles, d => d.l)*0.999, d3.max(candles, d => d.h)*1.001];
+  const xDom = xDomainRef.current ?? [lastIdx - FALLBACK_BARS, lastIdx + 50];
+  let yDom = yDomainRef.current;
+  if (!yDom) {
+    const i0 = Math.max(0, Math.floor(xDom[0]));
+    const i1 = Math.min(lastIdx, Math.ceil(xDom[1]));
+    let lo = Infinity, hi = -Infinity;
+    for (let i = i0; i <= i1; i++) {
+      const c = candles[i];
+      if (c.l < lo) lo = c.l;
+      if (c.h > hi) hi = c.h;
+    }
+    if (lo === Infinity) { lo = candles[lastIdx].l; hi = candles[lastIdx].h; }
+    yDom = padYDomain(lo, hi, 0.06, isLog);
+  }
   const logYDom = isLog ? [Math.max(yDom[0], 1), yDom[1]] : yDom;
   return {
     xScale: d3.scaleLinear().domain(xDom).range([0, IW]),

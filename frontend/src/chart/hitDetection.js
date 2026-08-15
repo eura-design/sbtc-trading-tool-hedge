@@ -75,6 +75,111 @@ export function findHitFib(px, py, fibs, xScale, yScale, candles, levels, isLog 
 }
 
 // timestamp → 현재 타임프레임 bar index → 픽셀 좌표
+// ── 진입선의 `+TP` / `+SL` 버튼 ──────────────────────────────────────────────
+// 그 방향의 TP(또는 SL)가 **아직 없을 때만** 뜬다. 잡고 끌면 놓은 가격에 새로 등록된다.
+// (이미 있는 걸 옮기는 건 기존 pos_tp/pos_sl 경로 그대로 — 여기와 무관하다)
+//
+// ⚠ 렌더(PositionLines.jsx)와 히트 판정(buildHitChain)이 **이 함수 하나만** 본다.
+//   각자 좌표를 만들면 눈에 보이는 자리와 실제로 잡히는 자리가 어긋난다
+//   (피보나치 레벨 배열을 렌더·히트·알림이 같이 쓰는 것과 같은 이유)
+export const TPSL_BTN = { w: 28, h: 15, gap: 3, x0: 10 };
+
+export function posTpSlButtons(position, tpsl, yScale, IH) {
+  if (!position || !tpsl || !yScale) return [];
+  const rows = [];
+  for (const [sideKey, side] of [["long", "LONG"], ["short", "SHORT"]]) {
+    const p = position[sideKey];
+    if (!p) continue;
+    const types = ["tp", "sl"].filter(t => !tpsl[sideKey]?.[t]); // 이미 걸린 건 버튼 없음
+    if (!types.length) continue;
+    const ey = yScale(p.entryPrice);
+    // EntryLine의 inView와 같은 기준 — 진입선이 안 보이면 버튼도 두지 않는다
+    if (!(ey >= -20 && ey <= IH + 20)) continue;
+    // ⚠ **진입선 한가운데**에 걸친다 (2026-08-15 사용자 요청).
+    //   기존 TP/SL 핸들도 자기 선 한가운데라(`yPx - h/2`), 위/아래로 비켜 두면
+    //   같은 종류의 컨트롤인데 이것만 규칙이 달라 보인다
+    rows.push({ side, sideKey, types, entryPrice: p.entryPrice, y: ey - TPSL_BTN.h / 2 });
+  }
+
+  // ⚠ 두 줄이 세로로 겹치면 아래쪽을 밀어낸다. 롱·숏 진입가가 가까우면 실제로 포개지는데
+  //   그러면 같은 자리에 사이드가 다른 버튼이 겹쳐 **어느 쪽을 누른 건지 알 수 없다**
+  //   — hitTpSlButton은 먼저 찾은 것(롱)을 돌려준다.
+  //   밀린 쪽은 자기 선에서 살짝 벗어나지만, 눌리지 않는 것보다는 낫다
+  if (rows.length === 2) {
+    const [a, b] = rows[0].y <= rows[1].y ? [rows[0], rows[1]] : [rows[1], rows[0]];
+    const need = TPSL_BTN.h + 3;
+    if (b.y - a.y < need) b.y = a.y + need;
+  }
+
+  const out = [];
+  for (const r of rows) {
+    const y = Math.min(Math.max(r.y, 0), Math.max(0, IH - TPSL_BTN.h));
+    let x = TPSL_BTN.x0;
+    for (const type of r.types) {
+      out.push({ side: r.side, sideKey: r.sideKey, type, x, y,
+        w: TPSL_BTN.w, h: TPSL_BTN.h, entryPrice: r.entryPrice });
+      x += TPSL_BTN.w + TPSL_BTN.gap;
+    }
+  }
+  return out;
+}
+
+export function hitTpSlButton(px, py, buttons) {
+  return buttons.find(b => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) ?? null;
+}
+
+// ── 마커 옆 `×` 버튼 (2026-08-15) ───────────────────────────────────────────
+// TP / SL / 추가 / 분할 옆, 그리고 진입 라벨(LONG/SHORT) 옆에 붙는 제거 버튼.
+//
+// ⚠ 사각형 계산은 **여기 세 함수뿐**이다. 렌더(PositionLines.jsx)와 클릭 판정(buildHitChain)이
+//   같은 걸 부른다 — 각자 만들면 보이는 자리와 눌리는 자리가 어긋난다
+export const CLOSE_BTN    = { w: 15 };
+export const ENTRY_LABEL_W = 36;
+
+const rowY = y => y - TPSL_BTN.h / 2;
+
+/** 왼쪽 마커 버튼(TP/SL/추가/분할) 바로 오른쪽 */
+export function closeBtnRect(y) {
+  return { x: TPSL_BTN.x0 + TPSL_BTN.w + TPSL_BTN.gap, y: rowY(y), w: CLOSE_BTN.w, h: TPSL_BTN.h };
+}
+/** 진입 라벨(LONG/SHORT)의 왼쪽 끝 — 오른쪽 여백은 왼쪽 버튼과 같은 값을 쓴다 */
+export function entryLabelX(IW) { return IW - TPSL_BTN.x0 - ENTRY_LABEL_W; }
+/** 진입 라벨 왼쪽에 붙는 × (오른쪽은 여백뿐이라 자리가 없다) */
+export function entryCloseRect(y, IW) {
+  return { x: entryLabelX(IW) - TPSL_BTN.gap - CLOSE_BTN.w, y: rowY(y), w: CLOSE_BTN.w, h: TPSL_BTN.h };
+}
+
+const seen = (y, IH) => y >= -20 && y <= IH + 20; // PositionLines의 inView와 같은 기준
+
+/**
+ * 지금 화면에 있는 모든 × 버튼. kind로 무엇을 지우는지 구분한다.
+ *  tp/sl → 알고 주문 취소 / scale_in·split_tp → 그 주문 취소 / entry → **포지션 청산**
+ */
+export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, yScale, IW, IH }) {
+  if (!yScale) return [];
+  const out = [];
+  const push = (kind, price, extra) => {
+    const y = yScale(price);
+    if (!seen(y, IH)) return;
+    const r = kind === "entry" ? entryCloseRect(y, IW) : closeBtnRect(y);
+    out.push({ kind, ...extra, ...r });
+  };
+  for (const [sideKey, side] of [["long", "LONG"], ["short", "SHORT"]]) {
+    for (const which of ["tp", "sl"]) {
+      const t = tpsl?.[sideKey]?.[which];
+      if (t?.price != null) push(which, t.price, { side });
+    }
+  }
+  for (const o of scaleInOrders ?? []) push("scale_in", o.price, { orderId: o.orderId });
+  for (const o of splitTps      ?? []) push("split_tp", o.price, { orderId: o.orderId });
+  // 진입 라벨은 맨 뒤 — 겹칠 일은 없지만(가로 위치가 반대편) 파괴적인 항목을 마지막에 둔다
+  for (const [sideKey, side] of [["long", "LONG"], ["short", "SHORT"]]) {
+    const p = position?.[sideKey];
+    if (p) push("entry", p.entryPrice, { side, size: p.size });
+  }
+  return out;
+}
+
 export function lineXY(t, p, candles, xScale, yScale) {
   return { x: xScale(tsToIdx(t, candles)), y: yScale(p) };
 }
@@ -95,6 +200,10 @@ export function snapToOHLC(pos, candles, xScale, yScale) {
 //   써야 커서에 보이던 위치와 실제 찍히는 위치가 어긋나지 않는다. 호출부마다 숫자를
 //   따로 넣지 말고 이 상수를 참조할 것.
 export const STRUCT_SNAP_BARS = 1;
+
+// 진행 중 레그(점선) 끝점의 클릭 반경 — 화면에 그린 원(SEL_HANDLE_R + 0.5)보다 넉넉하게.
+// 다른 핸들의 잡는 반경(10)과 같은 값이다: 점을 작게 그려도 집기 어려워지지 않게
+export const STRUCT_LIVE_HIT = 10;
 
 /**
  * 구조 꼭짓점용 스냅 — 커서 주변 봉 중 고가 최대(또는 저가 최소) 지점에 붙인다.
@@ -293,6 +402,7 @@ export function buildHitChain(ctx) {
     lineMode, lineStart, setLineStart, addLine,
     selectedLineId, lines, dragRef,
     hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
+    position, IH, IW, onMarkerClose,
     drawing, locked, drawMode, setCurrent,
     xDomainRef,
     setSelectedBox,
@@ -313,6 +423,7 @@ export function buildHitChain(ctx) {
     // 수동 구조
     structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
     structures, selectedStructId, structPart, selectStructPart,
+    structLive, commitLiveStructPoint,   // 진행 중 레그 끝점 확정 (3.95)
     // 자동 ZZ — 도형이 아니라 지표라 선택만 한다 (드래그/삭제 없음)
     showZZ, zzSegments,
   } = ctx;
@@ -481,6 +592,50 @@ export function buildHitChain(ctx) {
       handle() {
         dragRef.current = { type:"draw", startX:pos.x, startY:pos.y };
         setCurrent({ x1:pos.x, y1:pos.y, x2:pos.x, y2:pos.y });
+      },
+    },
+    // 3.85. 마커의 `×` 버튼 — **드래그가 아니라 클릭**이다.
+    // ⚠ 아래 드래그 단계들보다 **먼저** 와야 한다. ×는 왼쪽 60px 안에 있어서
+    //   순서를 뒤집으면 누를 때마다 드래그가 먼저 잡혀 영영 눌리지 않는다
+    {
+      when: !!onMarkerClose && (hasPos || !!scaleInOrders?.length || !!splitTps?.length),
+      handle() {
+        const btns = markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, yScale, IW, IH });
+        const b = btns.find(v => pos.x >= v.x && pos.x <= v.x + v.w && pos.y >= v.y && pos.y <= v.y + v.h);
+        if (!b) return false;
+        onMarkerClose(b);
+        return true;
+      },
+    },
+    // 3.9. `+TP` / `+SL` 버튼 — TP/SL이 **없을 때** 드래그로 새로 거는 입구.
+    // 아래 4번(기존 TP/SL 이동)과 대상이 겹치지 않는다: 버튼은 그 항목이 null일 때만 생긴다.
+    // startPrice는 진입가지만 실제 값은 onMove가 커서에서 다시 계산하므로 표시용에 가깝다
+    {
+      when: hasPos && !!tpsl && !!position,
+      handle() {
+        const b = hitTpSlButton(pos.x, pos.y, posTpSlButtons(position, tpsl, yScale, IH));
+        if (!b) return false;
+        dragRef.current = {
+          type: b.type === "tp" ? "pos_tp" : "pos_sl",
+          side: b.side, startY: pos.y, startPrice: b.entryPrice, creating: true,
+        };
+        return true;
+      },
+    },
+    // 3.95. 진행 중 레그(점선)의 끝점 클릭 → **그 자리를 꼭짓점으로 확정** (2026-08-15).
+    // 구조 모드로 들어가 끝점을 다시 클릭할 필요 없이, 점선이 이미 가리키고 있는 점만 누른다.
+    // ⚠ 구조 모드에서는 동작하지 않는다 — 거기선 클릭이 이미 꼭짓점 추가라 뜻이 겹친다.
+    //   ownerId가 없으면(draft) 역시 건너뛴다
+    {
+      when: !structMode && !drawMode && !!commitLiveStructPoint && !!structLive?.ownerId,
+      handle() {
+        const x = xScale(tsToIdx(structLive.t2, candles));
+        const y = yScale(structLive.p2);
+        if (Math.hypot(pos.x - x, pos.y - y) > STRUCT_LIVE_HIT) return false;
+        commitLiveStructPoint(structLive.ownerId, {
+          t: structLive.t2, p: structLive.p2, type: structLive.type,
+        });
+        return true;
       },
     },
     // 4. TP/SL 드래그 (선 선택보다 우선) — 롱/숏 각각 처리

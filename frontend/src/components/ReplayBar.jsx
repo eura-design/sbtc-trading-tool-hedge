@@ -1,6 +1,6 @@
-import { useMemo } from "react";
 import { useTheme } from "../ThemeContext";
 import { FIRST_LISTING_MS } from "../replay/klines.js";
+import { clearReplayDrawings } from "../replay/drawingKeys.js";
 
 // 리플레이 컨트롤 바 — 리플레이 모드일 때 TopBar 아래에 나타난다
 //
@@ -10,6 +10,7 @@ import { FIRST_LISTING_MS } from "../replay/klines.js";
 
 const ACCENT = "#a78bfa";
 const SPEEDS = [0.5, 1, 2, 5, 10];
+const PROGRESS_W = 220;   // 진행 슬라이더 고정 폭 — flex로 두면 길이가 출렁인다
 
 const pad = (n) => String(n).padStart(2, "0");
 
@@ -21,20 +22,13 @@ function toLocalInput(ms) {
        + `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function fmtClock(ms) {
-  if (!ms) return "—";
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} `
-       + `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-export function ReplayBar({ replay, startMs, onRangeChange, onExit, showLive, onShowLiveToggle, onSeek }) {
+export function ReplayBar({ replay, startMs, onRangeChange, onExit, onSeek, onDrawingsCleared }) {
   const { theme } = useTheme();
   const {
     playing, play, pause, speed, setSpeed,
-    stepTick, stepBar,
-    progress, nowMs, price, atEnd, loading, loadInfo, error,
-    driveTf, ticksPerBar,
+    stepTick,
+    progress, atEnd, loading, loadInfo, error,
+    driveTf,
   } = replay;
 
   const btn = (active) => ({
@@ -48,12 +42,21 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, showLive, on
 
   // 편향 방지용 무작위 시작점 — 상장 이후 ~ 30일 전 사이에서 고른다.
   // 날짜를 직접 고르면 "그때 무슨 일이 있었는지" 이미 알고 시작하게 된다
+  //
+  // ⚠ 여기서 **연습 도형을 지운다** (2026-08-15). 안 지우면 예전 연습 구간에서 그은 선이
+  //   새 구간에 그대로 살아 있다. 좌표가 멀어 화면에는 안 보이지만 계산에는 계속 들어가고,
+  //   특히 `useTrendLineAlert`은 선을 **현재 봉 시각까지 선형 외삽**하므로
+  //   (`linePriceAt`) 수평에 가까운 선은 몇 년 떨어진 구간에서도 근접 알림을 띄운다.
+  //   "화면에 없는 선에서 알림이 온다" — 실제로 가능한 상태였다.
+  // ※ 시작일을 **직접 입력**할 때는 지우지 않는다. 같은 구간을 다시 보려는 의도일 수 있고,
+  //   🎲만이 "다 버리고 새로"라는 뜻이 분명한 버튼이다 (2026-08-15 사용자 확정)
+  // ※ 연습 계좌는 따로 손댈 게 없다 — session.js가 구간이 다르면 복원하지 않는다
   const pickRandom = () => {
     const latest = Date.now() - 30 * 86400_000;
+    clearReplayDrawings();
+    onDrawingsCleared?.();   // React 상태까지 새로 읽게 한다 (localStorage만 지우면 되살아난다)
     onRangeChange({ startMs: Math.floor(FIRST_LISTING_MS + Math.random() * (latest - FIRST_LISTING_MS)) });
   };
-
-  const pct = useMemo(() => (progress * 100).toFixed(1), [progress]);
 
   return (
     <div style={{
@@ -84,7 +87,7 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, showLive, on
         }}
       />
       <button onClick={pickRandom} style={btn(false)} title="무작위 시점 — 미리 알고 시작하는 편향을 막는다">
-        🎲
+        RANDOM
       </button>
 
       <div style={{ width: "1px", height: "14px", background: theme.borderSec, margin: "0 2px" }} />
@@ -94,10 +97,10 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, showLive, on
         style={btn(playing)} title={playing ? "일시정지" : "재생"}>
         {playing ? "⏸" : "▶"}
       </button>
+      {/* ⚠ 글리프는 `▶|`다 — 예전 `⏭`(U+23ED)는 이모지 표현이라 옆의 재생 `▶`(U+25B6)보다
+          눈에 띄게 크게 그려졌다. 같은 Geometric Shapes 블록 + ASCII로 맞춰야 크기가 같다 */}
       <button onClick={() => stepTick(1)} disabled={loading || atEnd || !!error} style={btn(false)}
-        title={`한 틱 (${driveTf} 봉 1개)`}>⏭</button>
-      <button onClick={stepBar} disabled={loading || atEnd || !!error} style={btn(false)}
-        title={`한 봉 (${driveTf} × ${ticksPerBar})`}>⏭⏭</button>
+        title={`한 틱 (${driveTf} 봉 1개)`}>▶|</button>
 
       <div style={{ display: "flex", gap: "2px" }}>
         {SPEEDS.map(s => (
@@ -107,28 +110,15 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, showLive, on
         ))}
       </div>
 
-      {/* 진행 슬라이더 */}
+      {/* 진행 슬라이더
+          ⚠ **폭을 고정한다** (2026-08-15 사용자 요청). 예전엔 `flex: 1`이라
+            옆 요소(로딩 문구·에러·"구간 끝")가 나타났다 사라질 때마다 바 길이가 출렁였다 */}
       <input
         type="range" min={0} max={1} step={0.0005} value={progress}
         onChange={e => onSeek(+e.target.value)}
         disabled={loading || !!error}
-        style={{ flex: 1, minWidth: "120px", accentColor: ACCENT, cursor: "pointer" }}
+        style={{ width: `${PROGRESS_W}px`, flexShrink: 0, accentColor: ACCENT, cursor: "pointer" }}
       />
-      <span style={{ fontSize: "11px", color: theme.textMuted, minWidth: "42px", textAlign: "right" }}>
-        {pct}%
-      </span>
-
-      <div style={{ width: "1px", height: "14px", background: theme.borderSec, margin: "0 2px" }} />
-
-      {/* 시뮬 시각 + 현재가 */}
-      <span style={{ fontSize: "11px", color: theme.textPrimary, whiteSpace: "nowrap" }}>
-        {fmtClock(nowMs)}
-      </span>
-      {price != null && (
-        <span style={{ fontSize: "11px", fontWeight: "700", color: ACCENT, whiteSpace: "nowrap" }}>
-          ${price.toLocaleString()}
-        </span>
-      )}
 
       {loading && (
         <span style={{ fontSize: "11px", color: theme.textMuted, whiteSpace: "nowrap" }}>
@@ -139,20 +129,10 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, showLive, on
       {atEnd && !loading && !error &&
         <span style={{ fontSize: "11px", color: theme.textMuted }}>구간 끝</span>}
 
-      {/* 기존(실거래) 도형 보기 — 기본 숨김.
-          켜면 원래 도형이 **읽기 전용**으로 보인다. 연습하다 실제 분석선을
-          실수로 끌어 옮기면 원본이 조용히 바뀌기 때문이다 (replay/drawingKeys.js) */}
-      <button
-        onClick={onShowLiveToggle}
-        style={{ ...btn(showLive), marginLeft: "auto" }}
-        title={showLive
-          ? "기존 도형 보는 중 (읽기 전용) — 끄면 연습용 도형만 보입니다"
-          : "실거래에서 그린 도형 보기 (읽기 전용)"}
-      >
-        {showLive ? "👁 기존 도형" : "기존 도형"}
-      </button>
-
-      <button onClick={onExit} style={btn(false)} title="실거래 화면으로 돌아가기">
+      {/* ※ "기존 도형 보기"는 2026-08-15 사용자 요청으로 **기능째 제거**됐다.
+          리플레이 도형은 이제 항상 연습용 키(`replay_*`)만 쓴다 — 되살리려면
+          drawingKeys의 showLive 인자와 useDrawableStore의 readOnly까지 다시 필요하다 */}
+      <button onClick={onExit} style={{ ...btn(false), marginLeft: "auto" }} title="실거래 화면으로 돌아가기">
         ✕ 종료
       </button>
     </div>

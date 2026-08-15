@@ -57,10 +57,30 @@ export function clearRsiZones() {
 export function getRsiZoneCount() { return _zoneCache.zones.length; }
 
 /**
+ * 화면에 칠할 구간을 고른다 — **마지막 구간과 같은 종류로 연속된 꼬리**만 남긴다.
+ * (2026-08-15 사용자 지정, "개수 조절"을 대체한 규칙)
+ *
+ * 예) 목록이 `… ob ob os os os` 이면 → 뒤의 `os os os` 셋만.
+ *     반대 종류(ob)를 만나는 순간 끊는다 — "과매수 직전까지".
+ *     마지막 두 개의 종류가 다르면 자연히 **하나만** 남는다.
+ *
+ * ⚠ 개수(N개) 방식으로 되돌리지 말 것. 그때는 지금 흐름과 무관한 옛 구간까지
+ *   같이 물들었고, 몇 개를 보여줄지가 데이터가 아니라 사용자 설정에 달려 있었다.
+ *   지금은 "지금 이어지고 있는 국면"만 나오고 조절할 노브가 필요 없다
+ */
+export function lastRsiZoneRun(zones) {
+  if (!zones.length) return zones;
+  const kind = zones[zones.length - 1].kind;
+  let i = zones.length - 1;
+  while (i > 0 && zones[i - 1].kind === kind) i--;
+  return zones.slice(i);
+}
+
+/**
  * RSI 과매수/과매도 구간을 메인 차트에 세로 밴드로 칠한다.
  *
- * @param zones computeRsiZones 결과 (전 구간)
- * @param max   최근 몇 개만 그릴지. `null` = 전체
+ * @param zones computeRsiZones 결과 (전 구간). 실제로 칠하는 건 `lastRsiZoneRun`이 고른
+ *              **마지막 연속 구간**뿐이다
  *
  * 설계 메모 (2026-08-13, 사용자 요청 — 되돌리기 전에 확인할 것):
  * - **메인 차트에만** 칠한다. RSI 패널은 선 색으로 이미 구분되므로 건드리지 않는다
@@ -74,15 +94,17 @@ export function getRsiZoneCount() { return _zoneCache.zones.length; }
  *   눈으로 맞아떨어진다. 보간하면 밴드 경계가 봉 중간을 가르며 반 칸씩 어긋나 보인다
  * - 연속 구간을 하나의 사각형으로 합친다(computeRsiZones) — 봉마다 fillRect하면
  *   경계에서 알파가 겹쳐 세로 줄무늬가 생긴다 (반투명 사각형을 이어 붙일 때의 고전적 문제)
- * - **최근 N개 제한은 화면이 아니라 전체 목록 기준**(zones.slice(-max)).
- *   기본 5개 — 과거 구간까지 온통 물들면 배경이 아니라 노이즈가 된다는 사용자 요청
+ * - **표시 대상은 "마지막 구간과 같은 종류로 연속된 꼬리"뿐**이다 (2026-08-15 사용자 지정).
+ *   개수를 고르는 슬라이더(`rsi.zone_max`)를 대체했다 — 지금 이어지고 있는 국면만 나오고,
+ *   반대 종류를 만나면 거기서 끊긴다. 판정은 **화면이 아니라 전체 목록 기준**이라
+ *   스크롤해도 밴드가 다른 데 찍히지 않는다 (그 원칙은 그대로다)
  * - ⚠ rsiData는 React `candles` 기반이라 **진행 중 봉은 반영되지 않는다**(봉마감 시 갱신).
  *   RSI 패널도 같은 데이터를 쓰므로 둘은 항상 일치한다 — 여기만 candlesRef로 앞서가게
  *   만들면 패널의 선과 배경이 어긋나 보인다
  */
-export function renderRsiZones(ctx, zones, xScale, IW, IH, isDark, max = null) {
+export function renderRsiZones(ctx, zones, xScale, IW, IH, isDark) {
   if (!zones.length) return;
-  const list = max == null ? zones : zones.slice(-max);
+  const list = lastRsiZoneRun(zones);
 
   const [iMin, iMax] = xScale.domain();
   const half = (xScale(1) - xScale(0)) / 2;   // 봉 하나의 폭 절반 (밴드를 봉 중앙 기준으로 확장)
@@ -102,16 +124,27 @@ export function renderRsiZones(ctx, zones, xScale, IW, IH, isDark, max = null) {
   });
 }
 
-export function renderFVG(ctx, fvgData, xScale, yScale, IW, IH) {
+// FVG / 오더블록 박스의 **오른쪽 끝** — 화면 오른쪽 끝(IW)이 아니라 **최신 봉까지**다
+// (2026-08-15 사용자 요청). 미래 영역(마지막 봉 오른쪽 빈 자리)까지 색이 깔리면
+// 아직 오지 않은 구간에도 근거가 있는 것처럼 보인다.
+// 봉 하나의 절반을 더해 마지막 봉의 오른쪽 가장자리에 맞춘다 (renderRsiZones와 같은 방식)
+function boxRightEdge(xScale, barCount, IW) {
+  if (!barCount) return IW;
+  const half = (xScale(1) - xScale(0)) / 2;
+  return Math.min(IW, xScale(barCount - 1) + half);
+}
+
+export function renderFVG(ctx, fvgData, xScale, yScale, IW, IH, barCount = 0) {
   withClip(ctx, M.left, M.top, IW, IH, () => {
     ctx.font = "600 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
     ctx.textBaseline = "alphabetic";
 
     const [iMin, iMax] = xScale.domain();
+    const xEnd = boxRightEdge(xScale, barCount, IW);
     for (const gap of fvgData) {
       if (gap.idx < iMin - 1 || gap.idx > iMax + 1) continue;
       const x1 = Math.max(0, xScale(gap.idx));
-      if (x1 >= IW) continue;
+      if (x1 >= xEnd) continue;          // 최신 봉보다 오른쪽이면 그릴 게 없다
       const yTop = yScale(gap.top);
       const yBot = yScale(gap.bottom);
       const h    = Math.max(yBot - yTop, 2);
@@ -120,7 +153,7 @@ export function renderFVG(ctx, fvgData, xScale, yScale, IW, IH) {
       const isDisp = gap.displacement;
       ctx.globalAlpha = isDisp ? 0.22 : 0.10;
       ctx.fillStyle   = CANVAS_C.NEUTRAL;
-      ctx.fillRect(x1, yTop, IW - x1, h);
+      ctx.fillRect(x1, yTop, xEnd - x1, h);
 
       ctx.globalAlpha = isDisp ? 0.8 : 0.4;
       ctx.fillStyle   = CANVAS_C.NEUTRAL;
@@ -129,16 +162,17 @@ export function renderFVG(ctx, fvgData, xScale, yScale, IW, IH) {
   });
 }
 
-export function renderOrderBlock(ctx, obData, xScale, yScale, IW, IH) {
+export function renderOrderBlock(ctx, obData, xScale, yScale, IW, IH, barCount = 0) {
   withClip(ctx, M.left, M.top, IW, IH, () => {
     ctx.font = "600 10px 'JetBrains Mono','Fira Code','Courier New',monospace";
     ctx.textBaseline = "alphabetic";
 
     const [iMin, iMax] = xScale.domain();
+    const xEnd = boxRightEdge(xScale, barCount, IW);   // FVG와 같은 규칙 — 최신 봉까지
     for (const ob of obData) {
       if (ob.idx < iMin - 1 || ob.idx > iMax + 1) continue;
       const x1 = Math.max(0, xScale(ob.idx));
-      if (x1 >= IW) continue;
+      if (x1 >= xEnd) continue;
       const color = ob.type === "bull" ? CANVAS_C.BULL_DARK : CANVAS_C.BEAR_DARK;
       const yTop  = yScale(ob.top);
       const yBot  = yScale(ob.bottom);
@@ -147,7 +181,7 @@ export function renderOrderBlock(ctx, obData, xScale, yScale, IW, IH) {
       const isDisp = ob.displacement;
       ctx.globalAlpha = isDisp ? 0.22 : 0.10;
       ctx.fillStyle   = color;
-      ctx.fillRect(x1, yTop, IW - x1, h);
+      ctx.fillRect(x1, yTop, xEnd - x1, h);
 
       ctx.globalAlpha = isDisp ? 0.85 : 0.45;
       ctx.fillStyle   = color;
