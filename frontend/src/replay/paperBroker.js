@@ -259,13 +259,26 @@ export class PaperBroker {
     const cur = this.pos[side];
     const fee = qty * price * feeRate;
     this.balance -= fee;
+    // entrySteps = [{ t, avg }] — **그 시각부터 유효했던 평단**. 차트 진입선을 계단으로
+    // 긋는 데 쓴다 (PositionLines.jsx). 백엔드가 체결 이력에서 역산하는 값과 같은 모양이다
+    // (services/entryTime.js) — 리플레이만 다른 모양이면 같은 화면에서 선이 달라 보인다.
+    // ⚠ 진입 체결만 계단을 추가한다. **청산은 평단을 바꾸지 않으므로** _closePosition에는 없다
     if (!cur) {
-      this.pos[side] = { size: qty, entryPrice: price, leverage: leverage || 1 };
+      this.pos[side] = {
+        size: qty, entryPrice: price, leverage: leverage || 1,
+        entryTime: this.lastTime,
+        entrySteps: [{ t: this.lastTime, avg: price }],
+      };
     } else {
-      // 평단 재계산
+      // 평단 재계산 (entryTime은 최초 진입 그대로 둔다 — 계단의 첫 칸이 그 시각이다)
       const total = cur.size + qty;
       cur.entryPrice = (cur.entryPrice * cur.size + price * qty) / total;
       cur.size = total;
+      const steps = cur.entrySteps ?? (cur.entrySteps = []);
+      // 같은 시각의 분할 체결은 한 계단으로 합친다 (백엔드와 같은 규칙)
+      if (steps.length && steps[steps.length - 1].t === this.lastTime) {
+        steps[steps.length - 1].avg = cur.entryPrice;
+      } else steps.push({ t: this.lastTime, avg: cur.entryPrice });
     }
     this.trades.push({ t: this.lastTime, side, kind: "open", qty, price, fee, reason });
   }
@@ -332,6 +345,8 @@ export class PaperBroker {
         unrealizedPnl: (side === "LONG" ? price - p.entryPrice : p.entryPrice - price) * p.size,
         leverage: p.leverage,
         liquidationPrice: this._liqPrice(side),
+        entryTime:  p.entryTime  ?? null,
+        entrySteps: p.entrySteps ?? null,
       };
     };
     const pend = (side) => {

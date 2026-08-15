@@ -30,6 +30,10 @@ backend/
 │   ├── binanceClient.js       ← sign(), binance(), roundPrice(), placeTPSL(), checkExistingTPSL(), syncServerTime()
 │   ├── orderWatcher.js        ← Binance User Data Stream (WebSocket 체결 감지) + reconcileWithBinance(60초)
 │   ├── recoveryService.js     ← 서버 재시작 시 미체결/체결 주문 복구
+│   ├── entryTime.js           ← 현재 포지션의 **평단 변화 이력**을 userTrades에서 역산 (사이드별 캐시)
+│   │                             차트 진입선 전용. ① 뒤에서부터 순수량을 누적해 시작 체결을 찾고
+│   │                             ② 앞으로 재생하며 평단 누적 (청산은 평단을 바꾸지 않는다)
+│   │                             updateTime을 쓰면 안 되는 이유는 파일 주석
 │   ├── pushService.js         ← 프론트엔드 WebSocket 실시간 푸시 (update/alert)
 │   └── statsCache.js          ← /api/stats 캐시 상태 공유 (orderWatcher가 체결 시 invalidate)
 ├── store/
@@ -58,7 +62,11 @@ frontend/src/
 │   │                             tpsl 초기값: { long: { tp, sl, splitTps:[] }, short: { tp, sl, splitTps:[] } }
 │   ├── settingsSlice.js       ← 설정(localStorage 동기화): riskPct/leverage/interval_/indicators
 │   │                             riskPct/leverage 변경 시 800ms debounce 후 pending 주문 자동 재등록
-│   ├── uiSlice.js             ← UI/드로잉/드래그 상태: drawing/drawMode/orderStatus/criticalAlert/selectedBox/opacityPopup/dragTpsl/dragScaleIn/dragSplitTp
+│   ├── uiSlice.js             ← UI/드로잉/드래그 상태: drawing/drawMode/orderStatus/criticalAlerts/selectedBox/opacityPopup/dragTpsl/dragScaleIn/dragSplitTp
+│   │                             ⚠ `criticalAlerts`는 **목록**이다 (2026-08-15). 문자열 하나로
+│   │                               되돌리지 말 것 — 한 reconcile에서 LONG·SHORT 경보가 61ms
+│   │                               간격으로 와서 뒤엣것이 앞엣것을 덮어썼다(실측 trade_log).
+│   │                               증상: "SHORT는 SL 없으면 뜨는데 LONG은 안 뜬다"
 │   ├── replaySlice.js         ← 리플레이 모드 상태 (replayOn/구간/시계/페이퍼 브로커/도형 토글)
 │   │                             replayOn은 **저장 안 함** — 새로고침하면 항상 실거래로 시작
 │   │                             SESSION_MAX_MS(90일) = 한 세션 최대 길이
@@ -89,6 +97,12 @@ frontend/src/
 │   ├── drawingKeys.js         ← 도형 저장 키 분리 (`replay_` 접두사) + 읽기 전용 판정
 │   └── session.js             ← 세션 저장/복원 — 진행 위치를 **시각**으로 저장
 ├── hooks/
+│   │   ⚠ **`candlesRef`를 읽는 useCallback/useMemo는 deps에 `candlesRef`를 넣을 것**
+│   │     (2026-08-15 실측 버그). `App.jsx`가 `replayOn ? replay : live`로 고르므로
+│   │     모드를 바꾸면 **ref 객체 자체가 다른 것으로 바뀐다**(.current만 바뀌는 게 아니다).
+│   │     빠뜨리면 전환 이전 ref를 붙들고, 그쪽은 비활성이라 `.current`가 빈 배열이다.
+│   │     증상: 리플레이에서 휠 줌을 해도 **거래량 패널만 멈춰 있었다**
+│   │     (`useChartRenderer.redrawVolume` deps가 `[IW, isDark]`뿐이었다)
 │   ├── useCandles.js          ← REST 1500봉 로드 + WebSocket 실시간 업데이트
 │   ├── useRealtimeData.js     ← 백엔드 WebSocket 연결 (체결/TP·SL/포지션 즉시 반영), 5초 재연결
 │   ├── useBalance.js          ← USDT 잔고 조회 (폴링)
@@ -151,6 +165,10 @@ frontend/src/
 │   │                             fibPrice(선형/로그) / normFibLevels / FIB_ALL_LEVELS·FIB_DEFAULT_LEVELS
 │   │                             pivotLevels.js와 같은 이유로 의존성 0 — node에서 바로 검산한다
 │   │                             (픽셀 변환 fibXs는 tsToIdx가 필요해 hitDetection.js에 있다)
+│   ├── entryPath.js           ← 진입선(평단선) 계단 좌표 (순수 함수, **import 없음**)
+│   │                             entryPathPoints/entryPathString — PositionLines가 쓴다
+│   │                             pivotLevels.js와 같은 이유로 의존성 0 — "추가 매수로 평단이
+│   │                             오르내릴 때 제대로 꺾이는가"를 node에서 실제 값으로 검산한다
 │   ├── pivotLevels.js         ← computePivotLevels() — Pivot Levels 계산 (순수 함수)
 │   │                             usePivotLevels가 감싸 쓴다. 순수 함수로 뺀 이유는
 │   │                             실제 캔들로 기본값을 실측 검증하기 위함 (node에서 바로 import)
@@ -242,7 +260,23 @@ frontend/src/
 │   │   │                               (판정은 hitDetection이 따로 갖는다) — 조작성은 그대로다
 │   │   │                             ※ TP·SL 둘 다 **실선**이다 (SL만 점선이던 것을 맞췄다)
 │   │   ├── PositionLines.jsx      ← 헷지모드: 롱/숏 포지션 각각 진입/TP/SL/분할TP/추가진입 수평선 (드래그 핸들)
-│   │   │                             + 진입선 옆 `+TP`/`+SL` 버튼 — **없을 때만** 뜨는 신규 등록 입구
+│   │                             ⚠ **진입선은 진입봉부터 오른쪽 끝까지, 평단이 바뀐 지점에서
+│   │                               꺾이는 계단**이다 (2026-08-15 사용자 요청 → 같은 날 계단으로 보강).
+│   │                               전 폭 직선이면 "언제 들어갔나"가 안 보이고, 직선 한 줄이면
+│   │                               추가 매수 뒤 왼쪽 끝이 허공을 가리킨다 (position API 절 참고).
+│   │                               좌표는 `chart/entryPath.js` 하나가 만든다 — `position.*.entrySteps`를
+│   │                               **봉 한가운데가 아니라 그 봉 왼쪽 가장자리**(`floor(idx) - 0.5`)에 맞춘다
+│   │                               ⚠ **세로 단차는 점선(2,2) + 흐리게(0.35)** — 가로선과 똑같이
+│   │                                 그리면 **캔들 심지로 읽힌다**(진입선 색이 캔들 색과 같은 계열).
+│   │                                 심지는 실선이라 점선이면 갈린다. 가로선까지 점선으로 만들지 말 것
+│   │                                 (이 앱에서 점선은 "아직 확정 아님"이나 "알림 ON"의 뜻이다)
+│   │                               ⚠ **마지막 계단 높이는 `entryPrice`를 쓴다** (steps의 avg가 아니라).
+│   │                                 두 값은 일치하지만 라벨·×·사이드바가 전부 entryPrice를 본다
+│   │                               ⚠ `entrySteps`가 없으면(외부 진입·이력 부족·조회 실패)
+│   │                                 예전처럼 **전 폭 직선**이다 — 계단이 1개면 진입봉부터 직선
+│   │                             ※ TP/SL·추가대기·분할TP 가로선은 **전 폭 그대로다** — 저건 미래에
+│   │                               걸어둔 주문이라 시작점이라 할 게 없다
+│   │                             + 진입선 옆 `+TP`/`+SL` 버튼 — **없을 때만** 뜨는 신규 등록 입구
 │   │   │                             좌표는 `hitDetection.posTpSlButtons` 하나가 정한다 (렌더·히트 공용)
 │   │   │                             ⚠ TP/SL/추가대기/분할TP의 **우측 라벨은 없다** (2026-08-15) —
 │   │   │                               왼쪽 버튼이 같은 말을 하고 있어 지웠다. 되살리려면 넷을 같이.
@@ -307,7 +341,20 @@ frontend/src/
 ### 헷지모드 (Hedge Mode)
 - Binance Futures 헷지 모드 전제: LONG/SHORT 포지션이 동시에 존재 가능
 - **position API 응답**: `{ long, short, pending, scaleInOrders, funding }`
-  - `long`/`short`: 각각 독립 포지션 객체 (size/entryPrice/unrealizedPnl/leverage/liquidationPrice) 또는 null
+  - `long`/`short`: 각각 독립 포지션 객체 (size/entryPrice/unrealizedPnl/leverage/liquidationPrice/**entryTime**) 또는 null
+    - `entryTime` = **이 포지션이 처음 열린 시각** / `entrySteps` = `[{ t, avg }]` =
+      **그 시각부터 유효했던 평단**. 차트 진입선을 진입봉부터 계단식으로 긋는 데 쓴다
+      (아래 PositionLines 항목). `services/entryTime.js`가 체결 이력에서 역산한다
+      - ⚠ **positionRisk의 `updateTime`을 쓰지 말 것** (2026-08-15 실계좌에서 확인).
+        그건 "마지막으로 바뀐 시각"이라 부분 청산 때마다 앞으로 밀린다 —
+        LONG 실제 진입 08-14 21:37 vs updateTime 08-15 05:28로 **8시간** 어긋났고,
+        진입선이 엉뚱한 봉에서 시작했다 ("실선이 빈 공간에서 시작한다"는 신고)
+      - ⚠ **왜 시각 하나가 아니라 목록인가**: 추가 매수를 하면 `entryPrice`가 평단으로
+        바뀌는데, 평단은 정의상 체결가들 **사이** 값이라 최초 진입봉의 고가~저가 밖일 수
+        있다 → 선의 왼쪽 끝이 캔들이 아니라 **허공**을 가리킨다. 시작점을 "평단이 바뀐
+        봉"으로 옮겨도 같다(그 봉 기준으론 반대쪽 허공) — 어느 한 봉을 골라도 안 된다
+      - 실측 검산 (2026-08-15 실계좌): 마지막 계단의 avg가 바이낸스 `entryPrice`와
+        **오차 0**으로 일치 (LONG 1계단 / SHORT 4계단)
   - `pending`: `{ long, short }` 각각 독립 — 진입 LIMIT 주문이 사이드별로 1건씩 존재 가능
   - `scaleInOrders`: BUY side = LONG 추가진입, SELL side = SHORT 추가진입
 - **tpsl API 응답**: `{ long: { tp, sl, splitTps }, short: { tp, sl, splitTps } }`
@@ -616,6 +663,15 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   - 구간 극값은 구간이 늘어나도 되돌아가지 않으므로 **한번 뚫으면 가격이 되돌아와도 마크 유지**
     (누적 상태 없이 순수 함수인 채로 래치 성립)
   - 확정분과 구분되게 점선 (`liveSegment`도 점선) — 나중에 그 자리에 꼭짓점을 찍으면 실선이 됨
+  - ⚠ **진행 중 레그는 하늘색(`#38bdf8`) + 굵기 1.5 + 글로우(0.15)**로 그린다
+    (`[R11]`, 2026-08-15 사용자 요청). 선택 중이면 금색이 이긴다 (폴리라인과 같은 규칙)
+    - 처음엔 알림과 같은 호박색이었다가 같은 날 파랑으로 바꿨다 — 알림 ON인 구조에서
+      확정 레그와 색이 겹쳐 진행 중 레그가 묻혔다
+    - ⚠ 꼭짓점 부분 선택 파랑(`PALETTE.info` `#60a5fa`)과 **일부러 다른 색조**다.
+      저건 "Delete 대상"이라는 전혀 다른 뜻이다
+    - **구조 투명도를 따르지 않는다** — CHoCH 마크(`[R1]`)와 같은 이유.
+      예전엔 회색 + 굵기 1 + `0.45 × 구조 투명도`(기본 0.5) = 실효 0.22라
+      지그재그 끝에서 흐려지며 사라졌다. "일관되게" opacity를 다시 곱하지 말 것
   - ※ `deriveStructure`에는 **`candlesRef.current`를 넘겨야 한다.** React `candles` state는
     봉마감 때만 갱신돼서 진행 중 봉의 고가/저가가 낡아 있다 (`useCandles.js:29-38`)
 - **CHoCH 가로선 끝점 = 레그 선분과 레벨의 교차점**(`crossT`, 선형 보간). 확정·라이브 동일
@@ -777,7 +833,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS/**zone_bg/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs), **fib(levels)**
+- 대상: RSI(period/OB/OS/**zone_bg/zone_all/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs), **fib(levels)**
 - ※ `fib`는 **levels 하나뿐이다** — 투명도·잠금·알림은 도형별(localStorage `"fibs"`)이라 여기 없다.
   도형별 레벨 편집을 새로 만들지 말 것 (위 피보나치 절 `[F1]`)
 - ※ `pivot`은 **6개를 저장하고 UI에는 5개**(TF 그리드 + 슬라이더 4개) — 숨긴 건 `lookback`(600).
@@ -1145,6 +1201,13 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
     - ⚠ **알림은 이 필터와 무관하다.** `useAlertMonitor`는 TF별 WebSocket을 따로 감시하고
       설정도 NotificationMenu에 따로 있다 — 배경을 끈 TF의 RSI 알림도 계속 울려야 한다
     - 라벨에 "구간 배경"을 꼭 적을 것. 그냥 "표시 타임프레임"이면 RSI 전체가 사라지는 줄 안다
+  - **전체 표시 토글** `zone_all` (IndicatorMenu RSI ⚙ → `구간 배경 전체 표시`, 기본 **OFF**,
+    2026-08-15 사용자 요청) — ON이면 위 "마지막 연속 구간" 규칙을 건너뛰고 **검출된 전 구간**을 칠한다
+    - ⚠ **개수 슬라이더(`zone_max`)의 부활이 아니다.** 노브가 아니라 on/off고, 켜도
+      "몇 개"를 사용자가 고르지 않는다 — 데이터가 정한 전부가 그대로 나온다.
+      다시 슬라이더로 바꾸지 말 것 (`zone_max`를 지운 이유가 그대로 살아 있다)
+    - ⚠ 기본은 OFF다. ON이 기본이면 5m처럼 구간이 잦은 TF에서 화면이 통째로 물든다 —
+      그게 애초에 "꼬리만" 규칙이 생긴 이유다
   - 토글: IndicatorMenu RSI ⚙ → `구간 배경`(`zone_bg`, 기본 ON). RSI 지표가 꺼지면 함께 꺼진다.
     `검출된 과매수/과매도 N개` 행은 남아 있지만 이제 순수 정보 표시다(칠하는 건 마지막 연속 구간뿐)
   - ⚠ 구간 계산(`computeRsiZones`)은 **`zone_bg`가 꺼져 있어도 돌린다** — 메뉴의

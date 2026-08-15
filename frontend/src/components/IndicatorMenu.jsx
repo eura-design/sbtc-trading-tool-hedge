@@ -36,6 +36,10 @@ const PARAMS_META = {
     { key: "oversold",   label: "과매도",   min: 5,    max: 49,  step: 1 },
     // 과매수/과매도 구간을 메인 차트 배경에 파란 세로 밴드로 (RSI 패널은 그대로)
     { key: "zone_bg",    label: "구간 배경", type: "toggle" },
+    // OFF(기본) = 지금 이어지는 국면만 / ON = 검출된 전 구간.
+    // ⚠ **기본은 OFF다.** ON이 기본이면 5m처럼 구간이 많은 TF에서 화면이 통째로 물든다
+    //   (그게 애초에 "마지막 연속 구간만" 규칙이 생긴 이유다 — overlayRenderers 주석)
+    { key: "zone_all",   label: "구간 배경 전체 표시", type: "toggle" },
   ],
   fvg: [
     { key: "lookback",       label: "표시 범위",      min: 50,  max: 1000, step: 10 },
@@ -591,7 +595,9 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
       )}
       {/* ※ RSI `구간 개수` 슬라이더는 2026-08-15 사용자 요청으로 제거됐다.
           이제 몇 개를 칠할지는 설정이 아니라 데이터가 정한다 — 마지막 구간과 같은
-          종류로 **연속된 꼬리**만 나온다 (overlayRenderers의 lastRsiZoneRun) */}
+          종류로 **연속된 꼬리**만 나온다 (overlayRenderers의 lastRsiZoneRun).
+          같은 날 추가된 `구간 배경 전체 표시`(zone_all)는 그 규칙의 on/off일 뿐
+          개수 노브가 아니다 — 켜면 검출된 전 구간이 그대로 나온다. 슬라이더로 되돌리지 말 것 */}
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         <button
           onClick={() => resetIndicator(indKey)}

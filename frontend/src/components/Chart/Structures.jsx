@@ -30,6 +30,9 @@ import { clipPolylineX, clipSegmentX, inViewX, VIEW_PAD } from "../../chart/svgG
 //
 // [R5] 라이브에서 나온 CHoCH는 점선, 확정분은 실선. 이 구분을 없애지 말 것.
 //
+// [R11] 진행 중 레그(점선)는 **하늘색(LIVE_COLOR) + 굵기 1.5 + 글로우**로 눈에 띄게 그린다
+//      (2026-08-15 사용자 요청). 구조 투명도를 곱하지 않는다 — 자세한 근거는 렌더 부분 주석.
+//
 // [R6] CHoCH 표시 개수 제한은 **구조마다 각각**이고, 값도 구조가 들고 있다(st.maxChoch,
 //      더블클릭 팝업에서 설정). 전역 설정 하나로 두지 말 것 — 두 번 문제가 됐다:
 //        ① 전 구조를 합쳐 최신 N개로 자르던 시절: 과거 구간에 그린 구조의 마크가
@@ -72,6 +75,13 @@ const SEL_COLOR  = "#f0b90b";           // 구조 전체 선택 = 금색
 // ※ 예전엔 여기에 🔔 아이콘도 달렸다 — 2026-08-14 사용자 요청으로 **네 종류 모두** 제거.
 //   되살리려면 넷을 같이 되살릴 것
 const ALERT_COLOR = "#fbbf24";
+// 진행 중 레그(점선) 전용 색 — 하늘색 ([R11], 2026-08-15 사용자 지정).
+// 한때 알림과 같은 호박색이었는데, 그러면 알림 ON인 구조에서 확정 레그와 진행 중 레그가
+// 같은 색이 되어 "지금 뻗고 있는 쪽"이 묻힌다. 파랑 계열은 지그재그 회색·알림 호박색·
+// 선택 금색 어느 것과도 겹치지 않는다.
+// ⚠ 꼭짓점 부분 선택 파랑(PART_COLOR #60a5fa)과는 **일부러 다른 색조**다 —
+//   저건 "Delete 대상"이라는 전혀 다른 뜻이고, 둘이 같으면 화면에서 구분이 안 된다
+const LIVE_COLOR = "#38bdf8";
 // 구조 안에서 다시 고른 꼭짓점 = 파랑. 금색과 확실히 구분돼야
 // "지금 Delete를 누르면 이것만 지워진다"가 한눈에 보인다 (사용자 요구사항)
 const PART_COLOR = PALETTE.info;        // #60a5fa
@@ -279,10 +289,25 @@ export const Structures = memo(function Structures({
               const b = toXY(liveSegment.t2, liveSegment.p2);
               const s = clipSegmentX(a.x, a.y, b.x, b.y, -VIEW_PAD, IW + VIEW_PAD);
               if (!s) return null;
+              // [R11] 진행 중 레그는 **눈에 띄게 그린다** (2026-08-15 사용자 요청).
+              //   하늘색(LIVE_COLOR) + 굵기 1.5 + 글로우(6/0.15). 예전엔 구조 색(회색)에
+              //   굵기 1, 불투명도 0.45 × 구조 투명도(기본 0.5)라 사실상 0.22였고,
+              //   회색 지그재그 끝에서 흐려지며 사라져 "지금 어디로 뻗고 있나"가 안 보였다.
+              //   ※ 처음엔 알림과 같은 호박색이었다가 같은 날 파랑으로 바꿨다 —
+              //     알림 ON인 구조에서 확정 레그와 색이 겹쳐 진행 중 레그가 묻혔다.
+              //   ⚠ **구조 투명도를 따르지 않는다** — CHoCH 마크([R1])와 같은 이유다.
+              //     지그재그를 배경처럼 흐리게 깔아도 "지금"을 가리키는 요소는 또렷해야 한다.
+              //     "일관되게" opacity를 다시 곱하지 말 것 — 기본 0.5에서 도로 안 보인다.
+              //   ⚠ 선택 중(금색)일 때만 색이 바뀐다 — 지그재그 폴리라인과 같은 규칙으로
+              //     "지금 조작 중"이 먼저다.
+              //   점선 간격(4,3)은 그대로 둔다 — 알림 선(6,3)·확정 선(실선)과 여전히 구분된다.
+              const liveColor = selected ? SEL_COLOR : LIVE_COLOR;
               return (
                 <g>
                   <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
-                    stroke={color} strokeWidth={1} opacity={0.45 * opacity}
+                    stroke={liveColor} strokeWidth={6} opacity={0.15} />
+                  <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+                    stroke={liveColor} strokeWidth={1.5} opacity={0.8}
                     strokeDasharray="4,3" />
                   {/* 끝점 핸들 — **누르면 그 자리가 꼭짓점으로 확정된다** (2026-08-15 사용자 요청).
                       속을 비운 원인 이유: "아직 확정 아님"을 확정 꼭짓점(꽉 찬 원)과 구분한다.
@@ -290,8 +315,8 @@ export const Structures = memo(function Structures({
                       pointerEvents:none이라 이 노드가 클릭을 받지는 않는다 */}
                   {inViewX(b.x, IW) && (
                     <circle cx={b.x} cy={b.y} r={SEL_HANDLE_R + 0.5}
-                      fill="none" stroke={color} strokeWidth={1.2}
-                      opacity={0.75 * opacity} />
+                      fill="none" stroke={liveColor} strokeWidth={1.5}
+                      opacity={0.85} />
                   )}
                 </g>
               );

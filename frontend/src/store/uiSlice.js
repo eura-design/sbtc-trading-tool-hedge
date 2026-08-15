@@ -42,7 +42,13 @@ export const createUiSlice = (set, get) => ({
   // ── 모드 / UI 상태 ────────────────────────────────────────────────────────
   drawMode:      false,
   orderStatus:   null,
-  criticalAlert: null,
+  // ⚠ **목록이다. 문자열 하나로 되돌리지 말 것** (2026-08-15, 실계좌 재현).
+  //   예전엔 `criticalAlert` 문자열 하나였는데, 한 reconcile 사이클에서 LONG·SHORT
+  //   경보가 **61ms 간격으로** 연달아 오면(trade_log 실측: 08:10:01.307 LONG /
+  //   .368 SHORT) 뒤엣것이 앞엣것을 덮어써서 **LONG 경보가 통째로 사라졌다**.
+  //   증상: "SHORT는 SL 없으면 뜨는데 LONG은 안 뜬다" (사용자 신고).
+  //   같은 문구는 중복으로 쌓지 않는다 — 백엔드에도 사이드당 래치가 있지만 이중으로 막는다
+  criticalAlerts: [],
   tpslSaving:    false,
   selectedBox:   false,
   opacityPopup:  null,
@@ -71,7 +77,10 @@ export const createUiSlice = (set, get) => ({
 
   setDrawMode:      (v) => set({ drawMode: typeof v === "function" ? v(get().drawMode) : v }),
   setOrderStatus:   (v) => set({ orderStatus: v }),
-  setCriticalAlert: (v) => set({ criticalAlert: v }),
+  pushCriticalAlert:    (msg) => set(s => s.criticalAlerts.includes(msg)
+                                    ? {} : { criticalAlerts: [...s.criticalAlerts, msg] }),
+  dismissCriticalAlert: (msg) => set(s => ({ criticalAlerts: s.criticalAlerts.filter(m => m !== msg) })),
+  clearCriticalAlerts:  ()    => set({ criticalAlerts: [] }),
   setTpslSaving:    (v) => set({ tpslSaving: v }),
   setSelectedBox:   (v) => set({ selectedBox: v }),
   setOpacityPopup:  (v) => set({ opacityPopup: v }),

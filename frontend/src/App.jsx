@@ -47,7 +47,7 @@ export default function App() {
     indicators, toggleIndicator,
     setDrawMode,
     drawing, setDrawing,
-    criticalAlert, setCriticalAlert,
+    criticalAlerts, dismissCriticalAlert,
     selectedBox, setSelectedBox,
     position,
     // ── 리플레이 ──
@@ -518,16 +518,20 @@ export default function App() {
           />
         )}
 
-        {criticalAlert && (
-          <div onClick={() => setCriticalAlert(null)} style={{
+        {/* ⚠ **여러 건을 동시에 띄운다** (2026-08-15). 한 reconcile에서 LONG·SHORT 경보가
+            61ms 간격으로 오는데, 예전처럼 슬롯 하나면 뒤엣것이 앞엣것을 덮어써서
+            LONG 경보가 통째로 사라졌다 (uiSlice.criticalAlerts 주석 참고).
+            각 줄을 따로 닫는다 — 하나로 묶어 닫으면 아직 못 읽은 경보까지 같이 사라진다 */}
+        {criticalAlerts.map(msg => (
+          <div key={msg} onClick={() => dismissCriticalAlert(msg)} style={{
             padding: "8px 16px", background: "#7f0000", borderBottom: "2px solid #ff0000",
             fontSize: "13px", color: "#fff", fontWeight: "700", cursor: "pointer",
             display: "flex", justifyContent: "space-between", alignItems: "center",
           }}>
-            <span>{criticalAlert}</span>
+            <span>{msg}</span>
             <span style={{ opacity: 0.7, fontSize: "11px" }}>클릭하여 닫기</span>
           </div>
-        )}
+        ))}
 
         <ChartArea
           candles={candles} candlesRef={candlesRef} candleLoading={candleLoading}

@@ -79,8 +79,9 @@ export function lastRsiZoneRun(zones) {
 /**
  * RSI 과매수/과매도 구간을 메인 차트에 세로 밴드로 칠한다.
  *
- * @param zones computeRsiZones 결과 (전 구간). 실제로 칠하는 건 `lastRsiZoneRun`이 고른
- *              **마지막 연속 구간**뿐이다
+ * @param zones   computeRsiZones 결과 (전 구간)
+ * @param showAll true면 전 구간을 다 칠한다 (`rsi.zone_all`, 2026-08-15 사용자 요청).
+ *                기본(false)은 `lastRsiZoneRun`이 고른 **마지막 연속 구간**뿐이다
  *
  * 설계 메모 (2026-08-13, 사용자 요청 — 되돌리기 전에 확인할 것):
  * - **메인 차트에만** 칠한다. RSI 패널은 선 색으로 이미 구분되므로 건드리지 않는다
@@ -94,17 +95,21 @@ export function lastRsiZoneRun(zones) {
  *   눈으로 맞아떨어진다. 보간하면 밴드 경계가 봉 중간을 가르며 반 칸씩 어긋나 보인다
  * - 연속 구간을 하나의 사각형으로 합친다(computeRsiZones) — 봉마다 fillRect하면
  *   경계에서 알파가 겹쳐 세로 줄무늬가 생긴다 (반투명 사각형을 이어 붙일 때의 고전적 문제)
- * - **표시 대상은 "마지막 구간과 같은 종류로 연속된 꼬리"뿐**이다 (2026-08-15 사용자 지정).
+ * - **기본 표시 대상은 "마지막 구간과 같은 종류로 연속된 꼬리"뿐**이다 (2026-08-15 사용자 지정).
  *   개수를 고르는 슬라이더(`rsi.zone_max`)를 대체했다 — 지금 이어지고 있는 국면만 나오고,
  *   반대 종류를 만나면 거기서 끊긴다. 판정은 **화면이 아니라 전체 목록 기준**이라
  *   스크롤해도 밴드가 다른 데 찍히지 않는다 (그 원칙은 그대로다)
+ * - ⚠ `rsi.zone_all`(지표 메뉴 `구간 배경 전체 표시`, 같은 날 추가)을 켜면 **전 구간**을
+ *   칠한다. **개수 슬라이더의 부활이 아니다** — 노브가 아니라 on/off고, 켜도 데이터가
+ *   정하는 전부를 그대로 보여줄 뿐 "몇 개"를 사용자가 고르지 않는다.
+ *   기본은 OFF다: 5m처럼 구간이 잦은 TF에서 켜면 화면이 통째로 물든다(그래서 꼬리만이 기본)
  * - ⚠ rsiData는 React `candles` 기반이라 **진행 중 봉은 반영되지 않는다**(봉마감 시 갱신).
  *   RSI 패널도 같은 데이터를 쓰므로 둘은 항상 일치한다 — 여기만 candlesRef로 앞서가게
  *   만들면 패널의 선과 배경이 어긋나 보인다
  */
-export function renderRsiZones(ctx, zones, xScale, IW, IH, isDark) {
+export function renderRsiZones(ctx, zones, xScale, IW, IH, isDark, showAll = false) {
   if (!zones.length) return;
-  const list = lastRsiZoneRun(zones);
+  const list = showAll ? zones : lastRsiZoneRun(zones);
 
   const [iMin, iMax] = xScale.domain();
   const half = (xScale(1) - xScale(0)) / 2;   // 봉 하나의 폭 절반 (밴드를 봉 중앙 기준으로 확장)

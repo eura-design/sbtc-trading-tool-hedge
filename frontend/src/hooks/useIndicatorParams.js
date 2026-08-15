@@ -12,7 +12,10 @@ export const INDICATOR_DEFAULTS = {
   //   ⚠ 거르는 건 **배경뿐이다. RSI 패널(선)은 전 TF에서 계속 보인다** —
   //     App.jsx가 showRsi(패널)와 showRsiZones(배경)로 나눠 갖는다. 다시 합치지 말 것
   //   ⚠ 기본값은 **전 TF**다 — struct처럼 ["1h"]로 두면 기존 사용자에게 기능이 사라진 것처럼 보인다
-  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true,
+  // zone_all — 구간 배경을 **전 구간** 칠한다 (2026-08-15 사용자 요청).
+  //   기본 OFF = 위의 "마지막 연속 구간만". 노브가 아니라 on/off라 zone_max의 부활이 아니다
+  //   ⚠ 기본을 true로 두지 말 것 — 5m처럼 구간이 잦은 TF에서 화면이 통째로 물든다
+  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_all: false,
          tfs: ["5m", "15m", "1h", "4h", "1d", "1w", "1M"] },
   // ※ RSI 다이버전스(`rsidiv`)는 2026-08-13 지표째로 제거됐다 — 키를 되살리지 말 것
   fvg: { lookback: 400, max_display: 20, mitigation_pct: 50, disp_threshold: 1.8, disp_atr_period: 14, displacement_only: false },

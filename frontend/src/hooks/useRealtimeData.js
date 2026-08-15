@@ -24,7 +24,7 @@ export function useRealtimeData() {
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
-          const { _refetchPos, _refetchBal, _refetchTpsl, setCriticalAlert } = useStore.getState();
+          const { _refetchPos, _refetchBal, _refetchTpsl, pushCriticalAlert } = useStore.getState();
 
           if (msg.type === "update") {
             const targets = msg.targets || [];
@@ -47,7 +47,7 @@ export function useRealtimeData() {
           if (msg.type === "alert") {
             // 리플레이 중에는 억누른다 — 실계좌 경보가 연습 화면 위에 뜨면
             // 어느 쪽 계좌 얘기인지 구분이 안 된다 (알림 자체는 실거래로 돌아오면 다시 뜬다)
-            if (!useStore.getState().replayOn) setCriticalAlert(msg.msg);
+            if (!useStore.getState().replayOn) pushCriticalAlert(msg.msg);
           }
         } catch {}
       };

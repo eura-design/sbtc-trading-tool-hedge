@@ -2,6 +2,8 @@ import { memo, useState } from "react";
 import { PALETTE } from "../../constants";
 import { posTpSlButtons, TPSL_BTN, CLOSE_BTN, ENTRY_LABEL_W, closeBtnRect, entryLabelX, entryCloseRect }
   from "../../chart/hitDetection";
+import { tsToIdx } from "../../chart/scales";
+import { entryPathSegments } from "../../chart/entryPath";
 
 function inView(px, IH) { return px !== null && px >= -20 && px <= IH + 20; }
 
@@ -131,14 +133,25 @@ function AddTpSlButton({ btn, color, hovered, onEnter, onLeave }) {
 // 진입선의 우측 라벨 — 여기만 남는다. 진입선은 왼쪽에 버튼이 없어서 유일한 표시다.
 // 모양은 MarkerButton과 같은 규칙(어두운 면 + 사이드 색 테두리·글자, 높이 TPSL_BTN.h)이지만
 // **누를 수 없다** — 진입선은 드래그 대상이 아니라 커서도 바꾸지 않는다
-function EntryLine({ yPx, color, label, IW, IH, confirm, closeHovered, onCloseEnter, onCloseLeave }) {
+function EntryLine({ yPx, color, label, IW, IH, path, confirm, closeHovered, onCloseEnter, onCloseLeave }) {
   if (!inView(yPx, IH)) return null;
   // 오른쪽 여백은 왼쪽 버튼과 **같은 값**을 쓴다(TPSL_BTN.x0) — 양끝이 대칭으로 보이게.
   // 예전엔 여백 0이라 라벨이 플롯 오른쪽 끝에 붙어 있었다
   const x = entryLabelX(IW);
   return (
     <>
-      <line x1={0} x2={IW} y1={yPx} y2={yPx} stroke={color} strokeWidth={1} opacity={0.7} />
+      {/* 진입선 — 진입봉부터 오른쪽 끝까지. 추가 매수로 평단이 바뀐 지점에서 꺾인다.
+          ⚠ **세로 단차는 점선 + 더 흐리게** 그린다 (2026-08-15). 가로선과 똑같이 그리면
+            캔들 심지로 읽힌다 — 진입선 색이 캔들 색과 같은 계열이라 특히 그렇다.
+            심지는 실선이므로 점선이면 한눈에 갈린다. 자세한 근거는 chart/entryPath.js */}
+      {path.h.map((s, k) => (
+        <line key={`h${k}`} x1={s.x1} x2={s.x2} y1={s.y} y2={s.y}
+          stroke={color} strokeWidth={1} opacity={0.7} />
+      ))}
+      {path.v.map((s, k) => (
+        <line key={`v${k}`} x1={s.x} x2={s.x} y1={s.y1} y2={s.y2}
+          stroke={color} strokeWidth={1} opacity={0.35} strokeDasharray="2,2" />
+      ))}
       {/* × 는 라벨 **왼쪽**에 — 오른쪽은 여백뿐이라 자리가 없다.
           한 번 누르면 ✓(호박색)로 바뀌고, 그 상태에서 다시 눌러야 시장가 청산이 나간다 */}
       <CloseButton rect={entryCloseRect(yPx, IW)} color={color} confirm={confirm}
@@ -155,9 +168,9 @@ function EntryLine({ yPx, color, label, IW, IH, confirm, closeHovered, onCloseEn
   );
 }
 
-export const PositionLines = memo(function PositionLines({ position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, closeConfirm, scales, IW, IH }) {
+export const PositionLines = memo(function PositionLines({ position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, closeConfirm, scales, candles, IW, IH }) {
   if (!position || !scales) return null;
-  const { yScale } = scales;
+  const { yScale, xScale } = scales;
 
   const [hoveredTpSide, setHoveredTpSide]   = useState(null);
   const [hoveredSlSide, setHoveredSlSide]   = useState(null);
@@ -174,6 +187,21 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
 
   const splitTpList = splitTps ?? [];
 
+  // 진입 시각 → 그 봉의 **왼쪽 가장자리** x. 봉 한가운데(fractional idx)가 아니라
+  // 가장자리로 맞춰야 "이 봉에서 들어갔다"가 캔들과 나란히 읽힌다
+  // (FVG/OB 박스가 봉 절반을 더해 오른쪽 끝에 맞추는 것과 같은 계산).
+  // 화면 밖이면 0~IW로 클램프 — 잘린 구간의 보이는 부분은 그대로 그려진다
+  const entryX = (t) => {
+    if (!t || !candles?.length || !xScale) return 0;
+    const px = xScale(Math.floor(tsToIdx(t, candles)) - 0.5);
+    return Math.min(Math.max(px, 0), IW);
+  };
+
+  // 진입선 좌표 — **계단**이다 (2026-08-15 사용자 지적으로 직선에서 바뀜).
+  // 계산은 chart/entryPath.js의 순수 함수 — 이유와 실측은 그 파일 주석 참고
+  const entryPath = (pos) =>
+    entryPathSegments(pos.entrySteps, pos.entryPrice, entryX, yScale, IW);
+
   // TP/SL이 아직 없는 자리에 뜨는 `+TP` / `+SL`.
   // 저장 중이거나 지금 그걸 끌고 있는 중이면 감춘다 — 끄는 순간 선이 이미 그 자리에 보인다
   const addButtons = (tpslSaving ? [] : posTpSlButtons(position, tpsl, yScale, IH))
@@ -189,10 +217,14 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
 
   return (
     <g>
-      {/* 진입선 */}
+      {/* 진입선 — **진입봉부터 차트 오른쪽 끝까지**, 평단이 바뀐 지점에서 꺾이는 계단
+          (2026-08-15 사용자 요청). 전 폭 가로선이면 "언제 들어갔나"가 안 보인다 —
+          왼쪽 끝이 진입 시점이라 보유 기간이 선 길이로 읽힌다. 좌표는 entryPath() 참고 */}
       {position.long  && <EntryLine yPx={yScale(position.long.entryPrice)}  color={CL} label="LONG"  IW={IW} IH={IH}
+        path={entryPath(position.long)}
         confirm={closeConfirm === "LONG"}  {...closeProps("entry-LONG")} />}
       {position.short && <EntryLine yPx={yScale(position.short.entryPrice)} color={CS} label="SHORT" IW={IW} IH={IH}
+        path={entryPath(position.short)}
         confirm={closeConfirm === "SHORT"} {...closeProps("entry-SHORT")} />}
 
       {/* TP/SL 신규 등록 버튼 (없을 때만) */}

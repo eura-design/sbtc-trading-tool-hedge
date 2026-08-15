@@ -76,7 +76,7 @@ export function ChartSvg({
             tpslSaving={tpslSaving} scaleInOrders={scaleInOrders} dragScaleIn={dragScaleIn}
             splitTps={splitTps} dragSplitTp={dragSplitTp}
             closeConfirm={closeConfirm}
-            scales={scales} IW={IW} IH={IH}
+            scales={scales} candles={candles} IW={IW} IH={IH}
           />
         )}
         <BoxOverlay drawing={drawing} scales={scales} IW={IW} selectedBox={selectedBox} candles={candles} />

@@ -60,7 +60,9 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
       // ⚠ 몇 개를 그릴지는 **설정이 아니라 데이터가 정한다** (2026-08-15).
       //   renderRsiZones가 `lastRsiZoneRun`으로 "마지막 구간과 같은 종류로 연속된 꼬리"만 고른다.
       //   개수 슬라이더(`rsi.zone_max`)는 그때 함께 제거됐다 — 되살리지 말 것
-      renderRsiZones(ctx, zones, xScale, IW, IH, isDark);
+      //   `zone_all`은 그 규칙의 예외가 아니라 **전부/꼬리만의 on/off**다 (같은 날 추가) —
+      //   켜도 "몇 개"를 고르는 게 아니라 검출된 전 구간을 그대로 보여준다
+      renderRsiZones(ctx, zones, xScale, IW, IH, isDark, ov.rsiParams?.zone_all === true);
     }
   } else {
     clearRsiZones();

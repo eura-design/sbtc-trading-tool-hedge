@@ -2,6 +2,7 @@ const express = require("express");
 const { binance } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { resolveOrphans } = require("../services/orderWatcher");
+const { resolveEntryInfo } = require("../services/entryTime");
 const router  = express.Router();
 
 router.get("/", async (req, res) => {
@@ -22,6 +23,8 @@ router.get("/", async (req, res) => {
       unrealizedPnl:    parseFloat(p.unRealizedProfit),
       leverage:         parseInt(p.leverage),
       liquidationPrice: parseFloat(p.liquidationPrice) || null,
+      entryTime:        null,   // 아래에서 채운다
+      entrySteps:       null,   // 〃
     };
 
     // 바이낸스 미체결 LIMIT 진입 주문 (TP/SL, SCALE_IN 제외)
@@ -92,9 +95,23 @@ router.get("/", async (req, res) => {
       nextFundingTime: fundingData.nextFundingTime,
     };
 
+    const out = { long: makePos(longPos), short: makePos(shortPos) };
+
+    // entryTime / entrySteps — 차트 진입선을 **진입봉부터 계단식으로** 긋는 데 쓴다
+    // (PositionLines.jsx). entrySteps = [{ t, avg }] — 그 시각부터 유효했던 평단.
+    // ⚠ positionRisk의 updateTime을 쓰지 말 것. 그건 "마지막으로 바뀐 시각"이라
+    //   부분 청산 때마다 앞으로 밀린다 (실측 8시간 차이) — services/entryTime.js 주석 참고.
+    // 포지션이 바뀌지 않으면 캐시라 추가 요청이 없다. 실패하면 null이고,
+    // 그때는 프론트가 예전처럼 전 폭 직선으로 긋는다
+    const entry = await resolveEntryInfo(out);
+    for (const [key, side] of [["long", "LONG"], ["short", "SHORT"]]) {
+      if (!out[key]) continue;
+      out[key].entryTime  = entry[side]?.time  ?? null;
+      out[key].entrySteps = entry[side]?.steps ?? null;
+    }
+
     res.json({
-      long:  makePos(longPos),
-      short: makePos(shortPos),
+      ...out,
       pending,
       scaleInOrders,
       funding,

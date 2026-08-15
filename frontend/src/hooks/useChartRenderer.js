@@ -12,6 +12,16 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
   const [renderTick, setRenderTick] = useState(0);
   const forceUpdate = () => setRenderTick(n => n + 1);
 
+  // ⚠ **candlesRef를 읽는 콜백은 deps에 candlesRef를 넣어야 한다** (2026-08-15, 실측 버그).
+  //   `App.jsx`가 `replayOn ? replay : live`로 고르기 때문에 **모드를 바꾸면 ref 객체
+  //   자체가 다른 것으로 바뀐다**(같은 ref의 .current만 바뀌는 게 아니다).
+  //   deps에서 빠뜨리면 콜백이 전환 **이전** ref를 계속 붙들고, 그쪽은 비활성이라
+  //   `.current`가 빈 배열이다 → renderVolumeCanvas가 `!candles.length`로 그냥 돌아간다.
+  //   증상: **리플레이에서 휠 줌을 해도 거래량 패널만 그대로 멈춰 있다**(사용자 신고).
+  //   메인 캔버스가 멀쩡했던 건 우연이다 — deps의 IH가 ReplayBar 높이 때문에 같이 바뀌어
+  //   콜백이 어차피 새로 만들어졌다. RSI는 candlesRef를 아예 안 쓴다(overlaysRef의 rsiData).
+  //   → "ref는 안정적이니 deps에 넣을 필요 없다"며 다시 빼지 말 것.
+
   // 틱 RAF에서 호출 — 메인 캔버스만 재드로우 (볼륨 제외)
   const redrawCanvas = useCallback(() => {
     const c = candlesRef.current;
@@ -19,14 +29,14 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     if (!scales || !canvasRef.current) return;
     scalesRef.current = scales; // 캐시 갱신
     renderCandles(canvasRef.current, c, scales.xScale, scales.yScale, IW, IH, interval_, isDark, overlaysRef);
-  }, [interval_, IW, IH, isDark, isLog]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [interval_, IW, IH, isDark, isLog, candlesRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 볼륨 캔버스만 재드로우 — 틱과 무관, pan/zoom/candle close 시에만 호출
   const redrawVolume = useCallback(() => {
     const ov = overlaysRef?.current ?? {};
     if (!volCanvasRef?.current || !scalesRef.current || !ov.showVol || ov.volH <= 0) return;
     renderVolumeCanvas(volCanvasRef.current, candlesRef.current, scalesRef.current.xScale, IW, ov.volH, isDark, ov.volColorMode);
-  }, [IW, isDark]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [IW, isDark, candlesRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 틱 RAF에서 호출 — 진행 중 봉의 거래량 높이/색상(양봉↔음봉)을 실시간 반영
   // 진행 중 봉이 화면 밖(과거 구간을 보는 중)이면 바뀌는 게 없으므로 건너뛴다
@@ -39,7 +49,7 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     const lastIdx = c.length - 1;
     if (lastIdx < d0 - 1 || lastIdx > d1 + 1) return;
     renderVolumeCanvas(volCanvasRef.current, c, scalesRef.current.xScale, IW, ov.volH, isDark, ov.volColorMode);
-  }, [IW, isDark]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [IW, isDark, candlesRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // RSI 캔버스만 재드로우 — pan/zoom 중 RSI가 즉시 따라오도록 (volume과 동일 패턴)
   const redrawRSI = useCallback(() => {
@@ -72,7 +82,9 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     isInitialLoadRef.current   = false;
     prevCandleCountRef.current = c.length;
     return true;
-  }, [isLog]); // eslint-disable-line react-hooks/exhaustive-deps
+    // candlesRef가 deps에 있는 이유는 위 redrawCanvas 주석 참고 (모드 전환 시 ref 객체가 바뀐다).
+    // 여기서 빠뜨리면 resetDomain()이 빈 배열을 보고 false를 돌려줘 도메인을 안 잡는다
+  }, [isLog, candlesRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!candles.length) return;

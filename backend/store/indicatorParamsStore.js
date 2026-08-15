@@ -11,7 +11,8 @@ const DEFAULTS = {
   // tfs — **구간 배경**을 칠할 타임프레임(중복 선택, 2026-08-14). RSI 패널(선)은 전 TF 공통이다.
   //   기본은 전 TF = 현상 유지.
   //   ⚠ 이 키가 없으면 load()가 통째로 버려서 선택이 새로고침마다 되돌아간다 (struct.tfs와 같은 함정)
-  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true,
+  // zone_all — 구간 배경을 전 구간 칠할지 (2026-08-15). 기본 OFF = 마지막 연속 구간만
+  rsi: { period: 14, overbought: 70, oversold: 30, zone_bg: true, zone_all: false,
          tfs: ["5m", "15m", "1h", "4h", "1d", "1w", "1M"] },
   // ※ RSI 다이버전스(`rsidiv`)는 2026-08-13 지표째로 제거됐다 — 키를 되살리지 말 것
   //   (load()는 여기 있는 키만 통과시키므로, 저장 파일에 남은 rsidiv는 자연히 버려진다)
