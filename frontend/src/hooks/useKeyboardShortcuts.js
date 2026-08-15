@@ -8,7 +8,7 @@ export function useKeyboardShortcuts({
   setDrawMode, setCurrent,
   cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelStructDraw,
   setStructMode, structEnabled, structMode, ensureStructTf,
-  setFibMode, fibEnabled,
+  setFibMode,
   drawables,   // { line, channel, circle, fib, structure, zz } — chart/drawables.js 인터페이스
   setSelectedBox,
   drawing, hasPending, locked,
@@ -59,8 +59,8 @@ export function useKeyboardShortcuts({
         return;
       }
 
+      // 피보나치는 지표 관문이 없다 — 선/채널/원과 같다 (chart/fib.js [F1], 2026-08-15)
       if (match(e, "drawFib")) {
-        if (!fibEnabled) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단 (TopBar 버튼과 동일)
         setDrawMode(false);
         cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelStructDraw();
         setFibMode(m => { if (m) cancelFibDraw(); return !m; });
@@ -102,5 +102,5 @@ export function useKeyboardShortcuts({
   }, [shortcuts, drawables, selectedBox, drawing, hasPending, locked, deleteBox, interval_, onIntervalChange,
       setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelStructDraw,
       setStructMode, structEnabled, structMode, ensureStructTf,
-      setFibMode, fibEnabled, setSelectedBox]);
+      setFibMode, setSelectedBox]);
 }

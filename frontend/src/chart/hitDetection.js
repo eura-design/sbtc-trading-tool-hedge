@@ -3,7 +3,7 @@ import { distToSeg, findHitLine } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
 import { clearAllSelections, selectDrawable, ZZ_ID } from "./drawables";
-import { fibPrice } from "./fib";
+import { fibPrice, fibLevelsOf } from "./fib";
 
 // 채널 두 선의 픽셀 좌표 계산
 export function channelXYs(ch, candles, xScale, yScale, _isLog = false) {
@@ -55,19 +55,18 @@ export function fibXs(fib, candles, xScale) {
  * 피보나치 히트 → 그 도형 (없으면 undefined).
  *
  * 잡히는 곳은 **레벨 가로선**과 앵커를 잇는 대각선 둘 다다. 대각선까지 넣는 이유:
- * 레벨을 1개만 켜 두면(지표 메뉴에서 전역 편집 — fib.js [F1]) 가로선이 하나뿐이라
- * 도형을 고를 데가 거의 없어진다.
+ * 레벨을 1개만 켜 두거나 전부 끄면(더블클릭 팝업 — fib.js [F1]) 가로선이 없어져
+ * 도형을 고를 데가 사라지고, 그러면 팝업을 열 방법도 없어져 되살릴 수가 없다.
  *
- * 레벨은 **화면에 그려지는 것과 같은 배열**을 받아야 한다 (App.jsx가 useMemo로 만든
- * 하나를 렌더·히트·알림이 나눠 쓴다). 여기서 다시 만들면 꺼 둔 레벨이 클릭에 잡힌다.
+ * ⚠ 레벨은 **화면에 그려지는 것과 같아야 한다** → 렌더(Fibs.jsx)와 똑같이
+ *   `fibLevelsOf(fb)`로 도형에서 직접 읽는다. 여기서 다시 만들면 꺼 둔 레벨이 클릭에 잡힌다.
  */
-export function findHitFib(px, py, fibs, xScale, yScale, candles, levels, isLog = false, threshold = 8) {
-  if (!levels?.length) return undefined;
+export function findHitFib(px, py, fibs, xScale, yScale, candles, isLog = false, threshold = 8) {
   return (fibs ?? []).find(fb => {
     const { xa, xb, xMin, xMax } = fibXs(fb, candles, xScale);
     if (px < xMin - threshold || px > xMax + threshold) return false;   // x 범위로 먼저 컷
     if (distToSeg(px, py, xa, yScale(fb.p1), xb, yScale(fb.p2)) < threshold) return true;
-    return levels.some(r => {
+    return fibLevelsOf(fb).some(r => {
       const y = yScale(fibPrice(fb.p1, fb.p2, r, isLog));
       return Math.abs(py - y) < threshold;
     });
@@ -417,9 +416,9 @@ export function buildHitChain(ctx) {
     circleMode, circleCenter, setCircleCenter, circlePreview,
     circles, selectedCircleId,
     addCircle, moveCircle,
-    // 피보나치 되돌림 — levels는 렌더와 **같은 배열**이어야 한다 (findHitFib 주석 참고)
+    // 피보나치 되돌림 — 표시할 레벨은 도형별이라 findHitFib가 직접 읽는다 ([F1])
     fibMode, fibStart, setFibStart, fibPreview,
-    fibs, selectedFibId, addFib, fibLevels,
+    fibs, selectedFibId, addFib,
     // 수동 구조
     structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
     structures, selectedStructId, structPart, selectStructPart,
@@ -788,7 +787,7 @@ export function buildHitChain(ctx) {
         }
         // 몸통 — 레벨 가로선 위 아무 데나 잡아도 도형 전체가 따라온다.
         // 레벨선은 개별 이동 대상이 아니다(비율이 곧 위치라 하나만 옮기면 의미가 깨진다)
-        if (findHitFib(pos.x, pos.y, [fb], xScale, yScale, candles, fibLevels, isLog)) {
+        if (findHitFib(pos.x, pos.y, [fb], xScale, yScale, candles, isLog)) {
           dragRef.current = { type:"fib_move", fibId:selectedFibId,
             startX:pos.x, startY:pos.y,
             startT1:fb.t1, startP1:fb.p1, startT2:fb.t2, startP2:fb.p2 };
@@ -809,7 +808,7 @@ export function buildHitChain(ctx) {
         if (hitCi) { selectDrawable(drawables, "circle",  hitCi.id); setSelectedBox(false); return true; }
         // 피보나치는 도형 하나가 가로선 7~10개라 선·채널·원보다 넓게 걸린다 → 그 뒤에서 판정.
         // 다만 x 범위가 두 앵커 사이로 한정돼 있어 구조·ZZ만큼 화면을 덮지는 않는다
-        const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, fibLevels, isLog);
+        const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, isLog);
         if (hitFb) { selectDrawable(drawables, "fib",     hitFb.id); setSelectedBox(false); return true; }
         // 구조는 여러 봉에 걸친 폴리라인이라 클릭을 많이 삼키므로 맨 뒤에서 판정
         const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);

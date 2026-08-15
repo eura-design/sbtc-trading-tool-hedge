@@ -7,7 +7,7 @@ import { NotificationMenu }  from "./NotificationMenu";
 import { ShortcutMenu }      from "./ShortcutMenu";
 
 
-export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, fibEnabled, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
+export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
@@ -78,19 +78,18 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
         transition:"all 0.15s",
       }}>채널</button>
 
-      {/* 피보나치 되돌림 — 2클릭(추세 시작 → 끝). 구조 버튼과 같은 규칙으로
-          지표가 꺼져 있으면 그려도 안 보이므로 진입을 막는다 */}
-      <button onClick={onFibModeToggle} disabled={!fibEnabled}
-        title={fibEnabled
-          ? "피보나치 되돌림 — 추세 시작점 클릭 → 끝점 클릭 (레벨은 지표 메뉴에서 선택)"
-          : "지표 메뉴에서 Fibonacci를 켜야 그릴 수 있습니다"} style={{
+      {/* 피보나치 되돌림 — 2클릭(추세 시작 → 끝).
+          ⚠ **지표 관문이 없다** (2026-08-15 사용자 요청). 선·채널·원과 같은 도형인데
+            이것만 "지표 메뉴에서 Fibonacci를 켜야 그릴 수 있습니다"로 막혀 있었다.
+            disabled/fibEnabled를 되살리지 말 것 — 지표 행 자체가 없어졌다 */}
+      <button onClick={onFibModeToggle}
+        title="피보나치 되돌림 — 추세 시작점 클릭 → 끝점 클릭 (표시할 레벨은 그린 뒤 더블클릭)" style={{
         height:"22px", padding:"0 7px", borderRadius:"3px",
-        cursor: fibEnabled ? "pointer" : "not-allowed", flexShrink:0,
+        cursor:"pointer", flexShrink:0,
         fontSize:"12px", fontFamily:"inherit", fontWeight:"400",
         background: fibMode ? "#60a5fa" : "transparent",
         border:`1px solid ${fibMode ? "#60a5fa" : theme.textFaint}`,
         color: fibMode ? "#000" : theme.textMuted,
-        opacity: fibEnabled ? 1 : 0.35,
         transition:"all 0.15s",
       }}>피보나치</button>
 

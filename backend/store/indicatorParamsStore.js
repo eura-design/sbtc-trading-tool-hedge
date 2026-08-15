@@ -35,11 +35,11 @@ const DEFAULTS = {
   // ※ CHoCH 표시 on/off·개수는 구조마다 localStorage에 들고 있다 (st.showChoch/st.maxChoch)
   // ※ 지표 전체 스위치 show_choch는 2026-08-12 제거 (프론트가 더 이상 읽지 않는다)
   struct: { tfs: ["1h"] },
-  // 피보나치 되돌림 — 레벨 목록만 전역 (프론트 INDICATOR_DEFAULTS.fib와 같은 값 유지).
-  // 투명도·잠금·알림은 도형별이라 여기 없다 (localStorage "fibs").
-  // ⚠ 이 키가 없으면 load()가 통째로 버려서 레벨 선택이 새로고침마다 되돌아간다
-  //   (struct.tfs / rsi.tfs와 같은 함정) — 키 추가 후 **백엔드 재시작 필수**
-  fib: { levels: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] },
+  // ⚠ **`fib` 키를 되살리지 말 것** (2026-08-15 제거).
+  //   피보나치는 전역 파라미터가 하나도 없다 — 레벨 목록까지 도형별(프론트 localStorage
+  //   "fibs")로 옮겼고 지표 메뉴에서 행 자체가 사라졌다 (frontend/src/chart/fib.js [F1]).
+  //   load()가 여기 있는 키만 통과시키므로 저장 파일에 남은 fib는 자연히 버려진다
+  //   (rsidiv·sr을 지웠을 때와 같다)
   ema: [
     { id: 1, period: 10, color: "#888888", enabled: true },
     { id: 2, period: 20, color: "#f0b90b", enabled: true },

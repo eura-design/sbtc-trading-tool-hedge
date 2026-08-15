@@ -131,7 +131,8 @@ frontend/src/
 │   ├── useNotificationSettings.js ← 타임프레임별 알림 설정 (RSI OB/OS, 봉마감) localStorage 동기화
 │   ├── useTrendLines.js       ← 트렌드 라인 + 채널 + 원 상태 (내부적으로 useDrawableStore 3개 사용)
 │   ├── useFibs.js             ← 피보나치 되돌림 도형 스토어 (useDrawableStore("fibs")) + 2클릭 그리기 상태
-│   │                             레벨 목록은 여기 없다 — 전역 파라미터다 (indicatorParams.fib.levels)
+│   │                             표시할 레벨(`levels`)도 **도형별**이다 — toggleFibLevel/resetFibLevels
+│   │                             (2026-08-15. 전역 indicatorParams.fib는 키째 제거됐다)
 │   ├── useDrawableStore.js    ← 제네릭 도형 스토어 (localStorage 영속화, 공통 필드 id/opacity/locked/alert)
 │   ├── useStructures.js       ← 수동 구조 도형 스토어 (useDrawableStore("structures")) + 그리기/편집 액션
 │   │                             points 배열 변형은 전부 normalizeStructurePoints를 거쳐 고/저 교대 유지
@@ -162,7 +163,10 @@ frontend/src/
 │   │                             computeRsiZones/getRsiZoneCount/clearRsiZones — 구간 목록
 │   │                               모듈 캐시 (지표 메뉴의 "검출된 과매수/과매도 N개"가 읽음)
 │   ├── fib.js                 ← 피보나치 되돌림 계산 (순수 함수, **import 없음**)
-│   │                             fibPrice(선형/로그) / normFibLevels / FIB_ALL_LEVELS·FIB_DEFAULT_LEVELS
+│   │                             fibPrice(선형/로그) / FIB_ALL_LEVELS·FIB_DEFAULT_LEVELS
+│   │                             normFibLevels = **쓰기 경로**(저장 시 정렬·중복 제거)
+│   │                             fibLevelsOf(fb) = **읽기 경로** — 렌더·히트·알림 셋이 이것만 본다
+│   │                               (배열을 새로 만들지 않는다 — 같은 도형이면 같은 참조)
 │   │                             pivotLevels.js와 같은 이유로 의존성 0 — node에서 바로 검산한다
 │   │                             (픽셀 변환 fibXs는 tsToIdx가 필요해 hitDetection.js에 있다)
 │   ├── entryPath.js           ← 진입선(평단선) 계단 좌표 (순수 함수, **import 없음**)
@@ -215,10 +219,12 @@ frontend/src/
 │   ├── ChartArea.jsx          ← 차트 전체 영역 조합 (hooks + ChartSvg + RSI/Volume 패널 + LineOpacityPopup)
 │   ├── TopBar.jsx             ← 봉 선택, 캔들 마감 카운트다운 + 현재가, 드로잉/라인/채널/원/피보나치 모드 버튼,
 │   │                             로그 스케일 토글, 지표 메뉴, 알림 메뉴, 단축키 메뉴, 테마 토글
-│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/**Pivot**/OB/FVG/EMA/ZZ/Custom ZZ/**Fibonacci**)
-│   │                             FibLevelPanel: 표시할 레벨 체크박스 10개 (전역 — 모든 피보나치 공통)
-│   │                               Fibonacci 행의 체크박스는 표시 on/off — OFF면 렌더·히트에서 빠지고
-│   │                               TopBar "피보나치" 버튼도 죽는다 (수동 구조와 같은 규칙)
+│   ├── IndicatorMenu.jsx      ← 보조지표 온/오프 + 파라미터 설정 (Volume/RSI/**Pivot**/OB/FVG/EMA/ZZ/Custom ZZ)
+│   │                             ⚠ **Fibonacci 행은 없다** (2026-08-15 사용자 요청으로 제거).
+│   │                               피보나치는 선·채널·원과 같은 도형인데 저것들만 지표 체크박스라는
+│   │                               관문을 갖고 있었다 — "지표를 켜야만 TopBar 버튼이 활성화되는 게
+│   │                               이상하다"가 이유다. 여기 있던 유일한 근거(전역 레벨 목록)도
+│   │                               도형별로 옮겨 사라졌다 → 더블클릭 팝업의 `표시할 레벨`
 │   │                             EmaSettingsPanel: EMA 다중 항목 (기간/색상/표시 토글/추가/초기화)
 │   │                             StructTfPanel: Custom ZZ 표시 타임프레임 다중 선택 (struct.tfs, 기본 1h) **전용**
 │   │                               ※ 수동 구조엔 CHoCH 관련이 없다 — 표시 on/off·개수·거래량 비교
@@ -297,7 +303,8 @@ frontend/src/
 │   │   │                             liveClose를 자체 구독 — ChartArea가 구독하면 틱마다 전체 리렌더
 │   │   └── LineOpacityPopup.jsx   ← 더블클릭 팝업 — 헤더(이름+%+🔔🔒) / 투명도 슬라이더 / 옵션 영역
 │   │                                 🔔 의미만 다름: 선·채널·원·**피보나치** = 근접 알림 / 구조·ZZ = CHoCH 발생 알림
-│   │                                 피보나치는 헤더(투명도 + 🔔 + 🔒) + 슬라이더까지만 — 아래 옵션 영역이 없다
+│   │                                 피보나치는 슬라이더 아래에 `표시할 레벨` 체크박스 10개 (FibLevelRow,
+│   │                                   2026-08-15). **그 도형에만** 적용 — 전역 값은 없다 (fib.js [F1])
 │   │                                 구조·ZZ는 슬라이더 아래에 `CHoCH 표시 [ON/OFF]` + `CHoCH 개수` 슬라이더
 │   │                                 `거래량 비교 [ON/OFF]`는 **수동 구조에만** (LEGVOL_KINDS, 2026-08-14)
 │   │                                 개수는 **그 구조(또는 ZZ)에만** 적용 — 전역 설정이 아니다
@@ -554,8 +561,12 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
     같은 값을 써야 커서에 보이던 위치와 실제 찍히는 위치가 어긋나지 않는다. 드래그만 0(커서 추종)
 - **진행 중 레그 끝점 클릭 = 그 자리를 꼭짓점으로 확정** (2026-08-15 사용자 요청)
   - 점선은 이미 "다음 꼭짓점이 여기쯤 잡힌다"를 보여주므로, 그게 마음에 들면
-    **구조 모드에 들어가지 않고** 점선 끝의 속 빈 원만 눌러 이어붙인다
+    **구조 모드에 들어가지 않고** 점선 끝을 눌러 이어붙인다
     (`useStructures.commitLiveStructPoint` ← `buildHitChain` 3.95번)
+  - ⚠ **끝에 마커가 없다** — 예전엔 하늘색 속 빈 원이 있었는데 2026-08-15 사용자 요청으로
+    지웠다. 되살리지 말 것. **동작은 그대로다**: 판정은 원이 아니라 `STRUCT_LIVE_HIT`(10px)이
+    갖고 있었고, 누를 수 있다는 신호는 커서(`+`)가 낸다 (Structures 전체가
+    `pointerEvents:none`이라 애초에 그 원이 클릭을 받은 적도 없다)
   - 좌표는 화면에 그려진 점 그대로다 — 구간 극값이라 스냅이 따로 필요 없다
     (`deriveStructure`가 꼬리 기준으로 뽑은 값이고 꼭짓점 스냅도 같은 기준)
   - 타입은 교대 규칙에서 나온다: 마지막이 `L`이면 진행 중 레그는 상승이므로 찍힐 점은 `H`
@@ -672,6 +683,8 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
     - **구조 투명도를 따르지 않는다** — CHoCH 마크(`[R1]`)와 같은 이유.
       예전엔 회색 + 굵기 1 + `0.45 × 구조 투명도`(기본 0.5) = 실효 0.22라
       지그재그 끝에서 흐려지며 사라졌다. "일관되게" opacity를 다시 곱하지 말 것
+    - ⚠ **끝점에 원(마커)은 없다** — 같은 날 사용자 요청으로 지웠다. 선만 그린다.
+      끝점 클릭으로 꼭짓점을 확정하는 기능은 그대로다 (위 "진행 중 레그 끝점 클릭" 절)
   - ※ `deriveStructure`에는 **`candlesRef.current`를 넘겨야 한다.** React `candles` state는
     봉마감 때만 갱신돼서 진행 중 봉의 고가/저가가 낡아 있다 (`useCandles.js:29-38`)
 - **CHoCH 가로선 끝점 = 레그 선분과 레벨의 교차점**(`crossT`, 선형 보간). 확정·라이브 동일
@@ -833,9 +846,10 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 ### 보조지표 파라미터 영속화
 - 프론트: `useIndicatorParams`가 서버에서 로드 → `INDICATOR_DEFAULTS`와 병합 → 변경 시 debounce 저장
 - 백엔드: `indicatorParamsStore`가 `indicator_params.json`에 JSON 영속화
-- 대상: RSI(period/OB/OS/**zone_bg/zone_all/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs), **fib(levels)**
-- ※ `fib`는 **levels 하나뿐이다** — 투명도·잠금·알림은 도형별(localStorage `"fibs"`)이라 여기 없다.
-  도형별 레벨 편집을 새로 만들지 말 것 (위 피보나치 절 `[F1]`)
+- 대상: RSI(period/OB/OS/**zone_bg/zone_all/tfs**), FVG(lookback/mitigation), OB(swing/bos), **pivot(tfs/pivot_bars/merge_atr/min_touch/top_n/lookback)**, EMA(배열), ZZ(left_bars/use_filter/atr_mult/atr_period/**show_choch/max_choch/alert_choch/opacity**), struct(tfs)
+- ※ `fib` 키는 **제거됐다** (2026-08-15, 프론트·백엔드 DEFAULTS 양쪽).
+  피보나치는 전역 파라미터가 하나도 없다 — 레벨 목록까지 도형별(localStorage `"fibs"`)이다.
+  **전역 값을 다시 만들지 말 것** (위 피보나치 절 `[F1]`)
 - ※ `pivot`은 **6개를 저장하고 UI에는 5개**(TF 그리드 + 슬라이더 4개) — 숨긴 건 `lookback`(600).
   이유는 "Pivot Levels" 절 참고
 - ※ 구 S/R Levels의 `sr` 키는 지표째로 제거됐다 (2026-08-13) — 저장 파일에서도 지웠다
@@ -1057,12 +1071,20 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - 원: `circle_move`(이동) / `circle_radius`(반지름)
 - 선택된 도형: 금색(#f0b90b) + 핸들 표시
 
-### 피보나치 되돌림 (2026-08-14)
-트레이딩뷰의 Fib Retracement 포팅. **선/채널/원과 같은 계열의 도형**이고
-(`useDrawableStore("fibs")`, 좌표가 timestamp라 전 TF 공유), 지표 메뉴에 행이 있는 이유는
-**레벨 목록만 전역 파라미터**라서다.
+### 피보나치 되돌림 (2026-08-14 / 지표 분리 2026-08-15)
+트레이딩뷰의 Fib Retracement 포팅. **선/채널/원과 같은 계열의 도형**이다
+(`useDrawableStore("fibs")`, 좌표가 timestamp라 전 TF 공유).
 
-- **데이터**: `{ id, t1, p1, t2, p2, opacity, locked, alert }` — localStorage `"fibs"`
+⚠ **지표가 아니다 — 지표 메뉴에 행이 없고 전역 파라미터도 없다** (2026-08-15 사용자 요청).
+한때 `Fibonacci` 체크박스가 있었고 그게 OFF면 렌더·히트에서 빠지고 TopBar 버튼도 죽었는데,
+**"지표를 선택해야만 버튼이 활성화된다는 게 이상하다"**는 지적으로 지웠다. 선·채널·원 어느
+것도 그런 관문이 없다. 지표 메뉴에 있던 유일한 근거였던 전역 레벨 목록도 도형별로 옮겼다.
+되살리려면 `indicators.fib`·`indicatorParams.fib`(프론트·백엔드 DEFAULTS)·`showFib`·
+`visibleFibs`·`fibEnabled`·`FibLevelPanel`이 전부 다시 필요하다 (같이 삭제됨).
+
+- **데이터**: `{ id, t1, p1, t2, p2, opacity, locked, alert, levels }` — localStorage `"fibs"`
+  - `levels` = 표시할 레벨. **도형별**이다. undefined면 기본 7개 —
+    기존에 저장된 도형이 새 필드 때문에 선 하나 없이 뜨면 안 된다 (구조의 `showChoch`와 같은 규칙)
 - **그리기**: TopBar `피보나치` 버튼(또는 `f`) → **2클릭** (원과 같은 구조).
   스냅 없음 — 트렌드라인·원과 같은 자유 좌표다
 - **편집**: 앵커 끝점 드래그(`fib_ep`) / 몸통 드래그로 전체 평행이동(`fib_move`) / `Delete`로 삭제.
@@ -1074,7 +1096,13 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - **근접 알림**: `useTrendLineAlert`이 **레벨 가로선 각각**을 본다 (0.2% / 히스테리시스 0.3%).
   토스트에 어느 레벨인지 비율로 찍는다(`피보나치 0.786 근접 (아래) $62,900`).
   한 번 울리면 그룹 키로 잠가 도형당 하나만 뜬다 — 레벨이 7~10개라 안 그러면 토스트가 쌓인다
-- **레벨 목록은 지표 메뉴 `Fibonacci` ⚙에서 전역 편집** (`indicatorParams.fib.levels`)
+- **표시할 레벨은 도형 더블클릭 팝업에서 고른다** (`LineOpacityPopup`의 `FibLevelRow`,
+  투명도 슬라이더 아래 체크박스 10개 + `기본값` 버튼). 그 도형에만 적용된다
+  - 정렬·중복 제거는 **저장할 때** 끝낸다(`normFibLevels`가 `FIB_ALL_LEVELS`로 filter).
+    읽는 쪽(`fibLevelsOf`)은 배열을 그대로 돌려준다 — 마우스 이동마다 도는 경로라
+    매번 새 배열을 만들면 memo가 전부 깨진다
+  - 전부 끄면 가로선이 사라지고 **앵커 대각선만** 남는다. 그래서 히트 판정이 대각선도
+    잡는다 — 안 그러면 도형을 고를 데가 없어져 팝업을 다시 열 방법이 사라진다
 
 #### ⚠ 사용자 확정 사양 (2026-08-14, 임의 변경 금지)
 **만들기 전에 트레이딩뷰 기본값을 나란히 놓고 고른 결과다.** "트뷰 기본은 저쪽"으로 되돌리지 말 것.
@@ -1082,19 +1110,20 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 
 | 결정 | 되돌리면 생기는 문제 |
 |---|---|
-| **[F1] 레벨 목록은 전역 하나** (지표 메뉴 ⚙) — 도형별 편집 없음 | 전역·도형별 두 값이 생기면 AND인지 덮어쓰기인지가 UI 어디에도 안 드러난다 (`struct.show_choch`에서 겪은 문제) |
+| **[F1] 레벨 목록은 도형별 하나** (더블클릭 팝업) — 전역 값 없음 ※2026-08-15 변경 | 전역·도형별 두 값이 생기면 AND인지 덮어쓰기인지가 UI 어디에도 안 드러난다 (`struct.show_choch`에서 겪은 문제). **값이 하나라는 게 요점**이고, 그게 어디 있느냐는 그다음이다 — 2026-08-14~15은 같은 이유로 "전역 하나"였다 |
 | **[F2] 구간 채우기 없음 — 선만** | 트뷰 기본은 반투명 밴드지만 거절됐다. 캔들 위에 색이 깔린다 |
 | **[F3] 라벨은 비율만** — 가격·% 병기 없음 | 가격은 크로스헤어가 답한다. CHoCH 마크에서 글자를 다 걷어낸 기조와 같다 |
 | **[F4] 레벨 선은 두 앵커 사이에만** — 오른쪽/양쪽 연장 없음 | 연장하면 현재가 구간까지 가로선이 덮는다 |
 | **[F5] 첫 클릭 = 추세 시작(레벨 1), 둘째 = 추세 끝(레벨 0)** — 트뷰와 동일 | 뒤집으면 0.236과 0.786이 자리를 바꿔, 같은 두 점인데 트뷰와 다른 가격에 선이 생긴다 |
-| 기본 7개(0·0.236·0.382·0.5·0.618·0.786·1) 체크 / 확장 3개(1.272·1.414·1.618)는 후보에만 | 확장은 되돌림이 아니라 돌파 후 목표가라 성격이 다르다 |
+| 신규 도형은 기본 7개(0·0.236·0.382·0.5·0.618·0.786·1) 체크 / 확장 3개(1.272·1.414·1.618)는 후보에만 | 확장은 되돌림이 아니라 돌파 후 목표가라 성격이 다르다 |
 | 알림 ON 스타일에 **글로우 없음** (호박색 + 점선만) | 레벨이 7~10줄이라 글로우를 겹치면 그 가격대가 통째로 흐릿한 띠가 되어, 거절된 [F2] 채우기와 똑같이 보인다 |
 | 레벨선 개별 드래그 없음 | 위치가 곧 비율이라 하나만 옮기면 정의가 깨진다 |
 
 - ⚠ SVG는 **뷰포트로 자른다**(`clipSegmentX`) — 트렌드라인·채널과 같은 이유인데,
   도형 하나가 선 7~10개라 배율이 그만큼 더 크다 (`chart/svgGeom.js`의 5m 실측 참고)
-- ⚠ 렌더·히트 판정·근접 알림이 **같은 레벨 배열**을 봐야 한다 (App.jsx의 `useMemo` 하나를 셋이 나눠 쓴다).
-  각자 만들면 지표 메뉴에서 끈 레벨이 클릭에 잡히거나 알림만 울린다
+- ⚠ 렌더·히트 판정·근접 알림이 **같은 레벨 배열**을 봐야 한다 → 셋 다 `fibLevelsOf(fb)` 하나를 부른다
+  (`Fibs.jsx` / `hitDetection.findHitFib` / `useTrendLineAlert`).
+  각자 만들면 팝업에서 끈 레벨이 클릭에 잡히거나, 보이지도 않는 선에서 알림만 울린다
 - ⚠ 히트 우선순위는 채널 > 원 > 선 > **피보나치** > 수동 구조 > 자동 ZZ.
   `buildHitChain` 5번(선택)과 `onDoubleClick`(팝업)의 순서를 **같게 유지할 것** —
   어긋나면 "클릭하면 선이 잡히는데 더블클릭하면 피보나치 팝업이 뜬다"가 된다

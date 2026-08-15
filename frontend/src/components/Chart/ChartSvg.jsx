@@ -36,7 +36,7 @@ export function ChartSvg({
   drawing, current, locked, selectedBox,
   channels, selectedChannelId, channelStep, channelPoints, channelPreview,
   circles, selectedCircleId, circleCenter, circlePreview,
-  fibs, selectedFibId, fibStart, fibPreview, fibLevels,
+  fibs, selectedFibId, fibStart, fibPreview,
   structures, selectedStructId, structPart, structDraft, structPreview,
 }) {
   const { isDark } = useTheme();
@@ -61,8 +61,9 @@ export function ChartSvg({
         <Channels channels={channels} selectedChannelId={selectedChannelId}
           channelStep={channelStep} channelPoints={channelPoints} channelPreview={channelPreview}
           scales={scales} IW={IW} IH={IH} candles={candles} isLog={isLog} />
+        {/* 레벨 목록은 도형마다 다르다 — Fibs가 fibLevelsOf(fb)로 직접 읽는다 ([F1]) */}
         <Fibs fibs={fibs} selectedFibId={selectedFibId}
-          fibStart={fibStart} fibPreview={fibPreview} levels={fibLevels}
+          fibStart={fibStart} fibPreview={fibPreview}
           scales={scales} IW={IW} candles={candles} isLog={isLog} />
         <Structures structures={structures} selectedStructId={selectedStructId} structPart={structPart}
           structDraft={structDraft} structPreview={structPreview}

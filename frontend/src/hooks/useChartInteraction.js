@@ -36,12 +36,11 @@ export function useChartInteraction({
   circleMode, circleCenter, setCircleCenter, circlePreview, setCirclePreview,
   circles, selectedCircleId, setSelectedCircleId,
   addCircle, moveCircle,
-  // 피보나치 되돌림
-  // fibLevels — 화면에 그려지는 것과 **같은 배열**을 받는다 (App.jsx의 useMemo 하나를
-  // 렌더·히트·알림이 나눠 쓴다). 여기서 다시 만들면 꺼 둔 레벨이 클릭에 잡힌다
+  // 피보나치 되돌림 — 표시할 레벨은 **도형별**이라 여기서 넘기지 않는다.
+  // 렌더(Fibs.jsx)와 히트(findHitFib)가 각각 fibLevelsOf(fb)로 읽는다 (chart/fib.js [F1])
   fibMode, fibStart, setFibStart, fibPreview, setFibPreview,
   fibs, selectedFibId, setSelectedFibId,
-  addFib, updateFibEndpoint, setFibPosition, fibLevels,
+  addFib, updateFibEndpoint, setFibPosition,
   // 수동 구조
   structMode, structDraft, structPreview, setStructPreview,
   structures, selectedStructId, setSelectedStructId,
@@ -160,7 +159,7 @@ export function useChartInteraction({
       circles, selectedCircleId,
       addCircle, moveCircle,
       fibMode, fibStart, setFibStart, fibPreview,
-      fibs, selectedFibId, addFib, fibLevels,
+      fibs, selectedFibId, addFib,
       structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
       structures, selectedStructId, structPart, selectStructPart,
       structLive: getStructLiveSegment(), commitLiveStructPoint,
@@ -172,7 +171,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, fibLevels, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitLiveStructPoint, showZZ]);
+  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitLiveStructPoint, showZZ]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -350,7 +349,7 @@ export function useChartInteraction({
       if (!drag) {
         if (scales) {
           const { xScale, yScale } = scales;
-          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawing, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, fibLevels, selectedStructId, structures, structMode, structDraft, structLive: getStructLiveSegment(), isLog });
+          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawing, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedStructId, structures, structMode, structDraft, structLive: getStructLiveSegment(), isLog });
           if (cursor) { setCursor(cursor); return; }
         }
         setCursor((drawMode || lineMode || channelMode || circleMode || fibMode || structMode) ? "crosshair" : "grab"); return;
@@ -380,7 +379,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, fibLevels, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
+  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
@@ -428,7 +427,7 @@ export function useChartInteraction({
 
     // 히트 우선순위는 buildHitChain 5번(선택)과 같게 유지할 것 —
     // 어긋나면 "클릭하면 선이 잡히는데 더블클릭하면 피보나치 팝업이 뜬다"가 된다
-    const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, fibLevels, isLog);
+    const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, isLog);
     if (hitFb) { onLineDoubleClick?.(hitFb.id, "fib", e.clientX, e.clientY); return; }
 
     const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
@@ -439,7 +438,7 @@ export function useChartInteraction({
     if (showZZ && findHitZzLeg(pos.x, pos.y, getZzSegments(), xScale, yScale)) {
       onLineDoubleClick?.(ZZ_ID, "zz", e.clientX, e.clientY);
     }
-  }, [candles, lines, channels, circles, fibs, fibLevels, structures, structMode, finishStruct, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, lines, channels, circles, fibs, structures, structMode, finishStruct, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMouseLeave = useCallback(() => {
     dragRef.current = null;

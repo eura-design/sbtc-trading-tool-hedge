@@ -199,14 +199,14 @@ export const CURSOR_RULES = [
   },
   // 피보나치 선택 시 몸통 (레벨 가로선 + 앵커 대각선)
   {
-    test: ({ selectedFibId, fibs, pos, xScale, yScale, candles, fibLevels, isLog }) => {
+    test: ({ selectedFibId, fibs, pos, xScale, yScale, candles, isLog }) => {
       if (selectedFibId == null || !fibs?.length) return false;
       const fb = fibs.find(f => f.id === selectedFibId);
       if (!fb) return false;
       const { xa, xb } = fibXs(fb, candles, xScale);
       if (Math.hypot(pos.x - xa, pos.y - yScale(fb.p1)) < 10) return false;
       if (Math.hypot(pos.x - xb, pos.y - yScale(fb.p2)) < 10) return false;
-      return !!findHitFib(pos.x, pos.y, [fb], xScale, yScale, candles, fibLevels, isLog);
+      return !!findHitFib(pos.x, pos.y, [fb], xScale, yScale, candles, isLog);
     },
     cursor: "move",
   },

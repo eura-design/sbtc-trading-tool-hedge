@@ -3,7 +3,7 @@ import { useTheme } from "../../ThemeContext";
 import { SEL_HANDLE_R } from "../../constants";
 import { tsToIdx } from "../../chart/scales";
 import { clipSegmentX, VIEW_PAD } from "../../chart/svgGeom";
-import { FIB_COLOR, fibPrice, fmtFibRatio } from "../../chart/fib";
+import { FIB_COLOR, FIB_DEFAULT_LEVELS, fibPrice, fmtFibRatio, fibLevelsOf } from "../../chart/fib";
 
 /**
  * 레벨 가로선 하나 + 비율 라벨. 화면 밖이면 null.
@@ -39,10 +39,11 @@ function FibLevel({ r, y, xl, xr, color, opacity, dashed, IW, haloColor }) {
 /**
  * 피보나치 되돌림 SVG.
  *
- * 데이터: `{ id, t1, p1, t2, p2, opacity, locked, alert }`
+ * 데이터: `{ id, t1, p1, t2, p2, opacity, locked, alert, levels }`
  *   (t1,p1) = 추세 시작 = 레벨 1 / (t2,p2) = 추세 끝 = 레벨 0  — chart/fib.js [F5]
  *
  * ── 사용자 확정 사양 (2026-08-14) ────────────────────────────────────────────
+ *   [F1] 표시할 레벨은 **도형별**이다 (더블클릭 팝업). 전역 값을 만들지 말 것 (2026-08-15)
  *   [F2] **구간 채우기 없음.** 반투명 밴드를 깔지 말 것 (트뷰 기본값이지만 거절됐다)
  *   [F3] **라벨은 비율만.** 가격·현재가 대비 %를 붙이지 말 것 — 가격은 크로스헤어가 답한다
  *   [F4] **레벨 선은 두 앵커 사이에만.** 오른쪽/양쪽 화면 끝까지 연장하지 말 것
@@ -53,11 +54,11 @@ function FibLevel({ r, y, xl, xr, color, opacity, dashed, IW, haloColor }) {
  * 여기는 도형 하나가 **선 7~10개**라 트렌드라인보다 배율이 그만큼 더 크다.
  */
 export const Fibs = memo(function Fibs({
-  fibs, selectedFibId, fibStart, fibPreview, levels,
+  fibs, selectedFibId, fibStart, fibPreview,
   scales, IW, candles, isLog,
 }) {
   const { isDark } = useTheme();
-  if (!scales || !candles?.length || !levels?.length) return null;
+  if (!scales || !candles?.length) return null;
   const { xScale, yScale } = scales;
 
   const haloColor = isDark ? "#0d1117" : "#f9fafb";
@@ -82,6 +83,9 @@ export const Fibs = memo(function Fibs({
         // 항상 촘촘한 점선(연하게)이라 알림 여부와 무관하다: 레벨선과 굵기·질감이 같으면
         // 가격 레벨이 아닌 이 선을 레벨로 착각한다
         const conn = clipSegmentX(xa, ya, xb, yb, -VIEW_PAD, IW + VIEW_PAD);
+
+        // 이 도형의 레벨 — 팝업에서 고른다 ([F1]). 전부 끄면 대각선만 남는다
+        const levels = fibLevelsOf(fb);
 
         return (
           <g key={fb.id}>
@@ -109,9 +113,10 @@ export const Fibs = memo(function Fibs({
         );
       })}
 
-      {/* 그리기 프리뷰 — 확정본과 같은 레벨을 미리 보여준다.
-          대각선만 띄우면 "여기서 떼면 0.618이 어디에 놓이는지"를 알 수 없어서
-          결국 찍고 나서 지우고 다시 그리게 된다 */}
+      {/* 그리기 프리뷰 — 대각선만 띄우면 "여기서 떼면 0.618이 어디에 놓이는지"를 알 수 없어서
+          결국 찍고 나서 지우고 다시 그리게 된다.
+          레벨은 **기본 7개**다 — 아직 도형이 없어 고른 레벨도 없고, 확정 직후 보게 될
+          모습과 정확히 같다 (신규 도형은 levels 없이 저장돼 기본값으로 읽힌다) */}
       {fibStart && fibPreview && (() => {
         const xa = xOf(fibStart.t),   ya = yScale(fibStart.p);
         const xb = xOf(fibPreview.t), yb = yScale(fibPreview.p);
@@ -123,7 +128,7 @@ export const Fibs = memo(function Fibs({
               <line x1={conn.x1} y1={conn.y1} x2={conn.x2} y2={conn.y2}
                 stroke={FIB_COLOR} strokeWidth={1} opacity={0.4} strokeDasharray="2,4" />
             )}
-            {levels.map(r => (
+            {FIB_DEFAULT_LEVELS.map(r => (
               <FibLevel key={r} r={r}
                 y={yScale(fibPrice(fibStart.p, fibPreview.p, r, isLog))}
                 xl={xl} xr={xr} color={FIB_COLOR} opacity={0.45}

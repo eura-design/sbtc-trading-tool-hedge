@@ -5,7 +5,6 @@ import { useStore }  from "./store";
 import { SESSION_MAX_MS } from "./store/replaySlice";
 import { INTERVALS } from "./constants";
 import { ZZ_ID }         from "./chart/drawables";
-import { normFibLevels } from "./chart/fib";
 import { installStructDebug } from "./chart/structDebug";
 import { installLegDebug }    from "./chart/legDebug";
 
@@ -105,17 +104,11 @@ export default function App() {
   const showVol = indicators.vol !== false;
   const showEMA = indicators.ema !== false;
   const showZZ  = indicators.zz  !== false;
-  // 피보나치 되돌림 — 선/채널/원과 같은 도형이지만 **레벨 목록이 전역 파라미터**라
-  // 지표 메뉴에 행이 있다 (chart/fib.js [F1]). 그래서 표시 토글도 거기 체크박스다.
-  // 수동 구조와 같은 규칙: OFF면 렌더·히트 판정에서 빠지고 그리기 버튼도 죽는다
-  // (안 보이는 상태로 그려지면 켤 때 갑자기 나타나 혼란스럽다)
-  const showFib = indicators.fib !== false;
-  // 렌더·히트 판정·근접 알림이 **같은 배열**을 봐야 한다 — 각자 만들면
-  // 지표 메뉴에서 끈 레벨이 클릭에 잡히거나 알림만 울리는 어긋남이 생긴다
-  const fibLevels = useMemo(
-    () => normFibLevels(indicatorParams.fib?.levels),
-    [indicatorParams.fib?.levels],
-  );
+  // ※ 피보나치에는 **지표 토글이 없다** (2026-08-15 사용자 요청으로 지표 행째 제거).
+  //   선/채널/원과 완전히 같은 도형이라 항상 그려지고, TopBar 버튼도 항상 살아 있다.
+  //   레벨 목록도 도형별이라 전역 파라미터가 없다 (chart/fib.js [F1]).
+  //   ⚠ 지표 메뉴에 다시 넣지 말 것 — "지표를 켜야만 그리기 버튼이 활성화되는 게
+  //     이상하다"가 없앤 이유다. 선·채널·원 어느 것도 그런 관문을 갖지 않는다
   // 자동 ZZ 선택 상태 — 도형처럼 클릭하면 금색으로 강조되고 투명도 조절 대상이 된다.
   // 저장하지 않는 순수 UI 상태라 App 로컬 (drawables의 "zz"가 이걸 id로 노출)
   const [zzSelected, setZzSelected] = useState(false);
@@ -181,15 +174,8 @@ export default function App() {
   const trendLines = useTrendLines(drawingMode);
 
   // ── 피보나치 되돌림 ───────────────────────────────────────────────────────
+  // 지표 토글이 없으므로 "꺼지면 draft 정리" 이펙트도 없다 (선/채널/원과 같다)
   const fibTool = useFibs(drawingMode);
-
-  // 지표를 끄면 그리던 draft와 선택을 정리한다 (수동 구조의 showStruct와 같은 이유 —
-  // 안 보이는 draft가 남아 있다가 다시 켤 때 그리던 중간부터 튀어나온다)
-  useEffect(() => {
-    if (showFib) return;
-    fibTool.cancelFibDraw();
-    fibTool.setSelectedFibId(null);
-  }, [showFib]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 수동 구조 (지그재그 + 자동 CHoCH) ─────────────────────────────────────
   const structs = useStructures(drawingMode);
@@ -284,8 +270,9 @@ export default function App() {
     trendLines.channels, trendLines.setChannelAlertOff,
     trendLines.circles,  trendLines.setCircleAlertOff,
     isLog,
-    // 피보나치는 레벨 가로선 각각이 근접 대상이다 (지표가 꺼져 있으면 대상에서 빠진다)
-    showFib ? fibTool.fibs : [], fibTool.setFibAlertOff, fibLevels,
+    // 피보나치는 레벨 가로선 각각이 근접 대상이다.
+    // 레벨은 도형마다 다르므로 훅 안에서 fibLevelsOf(fb)로 읽는다 ([F1])
+    fibTool.fibs, fibTool.setFibAlertOff,
   );
   // 실계좌 포지션 종료 알림 — 리플레이 중에는 억누른다. 페이퍼 화면 위로 실거래
   // 알림이 뜨면 어느 쪽 포지션이 닫힌 건지 구분이 안 된다
@@ -345,8 +332,8 @@ export default function App() {
       setOpacity:    trendLines.setCircleOpacity,
     },
     // 피보나치 — 선/채널/원과 완전히 같은 평범한 도형이다.
-    // 레벨 목록만 전역 파라미터라 지표 메뉴에 있고(chart/fib.js [F1]),
-    // 투명도·잠금·근접 알림·삭제는 전부 도형별이다
+    // 투명도·잠금·근접 알림·삭제에 더해 **표시할 레벨도 도형별**이라
+    // 전부 더블클릭 팝업에서 조작한다 (chart/fib.js [F1], 2026-08-15)
     fib: {
       id: fibTool.selectedFibId, items: fibTool.fibs,
       setSelectedId: fibTool.setSelectedFibId,
@@ -354,6 +341,8 @@ export default function App() {
       toggleAlert:   fibTool.toggleFibAlert,
       toggleLock:    fibTool.toggleFibLock,
       setOpacity:    fibTool.setFibOpacity,
+      toggleLevel:   fibTool.toggleFibLevel,   // 표시할 레벨 체크박스 (팝업)
+      resetLevels:   fibTool.resetFibLevels,   // 〃 기본값 버튼
     },
     // 자동 ZZ — 도형이 아니라 지표지만, 선택(금색)·투명도·CHoCH 알림을 다른 도형과
     // 똑같이 조작하려고 같은 인터페이스로 감쌌다 (chart/drawables.js의 "zz" 참고).
@@ -403,6 +392,7 @@ export default function App() {
     trendLines.deleteCircle, trendLines.toggleCircleAlert, trendLines.toggleCircleLock, trendLines.setCircleOpacity,
     fibTool.selectedFibId, fibTool.fibs, fibTool.setSelectedFibId,
     fibTool.deleteFib, fibTool.toggleFibAlert, fibTool.toggleFibLock, fibTool.setFibOpacity,
+    fibTool.toggleFibLevel, fibTool.resetFibLevels,
     structs.selectedStructId, structs.structures, structs.setSelectedStructId,
     structs.deleteStructSelection, structs.toggleStructLock, structs.setStructOpacity,
     structs.toggleStructChoch, structs.toggleStructChochAlert, structs.toggleStructLegVol,
@@ -425,7 +415,6 @@ export default function App() {
     structMode:        structs.structMode,
     ensureStructTf,
     setFibMode:        fibTool.setFibMode,
-    fibEnabled:        showFib,
     drawables,
     setSelectedBox,
     drawing, hasPending, locked: drawLocked, selectedBox,
@@ -473,8 +462,7 @@ export default function App() {
             setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw(); fibTool.cancelFibDraw(); structs.cancelStructDraw();
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
           }}
-          fibMode={fibTool.fibMode} fibEnabled={showFib} onFibModeToggle={() => {
-            if (!showFib) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단 (구조 버튼과 같은 규칙)
+          fibMode={fibTool.fibMode} onFibModeToggle={() => {
             setDrawMode(false);
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); structs.cancelStructDraw();
             fibTool.setFibMode(m => { if (m) fibTool.cancelFibDraw(); return !m; });
@@ -540,8 +528,7 @@ export default function App() {
           pivotLevels={pivotLevels}
           showRsi={showRsi} showRsiZones={showRsiZones} showPivot={showPivot} showOB={showOB} showFVG={showFVG}
           showVol={showVol} showEMA={showEMA}
-          showZZ={showZZ} showStruct={showStruct} showFib={showFib} zzSelected={zzSelected}
-          fibLevels={fibLevels}
+          showZZ={showZZ} showStruct={showStruct} zzSelected={zzSelected}
           indicatorParams={indicatorParams}
           current={current} setCurrent={setCurrent}
           actionsRef={chartActionsRef}

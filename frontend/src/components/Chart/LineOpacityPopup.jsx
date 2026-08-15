@@ -3,6 +3,7 @@ import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
 import { getStructChochCount } from "../../chart/structRenderState";
 import { getZzChochTotal } from "../../chart/structureZigzag";
+import { FIB_ALL_LEVELS, fibLevelsOf } from "../../chart/fib";
 
 // 자동 ZZ와 수동 구조는 **같은 이름("구조")** 을 쓴다 (2026-08-12 사용자 요청).
 // 사용자에게는 둘 다 "구조"이고, 어느 쪽을 더블클릭했는지는 이미 알고 있다.
@@ -25,6 +26,9 @@ const CHOCH_KINDS = new Set(["structure", "zz"]);
 const LEGVOL_KINDS = new Set(["structure"]);
 // 드래그로 움직일 수 있는 것만 잠금이 의미 있다. ZZ는 지표라 제외
 const LOCK_KINDS = new Set(["line", "channel", "circle", "fib", "structure"]);
+// 표시할 레벨 목록을 갖는 종류 — 피보나치뿐.
+// **도형별**이다 (chart/fib.js [F1], 2026-08-15). 전역 값을 다시 만들지 말 것
+const LEVEL_KINDS = new Set(["fib"]);
 
 // 헤더의 아이콘 토글 — 모든 종류가 같은 자리·같은 크기를 쓰도록 한 곳에서 그린다
 function IconToggle({ icon, on, onClick, title, theme, onColor = PALETTE.warn }) {
@@ -111,6 +115,67 @@ function CountRow({ value, detected, onChange, theme }) {
 }
 
 /**
+ * 표시할 피보나치 레벨 — **이 도형에만** 적용된다 (chart/fib.js [F1], 2026-08-15).
+ *
+ * ※ 2026-08-14~15은 지표 메뉴의 전역 패널이었다. 지표 체크박스를 켜야만 TopBar
+ *   피보나치 버튼이 살아나는 게 이상하다는 사용자 지적으로 지표 행째 없앴고,
+ *   그러면서 레벨을 둘 곳이 여기밖에 남지 않았다.
+ *   ⚠ 전역 값을 다시 만들지 말 것 — 두 값이 생기면 AND인지 덮어쓰기인지가
+ *     화면 어디에도 안 드러난다 (struct.show_choch에서 겪은 문제).
+ *
+ * 3열인 이유는 후보가 10개라서다. 체크박스 12px는 IndicatorMenu의 TfGrid와 같은 규격.
+ */
+function FibLevelRow({ levels, onToggle, onReset, theme }) {
+  return (
+    <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: `1px solid ${theme.borderSec}` }}>
+      <div style={{ fontSize: "12px", color: theme.textMuted, marginBottom: "6px" }}>표시할 레벨</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "3px 2px" }}>
+        {FIB_ALL_LEVELS.map(r => {
+          const on = levels.includes(r);
+          return (
+            <div key={r} onClick={() => onToggle(r)}
+              style={{
+                display: "flex", alignItems: "center", gap: "5px",
+                padding: "2px 1px", borderRadius: "3px", cursor: "pointer",
+                fontSize: "11px", color: on ? theme.textPrimary : theme.textMuted,
+                fontVariantNumeric: "tabular-nums",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = theme.borderSec}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <span style={{
+                width: 12, height: 12, flexShrink: 0,
+                border: `1.5px solid ${on ? PALETTE.accent : theme.textFaint}`,
+                borderRadius: 3,
+                background: on ? PALETTE.accent : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 9, color: "#000", fontWeight: 700, lineHeight: 1,
+                transition: "all 0.15s",
+              }}>{on ? "✓" : ""}</span>
+              {r}
+            </div>
+          );
+        })}
+      </div>
+      {/* 1 초과는 되돌림이 아니라 추세 시작점을 뚫고 더 간 자리 — 뜻이 다르니 적어 둔다 */}
+      <div style={{ fontSize: "10px", color: theme.textMuted, marginTop: "6px", lineHeight: 1.4 }}>
+        1 초과는 되돌림이 아니라 돌파 후 확장 목표가입니다.
+      </div>
+      {levels.length === 0 && (
+        <div style={{ fontSize: "10px", color: PALETTE.short, marginTop: "4px", lineHeight: 1.4 }}>
+          가로선이 하나도 그려지지 않습니다. (앵커 대각선만 남습니다)
+        </div>
+      )}
+      <button onClick={onReset} style={{
+        width: "100%", marginTop: "8px", padding: "3px 0", borderRadius: "4px",
+        border: `1px solid ${theme.borderSec}`, background: "transparent",
+        color: theme.textMuted, fontSize: "11px", cursor: "pointer", fontFamily: "inherit",
+      }}>기본값</button>
+    </div>
+  );
+}
+
+/**
  * 차트 도형 더블클릭 팝업 — 투명도 슬라이더 + 헤더 아이콘 토글.
  *
  * ── UI 통일 규칙 (2026-08-12 사용자 요청) ──────────────────────────────────
@@ -121,6 +186,8 @@ function CountRow({ value, detected, onChange, theme }) {
  *     👁 아이콘으로 바꿨다가 "무슨 표시인지 모르겠다"는 이유로 사용자가 되돌렸다. 되살리지 말 것
  *   거래량 비교 — 레그 hover의 거래량 3줄(상위3/평균/총량). 같은 라벨+ON/OFF 행 (2026-08-13).
  *     **수동 구조에만 있다** — 자동 ZZ는 2026-08-14 사용자 요청으로 거래량 비교를 뺐다
+ *   표시할 레벨 — **피보나치에만**. 체크박스 10개, 이 도형에만 적용 (2026-08-15, [F1]).
+ *     예전엔 지표 메뉴의 전역 패널이었다 — 되돌리지 말 것 (FibLevelRow 주석 참고)
  *
  * **자동 ZZ와 수동 구조는 이름도 "구조"로 같고, 팝업 구성도 거의 같다**
  * (자동 ZZ에 없는 것: 잠금 🔒, 거래량 비교).
@@ -168,12 +235,17 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
   // 수동 구조는 구조별, 자동 ZZ는 지표 전체가 리스트 하나다.
   const chochCount = !isChoch ? 0
     : kind === "zz" ? getZzChochTotal() : getStructChochCount(popup.id);
+  // 표시할 레벨 — 도형별([F1]). 저장 안 된 도형은 기본 7개로 읽는다
+  const hasLevels = LEVEL_KINDS.has(kind);
+  const levels    = hasLevels ? fibLevelsOf(item) : [];
 
   // 팝업이 화면 밖으로 나가지 않도록 위치 조정.
   // 슬라이더가 브라우저 기본 최소 너비(~129px)를 갖고 좌우 여백 24px가 빠지므로
   // 폭은 넉넉히 잡는다. 높이는 구조/ZZ일 때 CHoCH 두 블록만큼 더 크고,
-  // 수동 구조는 거기에 `거래량 비교` 행이 하나 더 붙는다 (자동 ZZ엔 없다 — LEGVOL_KINDS)
-  const W = 210, H = LEGVOL_KINDS.has(kind) ? 210 : isChoch ? 175 : 80;
+  // 수동 구조는 거기에 `거래량 비교` 행이 하나 더 붙는다 (자동 ZZ엔 없다 — LEGVOL_KINDS).
+  // 피보나치는 레벨 체크박스 4줄 + 안내 + 버튼이 붙어 가장 크다
+  const W = 210, H = hasLevels ? 250
+    : LEGVOL_KINDS.has(kind) ? 210 : isChoch ? 175 : 80;
   const x = Math.min(popup.x, window.innerWidth  - W - 8);
   const y = Math.min(popup.y, window.innerHeight - H - 8);
 
@@ -220,6 +292,16 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
         onChange={e => d.setOpacity(popup.id, Math.max(0.25, parseFloat(e.target.value)))}
         style={{ width: "100%", accentColor: PALETTE.accent, cursor: "pointer" }}
       />
+
+      {/* 표시할 레벨 — 피보나치뿐. **이 도형에만** 적용된다 (전역 값 없음, [F1]) */}
+      {hasLevels && (
+        <FibLevelRow
+          levels={levels}
+          onToggle={r => d.toggleLevel?.(popup.id, r)}
+          onReset={()  => d.resetLevels?.(popup.id)}
+          theme={theme}
+        />
+      )}
 
       {/* CHoCH 옵션 — 자동 ZZ·수동 구조 모두 같은 자리, 같은 모양.
           수동 구조는 **이 구조에만** 적용된다 — 전역 설정이 아니다.

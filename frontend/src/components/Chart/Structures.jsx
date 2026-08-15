@@ -309,15 +309,11 @@ export const Structures = memo(function Structures({
                   <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
                     stroke={liveColor} strokeWidth={1.5} opacity={0.8}
                     strokeDasharray="4,3" />
-                  {/* 끝점 핸들 — **누르면 그 자리가 꼭짓점으로 확정된다** (2026-08-15 사용자 요청).
-                      속을 비운 원인 이유: "아직 확정 아님"을 확정 꼭짓점(꽉 찬 원)과 구분한다.
-                      판정은 hitDetection이 하고 여기선 보이기만 한다 — Structures 전체가
-                      pointerEvents:none이라 이 노드가 클릭을 받지는 않는다 */}
-                  {inViewX(b.x, IW) && (
-                    <circle cx={b.x} cy={b.y} r={SEL_HANDLE_R + 0.5}
-                      fill="none" stroke={liveColor} strokeWidth={1.5}
-                      opacity={0.85} />
-                  )}
+                  {/* ⚠ 끝점의 **속 빈 원(하늘색)은 2026-08-15 사용자 요청으로 제거**됐다.
+                      되살리지 말 것 — 점선 자체가 이미 "여기까지 뻗고 있다"를 말한다.
+                      ※ **끝점 클릭 = 꼭짓점 확정은 그대로 동작한다.** 판정은 원이 아니라
+                        hitDetection(3.95, STRUCT_LIVE_HIT)이 갖고 있었고 원은 표시일 뿐이었다.
+                        커서가 `+`로 바뀌는 것으로 누를 수 있다는 걸 알 수 있다 */}
                 </g>
               );
             })()}
