@@ -1,5 +1,8 @@
 // Module-level timer: riskPct/leverage 변경 시 pending 주문 재등록 debounce
 let _replaceTimer = null;
+// 이 debounce 창 안에서 값이 바뀐 **사이드**. 리스크는 한쪽만 바꾸므로,
+// 롱 리스크를 만졌다고 숏 미체결 주문까지 재등록하면 안 된다.
+let _replaceSides = new Set();
 
 // ── ⚠ 리스크·레버리지는 **실거래와 연습이 완전히 따로다** (2026-08-19 사용자 요청) ──
 //
@@ -9,21 +12,65 @@ let _replaceTimer = null;
 // 다시 열어보지 않으면 알 수 없다. 연습의 목적이 "실전에서 못 할 짓을 해보는 것"이라
 // 이 누출은 방향까지 나쁘다(연습은 과감해지고 실거래가 그 값을 물려받는다).
 //
+// ── ⚠ 리스크 %는 **롱·숏이 또 따로다** (2026-08-19 사용자 요청) ─────────
+// 그래서 값이 네 벌이다: 실거래 롱/숏 · 연습 롱/숏. (레버리지는 두 벌 그대로 —
+// 바이낸스가 심볼 단위로만 받는다. `POST /fapi/v1/leverage`에 positionSide가 없어
+// LONG·SHORT가 같은 값을 공유하고, 한쪽을 바꾸면 반대쪽 포지션의 청산가가 움직인다.
+// 그래서 **레버리지를 사이드별로 나누지 말 것** — 화면에서만 갈라지고 거래소에서는
+// 뒤에 보낸 값이 이기므로, 되레 "설정한 대로 안 나간다"가 된다.)
+//
+// 리스크 %는 반대로 **거래소에 보내지 않는다.** calcPosition이 수량을 뽑는 데만 쓰고
+// 주문에는 그 결과인 quantity만 실린다 — 그래서 사이드별로 갈라도 거래소와 어긋날 게 없다.
+//
 // ── 왜 값을 두 개 들지 않고 키를 갈아끼우나 ─────────────────────────────
-// `drawing`(uiSlice.swapDrawingStorage)과 **같은 방식**이다. 스토어 필드는 계속
-// `riskPct`/`leverage` 하나라, 이 값을 읽는 곳(SidebarPanel·orderSlice·paperActions·
-// PlanCard)을 **한 줄도 고치지 않아도 된다.** 필드를 둘로 늘리면 읽는 쪽마다
-// `replayOn ? a : b` 분기가 생기고, 한 곳만 빠뜨리면 그 경로로 실거래 값이 샌다.
-const LIVE_KEYS   = { risk: "riskPct",        lev: "leverage" };
-const REPLAY_KEYS = { risk: "replay_riskPct", lev: "replay_leverage" };
+// `drawing`(uiSlice.swapDrawingStorage)과 **같은 방식**이다. 모드(실거래/연습)는
+// 읽는 쪽에서 보이지 않는 상태라, 필드를 모드별로 늘리면 읽는 곳마다
+// `replayOn ? a : b` 분기가 생기고 한 곳만 빠뜨리면 그 경로로 실거래 값이 샌다.
+//
+// ⚠ **사이드는 반대다 — 필드를 둘로 나눈다.** 리스크를 읽는 네 곳(SidebarPanel·
+//   orderSlice 2곳·paperActions)은 전부 `drawing.isLong`을 이미 손에 들고 있어서
+//   어느 쪽 값이 필요한지가 코드에 드러난다. 키를 갈아끼우는 방식으로 숨기면
+//   "지금 슬라이더가 어느 사이드를 가리키나"가 화면에서도 사라진다 — 사이드바에
+//   슬라이더 두 개를 **동시에** 띄워야 하므로 애초에 불가능하다.
+const LIVE_KEYS = {
+  riskLong: "riskPct_long", riskShort: "riskPct_short", lev: "leverage",
+  legacyRisk: "riskPct",
+};
+const REPLAY_KEYS = {
+  riskLong: "replay_riskPct_long", riskShort: "replay_riskPct_short", lev: "replay_leverage",
+  legacyRisk: "replay_riskPct",
+};
 
 const DEFAULT_RISK = 2;
 const DEFAULT_LEV  = 10;
 
 let _keys = LIVE_KEYS;   // 새로고침하면 항상 실거래로 시작한다 (replaySlice와 같은 전제)
 
-const readRisk = () => Number(localStorage.getItem(_keys.risk)) || DEFAULT_RISK;
-const readLev  = () => Number(localStorage.getItem(_keys.lev))  || DEFAULT_LEV;
+const num = (v, fb) => Number(v) || fb;
+
+// ⚠ 사이드별 키가 없으면 **분리 이전의 값 하나**(legacyRisk)로 떨어진다.
+//   옛 키를 지우거나 무시하면 업데이트 직후 첫 실행에 리스크가 조용히 기본값(2%)으로
+//   되돌아간다 — replay/session.js가 구버전 세션을 계속 읽는 것과 같은 이유다.
+const readRiskFrom = (keys, isLong) =>
+  num(localStorage.getItem(isLong ? keys.riskLong : keys.riskShort)
+      ?? localStorage.getItem(keys.legacyRisk), DEFAULT_RISK);
+
+const readRisk = (isLong) => readRiskFrom(_keys, isLong);
+const readLev  = () => num(localStorage.getItem(_keys.lev), DEFAULT_LEV);
+
+function scheduleReplace(get, sides) {
+  sides.forEach(s => _replaceSides.add(s));
+  clearTimeout(_replaceTimer);
+  _replaceTimer = setTimeout(() => {
+    const changed = _replaceSides;
+    _replaceSides = new Set();
+    const { drawing, replacePendingOrder } = get();
+    // 미체결 주문이 걸린 사이드의 값이 실제로 바뀐 경우에만 재등록한다.
+    // ⚠ 사이드를 **모아서** 판정하는 이유: 롱 리스크를 만진 직후 800ms 안에 숏 리스크를
+    //   만지면 타이머가 교체되는데, 마지막 호출의 사이드만 보면 앞의 롱 변경이 통째로 증발한다.
+    if (drawing?.orderId && changed.has(drawing.isLong ? "long" : "short")) replacePendingOrder();
+  }, 800);
+}
 
 /**
  * 모드 전환 시 저장 키를 갈아끼우고 새 모드의 값을 돌려준다.
@@ -35,26 +82,47 @@ export function swapTradeSettings(replayOn) {
   // ⚠ 대기 중인 재등록 타이머를 버린다. 남겨두면 **이전 모드에서 슬라이더를 만진
   //   결과가 새 모드에서 터진다** (실거래 미체결 주문을 연습 설정으로 재등록하는 식).
   clearTimeout(_replaceTimer);
+  _replaceSides = new Set();
 
   _keys = replayOn ? REPLAY_KEYS : LIVE_KEYS;
 
   // 연습 값이 아직 없으면 **실거래 값을 씨앗으로 준다.** 기본값(10x/2%)으로 시작하면
   // 처음 리플레이를 켠 사람에게는 슬라이더가 제멋대로 움직인 것처럼 보인다.
-  // 한 번만 심으면 그 뒤로는 각자 간다
-  if (replayOn && localStorage.getItem(REPLAY_KEYS.risk) === null) {
-    localStorage.setItem(REPLAY_KEYS.risk, localStorage.getItem(LIVE_KEYS.risk) ?? DEFAULT_RISK);
-    localStorage.setItem(REPLAY_KEYS.lev,  localStorage.getItem(LIVE_KEYS.lev)  ?? DEFAULT_LEV);
+  // 한 번만 심으면 그 뒤로는 각자 간다.
+  // ⚠ 사이드별로 따로 심을 것 — setRiskPct는 만진 쪽 키 하나만 쓰므로,
+  //   연습에서 롱만 조절하면 숏 키는 계속 비어 있다.
+  // ⚠ 씨앗은 **연습의 옛 값(사이드 분리 이전)이 있으면 그쪽이 우선**이다.
+  //   실거래 값으로 덮으면 리스크를 롱·숏으로 나눈 그날 연습 설정이 한 번 날아간다.
+  if (replayOn) {
+    const legacy = localStorage.getItem(REPLAY_KEYS.legacyRisk);
+    const seed = (key, isLong) => {
+      if (localStorage.getItem(key) !== null) return;
+      localStorage.setItem(key, legacy !== null ? num(legacy, DEFAULT_RISK)
+                                                : readRiskFrom(LIVE_KEYS, isLong));
+    };
+    seed(REPLAY_KEYS.riskLong,  true);
+    seed(REPLAY_KEYS.riskShort, false);
+    if (localStorage.getItem(REPLAY_KEYS.lev) === null) {
+      localStorage.setItem(REPLAY_KEYS.lev, localStorage.getItem(LIVE_KEYS.lev) ?? DEFAULT_LEV);
+    }
   }
 
-  return { riskPct: readRisk(), leverage: readLev() };
+  return { riskPctLong: readRisk(true), riskPctShort: readRisk(false), leverage: readLev() };
 }
+
+/**
+ * 사이드에 맞는 리스크 %를 고른다. **읽는 곳은 전부 이걸 부를 것** —
+ * 각자 `isLong ? … : …`를 쓰면 한 곳만 뒤집혀도 조용히 반대쪽 리스크로 주문이 나간다.
+ */
+export const riskPctFor = (s, isLong) => (isLong ? s.riskPctLong : s.riskPctShort);
 
 export const createSettingsSlice = (set, get) => ({
   // ── 설정 (localStorage 동기화) ────────────────────────────────────────────
-  // ⚠ riskPct·leverage의 저장 키는 모드에 따라 바뀐다 (위 swapTradeSettings).
-  //   여기서 `"riskPct"`/`"leverage"`를 리터럴로 되돌리지 말 것 — 그 순간 두 모드가
-  //   다시 같은 값을 쓰게 되고, 연습에서 올린 레버리지가 실거래로 넘어간다
-  riskPct:    readRisk(),
+  // ⚠ 리스크·레버리지의 저장 키는 모드에 따라 바뀐다 (위 swapTradeSettings).
+  //   여기서 `"riskPct_long"`/`"leverage"` 같은 리터럴로 되돌리지 말 것 — 그 순간 두 모드가
+  //   다시 같은 값을 쓰게 되고, 연습에서 올린 레버리지·리스크가 실거래로 넘어간다
+  riskPctLong:  readRisk(true),
+  riskPctShort: readRisk(false),
   leverage:   readLev(),
   interval_:  localStorage.getItem("interval") || "1h",
   indicators: (() => {
@@ -62,24 +130,17 @@ export const createSettingsSlice = (set, get) => ({
     catch { return {}; }
   })(),
 
-  setRiskPct: (riskPct) => {
-    localStorage.setItem(_keys.risk, riskPct);
-    set({ riskPct });
-    clearTimeout(_replaceTimer);
-    _replaceTimer = setTimeout(() => {
-      const { drawing, replacePendingOrder } = get();
-      if (drawing?.orderId) replacePendingOrder();
-    }, 800);
+  setRiskPct: (isLong, riskPct) => {
+    localStorage.setItem(isLong ? _keys.riskLong : _keys.riskShort, riskPct);
+    set(isLong ? { riskPctLong: riskPct } : { riskPctShort: riskPct });
+    scheduleReplace(get, [isLong ? "long" : "short"]);
   },
 
   setLeverage: (leverage) => {
     localStorage.setItem(_keys.lev, leverage);
     set({ leverage });
-    clearTimeout(_replaceTimer);
-    _replaceTimer = setTimeout(() => {
-      const { drawing, replacePendingOrder } = get();
-      if (drawing?.orderId) replacePendingOrder();
-    }, 800);
+    // 레버리지는 심볼 단위라 양쪽 다 영향을 받는다 (바이낸스가 사이드별로 안 받는다)
+    scheduleReplace(get, ["long", "short"]);
   },
 
   setInterval_: (interval_) => {

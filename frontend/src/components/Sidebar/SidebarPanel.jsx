@@ -3,6 +3,7 @@ import { SIDEBAR_W } from "../../constants";
 import { useTheme }  from "../../ThemeContext";
 import { useHealth } from "../../hooks/useHealth";
 import { useStore }  from "../../store";
+import { riskPctFor } from "../../store/settingsSlice";
 import { useShallow } from "zustand/react/shallow";
 import { calcPosition } from "../../utils/calc";
 import { api }       from "../../api/client";
@@ -29,13 +30,13 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   const {
     balance, balError, _refetchBal,
     position, tpsl, tpslSaving,
-    riskPct, setRiskPct, leverage, setLeverage,
+    riskPctLong, riskPctShort, setRiskPct, leverage, setLeverage,
     drawMode, drawing, orderStatus, setOrderStatus,
     liveClose, executeOrder, replayOn, paperBroker, replayNowMs,
   } = useStore(useShallow(s => ({
     balance: s.balance, balError: s.balError, _refetchBal: s._refetchBal,
     position: s.position, tpsl: s.tpsl, tpslSaving: s.tpslSaving,
-    riskPct: s.riskPct, setRiskPct: s.setRiskPct,
+    riskPctLong: s.riskPctLong, riskPctShort: s.riskPctShort, setRiskPct: s.setRiskPct,
     leverage: s.leverage, setLeverage: s.setLeverage,
     drawMode: s.drawMode, drawing: s.drawing, orderStatus: s.orderStatus, setOrderStatus: s.setOrderStatus,
     liveClose: s.liveClose, executeOrder: s.executeOrder,
@@ -131,6 +132,9 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     setLeverageErr(null);
   }, [replayOn]);
 
+  // 플랜 박스가 가리키는 사이드의 리스크 — 슬라이더가 둘이라 어느 쪽 값인지 여기서 고른다
+  const planRiskPct = drawing ? riskPctFor({ riskPctLong, riskPctShort }, drawing.isLong) : riskPctLong;
+
   const posCalc = useMemo(() => {
     if (!drawing || !balance) return null;
     
@@ -148,8 +152,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       }
     }
 
-    return calcPosition(balance.availableBalance ?? 0, riskPct / 100, drawing.entry, drawing.sl, leverage);
-  }, [balance, drawing, riskPct, leverage, position?.pending]);
+    return calcPosition(balance.availableBalance ?? 0, planRiskPct / 100, drawing.entry, drawing.sl, leverage);
+  }, [balance, drawing, planRiskPct, leverage, position?.pending]);
 
   return (
     <div style={{
@@ -246,9 +250,22 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           <span style={{ fontSize:"12px", color:theme.textMuted }}>설정</span>
           <span style={{ fontSize:"10px", color:theme.textFaint }}>{settingsOpen ? "▲" : "▼"}</span>
         </button>
-        {settingsOpen && <><Slider label="리스크 %" value={riskPct} min={0.5} max={3} step={0.1}
-          onChange={setRiskPct} format={v => `${v}%`}
-          color={riskPct<=1?"#0ecb81":riskPct<=2?"#f0b90b":"#f6465d"} />
+        {/* ⚠ 리스크 %는 **롱·숏 따로**다 (2026-08-19 사용자 요청).
+            레버리지는 하나뿐인데, 바이낸스가 심볼 단위로만 받아서 사이드별로 나눌 수가 없다
+            (`POST /fapi/v1/leverage`에 positionSide가 없다 — settingsSlice 주석 참고).
+            리스크는 거래소에 안 보내고 수량 계산에만 쓰이므로 나눠도 어긋날 게 없다.
+            ▲/▼ 기호와 초록/빨강은 이 앱에서 롱·숏을 가리키는 색 그대로다 —
+            값 크기에 따라 색을 바꾸던 옛 규칙(초록/금색/빨강)은 여기선 쓸 수 없다.
+            슬라이더가 둘이 되는 순간 "숏이라서 빨강"인지 "리스크가 높아서 빨강"인지
+            구분이 안 되기 때문.
+            ※ "자본의 N% — 일일 한도 4%" 경고 문구는 2026-08-19 사용자 요청으로 제거됐다.
+              일일 손실 한도는 바로 위 아코디언이 실제 잔여액으로 이미 답하고 있다 */}
+        {settingsOpen && <>
+        <Slider label="▲ 롱 리스크" value={riskPctLong} min={0.5} max={3} step={0.1}
+          onChange={v => setRiskPct(true, v)} format={v => `${v}%`} color="#0ecb81" />
+        <div style={{ height:"6px" }} />
+        <Slider label="▼ 숏 리스크" value={riskPctShort} min={0.5} max={3} step={0.1}
+          onChange={v => setRiskPct(false, v)} format={v => `${v}%`} color="#f6465d" />
         <div style={{ height:"8px" }} />
         <div style={{ opacity: hasPending ? 0.45 : 1, pointerEvents: hasPending ? "none" : "auto" }}>
           <Slider label="레버리지"
@@ -361,7 +378,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
 
         {drawing && (
           <PlanCard
-            drawing={drawing} posCalc={posCalc} leverage={leverage} riskPct={riskPct}
+            drawing={drawing} posCalc={posCalc} leverage={leverage} riskPct={planRiskPct}
             position={position}
             hasPending={drawing.isLong ? longPendingExists : shortPendingExists}
             onConfirm={executeOrder}

@@ -60,13 +60,34 @@ frontend/src/
 │   ├── index.js               ← Zustand 스토어 조립(4개 slice 통합) — `useStore` export
 │   ├── serverSlice.js         ← 서버 상태: balance/position/tpsl/liveClose + refetch 콜백
 │   │                             tpsl 초기값: { long: { tp, sl, splitTps:[] }, short: { tp, sl, splitTps:[] } }
-│   ├── settingsSlice.js       ← 설정(localStorage 동기화): riskPct/leverage/interval_/indicators
-│   │                             riskPct/leverage 변경 시 800ms debounce 후 pending 주문 자동 재등록
-│   │                             ⚠ **riskPct·leverage는 실거래·연습이 완전히 따로다** (2026-08-19).
+│   ├── settingsSlice.js       ← 설정(localStorage 동기화): riskPctLong·riskPctShort/leverage/interval_/indicators
+│   │                             리스크·레버리지 변경 시 800ms debounce 후 pending 주문 자동 재등록
+│   │                               — **미체결 주문이 걸린 사이드의 값이 바뀐 경우에만** 재등록한다
+│   │                                 (롱 리스크를 만졌다고 숏 주문까지 다시 걸면 안 된다).
+│   │                                 판정은 debounce 창에 바뀐 사이드를 **모아서**(`_replaceSides`) —
+│   │                                 마지막 호출만 보면 800ms 안에 롱→숏을 연달아 만졌을 때 롱이 증발한다
+│   │                             ⚠ **리스크·레버리지는 실거래·연습이 완전히 따로다** (2026-08-19).
 │   │                               `swapTradeSettings(replayOn)`이 저장 키를 갈아끼운다
-│   │                               (`riskPct`/`leverage` ↔ `replay_riskPct`/`replay_leverage`).
-│   │                               스토어 필드는 그대로 하나라 읽는 쪽을 고칠 필요가 없다
+│   │                               (`riskPct_long`/`riskPct_short`/`leverage` ↔ `replay_` 접두사 3종).
+│   │                               모드는 읽는 쪽에 안 보이는 상태라 **필드를 늘리지 않는다**
 │   │                               (uiSlice.swapDrawingStorage와 같은 방식) — 리터럴 키로 되돌리지 말 것
+│   │                             ⚠ **리스크 %는 롱·숏이 또 따로다** (2026-08-19). 여기는 반대로
+│   │                               **필드를 둘로 나눈다** — 읽는 곳이 전부 `drawing.isLong`을 이미
+│   │                               들고 있고, 사이드바에 슬라이더 **두 개를 동시에** 띄워야 해서
+│   │                               키 갈아끼우기로는 애초에 안 된다. 고르는 건 `riskPctFor(s, isLong)`
+│   │                               하나 — 읽는 쪽에서 `isLong ? … : …`를 직접 쓰지 말 것
+│   │                               (한 곳만 뒤집혀도 조용히 반대쪽 리스크로 주문이 나간다)
+│   │                             ⚠ **레버리지는 나누지 않는다 — 바이낸스가 심볼 단위로만 받는다.**
+│   │                               `POST /fapi/v1/leverage`에 positionSide가 없어 LONG·SHORT가
+│   │                               같은 값을 공유하고, 한쪽을 바꾸면 반대쪽 포지션의 청산가가 움직인다
+│   │                               (그래서 `routes/order.js`가 반대쪽 포지션이 있으면 변경을 생략한다).
+│   │                               화면에서만 갈라 놓으면 거래소에선 뒤에 보낸 값이 이겨
+│   │                               "설정한 대로 안 나간다"가 된다. 리스크 %는 반대로 거래소에
+│   │                               **보내지 않으므로**(수량 계산에만 쓴다) 나눠도 어긋날 게 없다
+│   │                             ⚠ 사이드별 키가 없으면 **분리 이전의 값 하나**(`riskPct`/
+│   │                               `replay_riskPct`)로 떨어진다. 옛 키를 지우지 말 것 —
+│   │                               업데이트 직후 첫 실행에 리스크가 조용히 2%로 되돌아간다
+│   │                               (replay/session.js가 구버전 세션을 계속 읽는 것과 같은 이유)
 │   ├── uiSlice.js             ← UI/드로잉/드래그 상태: drawing/drawMode/orderStatus/criticalAlerts/selectedBox/opacityPopup/dragTpsl/dragScaleIn/dragSplitTp
 │   │                             ⚠ `criticalAlerts`는 **목록**이다 (2026-08-15). 문자열 하나로
 │   │                               되돌리지 말 것 — 한 reconcile에서 LONG·SHORT 경보가 61ms
@@ -157,6 +178,19 @@ frontend/src/
 │   ├── useVolResize.js        ← 거래량 패널 높이 드래그 조절 (localStorage 저장, 40~200px)
 │   ├── useReplay.js           ← 리플레이 캔들 피드 — **useCandles와 같은 계약**을 돌려준다
 │   │                             재생 루프 + 페이퍼 브로커 동기화 + 세션 저장/복원
+│   │                             ⚠ **TF를 바꿔도 재생이 이어진다** (2026-08-19 사용자 요청).
+│   │                               TF가 바뀌면 표시·구동 캔들을 다시 받아야 해서 로드
+│   │                               이펙트가 재실행되고 그 cleanup이 재생을 멈춘다(로딩 중에
+│   │                               커서를 굴릴 수는 없다) → `wasPlayingRef`에 기억해 뒀다가
+│   │                               로드가 끝나면 되켠다. **구간(symbol·start·end)이 그대로이고
+│   │                               tf만 바뀐 재실행일 때만** (`prevLoadRef`) — 날짜를 옮기거나
+│   │                               리플레이를 처음 켠 경우까지 자동 재생하면 화면이 준비되기 전에
+│   │                               봉이 흘러간다
+│   │                             ⚠ 그 cleanup은 **`flushSave()`를 먼저** 부른다. 재생 중에는
+│   │                               매 틱(300ms)마다 scheduleSave가 500ms 타이머를 다시 깔아서
+│   │                               **저장이 한 번도 일어나지 않는다.** 진행 위치는
+│   │                               `broker.lastTime`으로만 저장되므로(session.js), 안 흘리면
+│   │                               TF를 바꾼 순간 **재생 시작 전 지점으로 되감긴다**
 │   └── useHealth.js           ← 서버 헬스 체크
 ├── chart/
 │   ├── candleRenderer.js      ← renderCandles() (캔들+축+오버레이 호출)
@@ -401,7 +435,9 @@ frontend/src/
 ### 글로벌 상태 관리 (Zustand Store)
 - `store/index.js`가 4개 slice를 조립 (`createServerSlice`/`createSettingsSlice`/`createUiSlice`/`createOrderSlice`)
 - **serverSlice**: balance, position, tpsl, liveClose, tpslSaving + 폴링 훅용 refetch 콜백(`_refetchBal`/`_refetchPos`/`_refetchTpsl`)
-- **settingsSlice**: riskPct, leverage, interval_, indicators (localStorage 동기화) — riskPct/leverage 변경 시 800ms debounce 후 `replacePendingOrder` 자동 호출
+- **settingsSlice**: riskPctLong/riskPctShort, leverage, interval_, indicators (localStorage 동기화) — 변경 시 800ms debounce 후 `replacePendingOrder` 자동 호출 (미체결 주문과 **같은 사이드**의 값이 바뀐 경우에만)
+  - **리스크 %는 롱·숏 따로**, 레버리지는 하나 — 바이낸스가 레버리지를 심볼 단위로만 받는다(`positionSide` 없음). 읽을 땐 `riskPctFor(s, isLong)`
+  - 실거래·연습 값도 따로 (`swapTradeSettings`) → 리스크는 총 **네 벌**, 레버리지는 두 벌
 - **uiSlice**: drawing, drawMode, orderStatus, criticalAlert, selectedBox, opacityPopup, 드래그 상태(dragTpsl/dragScaleIn/dragSplitTp) — drawing은 200ms debounce localStorage 영속화
 - **orderSlice**: 모든 주문 액션 (executeOrder/saveTpsl/scaleIn/cancelScaleIn/moveScaleIn/addSplitTp/cancelSplitTp/moveSplitTp/closePosition/updatePendingTpsl/replacePendingOrder/deleteBox) + 일일 손실 한도 가드 + side 매핑 헬퍼 사용
 - `useOrderFlow.js`는 orderSlice 액션을 컴포넌트에서 편리하게 사용하기 위한 재-export 래퍼
@@ -1324,6 +1360,8 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - 실계좌 폴링(`useBalance`/`usePosition`/`useTpsl`/`useDailyLoss`)은 리플레이 중 멈춘다.
   안 그러면 페이퍼 포지션이 몇 초마다 실계좌 값으로 덮인다
 - ⚠ **리스크 %·레버리지는 모드별로 따로 저장된다** (2026-08-19 사용자 요청).
+  리스크는 그 위에 **롱·숏까지 갈라져** 네 벌이다 (`riskPct_long`/`riskPct_short` ×
+  `replay_` 접두사). 연습에서 숏 리스크를 3%로 올려도 실거래 숏은 그대로다
   예전엔 값 하나를 공유했고 localStorage 키도 같아서, 연습에서 레버리지를 50x로
   올리면 **실거래 설정이 그대로 50x가 됐다.** 리플레이를 끄고 낸 다음 실주문에 그 값이
   쓰이는데, 조용히 일어나고 사이드바를 다시 열어보지 않으면 알 수 없다.
@@ -1332,7 +1370,11 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
     "replayOn은 바뀌었는데 레버리지는 아직 저쪽 모드"인 렌더가 한 번 생기고,
     그 사이에 주문이 나가면 엉뚜한 레버리지로 체결된다 (`drawing` 교체와 같은 규칙)
   - 연습 값이 없으면 **실거래 값을 씨앗으로** 한 번만 심는다. 기본값(10x/2%)으로
-    시작하면 처음 리플레이를 켜는 사람에겐 슬라이더가 제먋대로 움직인 것처럼 보인다
+    시작하면 처음 리플레이를 켜는 사람에겐 슬라이더가 제멋대로 움직인 것처럼 보인다
+    - 리스크는 **사이드별로 따로 심는다** — `setRiskPct`가 만진 쪽 키 하나만 쓰므로,
+      연습에서 롱만 조절하면 숏 키는 계속 비어 있다
+    - 단 **연습의 옛 값(사이드 분리 이전 `replay_riskPct`)이 있으면 그쪽이 우선**이다.
+      실거래 값으로 덮으면 롱·숏을 나눈 그날 연습 설정이 한 번 날아간다
   - 전환 시 **확인 대기 중인 레버리지 변경(`pendingLeverage`)과 재등록 debounce 타이머를
     버린다.** 남겨두면 이전 모드에서 고르던 값이 새 모드에서 적용된다
   - ※ **TF·지표·알림·테마·단축키는 계속 공유한다** — 저건 주문 크기와 무관한
@@ -1409,6 +1451,15 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
     직후 첫 실행 한 번에 연습 기록이 통째로 버려졌다** — "초기화 버튼 전엔 안 사라진다"는
     규칙을 그 규칙을 만든 커밋이 스스로 어기는 셈이다.
     앞으로도 **필드가 바될 때만** VERSION을 올리고, 그때는 변환을 넣을 것
+- ⚠ **재생 중에 TF를 바꿔도 멈추지 않는다** (2026-08-19 사용자 요청) — 캔들을 새로 받는
+  동안만 끊기고(그동안 ReplayBar 버튼은 `loading`으로 비활성) 로드가 끝나면 이어서 재생된다.
+  진행 위치가 유지되는 건 세션이 **커서가 아니라 시각**을 저장하기 때문이다(session.js).
+  - ⚠ 그래서 **TF 전환 직전에 세션을 강제로 저장해야 한다**(`useReplay.flushSave`).
+    재생 중에는 debounce가 매 틱 갱신돼 저장이 한 번도 안 일어나서, 안 흘리면
+    몇 분을 재생했든 **재생을 시작한 지점으로 되감긴다**
+  - 새 구동 TF에 맞춰 커서를 다시 잡을 때 어긋남은 **항상 앞쪽으로 1구동봉 미만**이다
+    (`indexOfTime` lower bound + 1). 실측: 1h→4h +5분 / 4h→1d +35분 / 그 외 0분.
+    뒤로 가지 않는 게 중요하다 — 이미 매매하며 지나온 봉을 다시 보여주면 안 된다
 - **모드 전환·시크 뒤에는 `chartActionsRef.current?.resetDomain()`을 부른다.** 가격대가 통째로
   바뀌는데 y축이 그대로면 캔들이 화면 밖으로 나가 차트가 텅 빈 것처럼 보인다(실제 증상)
   - ⚠ **"차트가 납작하다"의 진짜 원인은 `getScales`의 폴백이었다** (2026-08-15).

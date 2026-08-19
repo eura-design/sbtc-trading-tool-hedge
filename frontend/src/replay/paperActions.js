@@ -14,6 +14,7 @@
 import { calcPosition } from "../utils/calc";
 import { isLongToPosition, closeToPosition } from "../utils/side";
 import { computePaperDailyLoss } from "./dailyLoss";
+import { riskPctFor } from "../store/settingsSlice";
 
 const ok = (get, msg) => {
   get().syncPaper();
@@ -27,8 +28,12 @@ const err = (get, e)   => get().setOrderStatus({ type: "error", msg: e.message }
 export const paperActions = {
 
   executeOrder: (get, orderType) => {
-    const { drawing, leverage, riskPct, balance, paperBroker, setDrawing, replayNowMs } = get();
+    const st = get();
+    const { drawing, leverage, balance, paperBroker, setDrawing, replayNowMs } = st;
     if (!drawing || !paperBroker) return;
+    // 실거래와 같은 규칙 — 리스크 %는 사이드별이다 (settingsSlice.riskPctFor).
+    // 연습에서만 한쪽 값을 쓰면 같은 플랜이 모드에 따라 다른 수량으로 나간다
+    const riskPct = riskPctFor(st, drawing.isLong);
 
     // ⚠ 일일 손실 한도는 **연습에도 건다.** 이 앱의 핵심 리스크 규칙인데
     //   연습에서만 무제한이면, 실전에서 막히는 매매를 계속 연습하게 되어

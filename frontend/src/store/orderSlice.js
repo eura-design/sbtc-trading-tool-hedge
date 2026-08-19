@@ -2,6 +2,7 @@ import { calcPosition }  from "../utils/calc";
 import { api }           from "../api/client";
 import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from "../utils/side";
 import { paperActions }  from "../replay/paperActions";
+import { riskPctFor }   from "./settingsSlice";
 
 // 리플레이(페이퍼) 모드면 같은 이름의 페이퍼 핸들러로 넘긴다.
 // 각 액션 첫 줄에서 한 번만 갈라지므로 아래 실거래 코드는 원래대로 읽힌다.
@@ -12,8 +13,12 @@ export const createOrderSlice = (set, get) => ({
 
   executeOrder: async (orderType) => {
     if (get().replayOn) return paperActions.executeOrder(get, orderType);
-    const { drawing, leverage, riskPct, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos, _refetchTpsl } = get();
+    const st = get();
+    const { drawing, leverage, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos, _refetchTpsl } = st;
     if (!drawing) return;
+    // 리스크 %는 **사이드별**이다 (settingsSlice.riskPctFor) — 레버리지와 달리 거래소에
+    // 보내지 않고 수량 계산에만 쓰이므로 롱·숏이 서로 다른 값을 가질 수 있다
+    const riskPct = riskPctFor(st, drawing.isLong);
     try {
       const dl = await api("GET", "/api/daily-loss");
       if (dl && dl.remaining <= 0) {
@@ -138,8 +143,10 @@ export const createOrderSlice = (set, get) => ({
 
   replacePendingOrder: async () => {
     if (get().replayOn) return paperActions.replacePendingOrder(get);
-    const { drawing, leverage, riskPct, balance, position, setDrawing, setOrderStatus, _refetchPos, _refetchBal } = get();
+    const st = get();
+    const { drawing, leverage, balance, position, setDrawing, setOrderStatus, _refetchPos, _refetchBal } = st;
     if (!drawing?.orderId) return;
+    const riskPct = riskPctFor(st, drawing.isLong);
 
     const sideKey = drawing.isLong ? "long" : "short";
     const pendingOrder = position?.pending?.[sideKey];

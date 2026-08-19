@@ -60,6 +60,15 @@ export function useReplay({
   const speedRef   = useRef(speed);
   speedRef.current = speed;
 
+  // ── TF를 바꿔도 재생이 이어지게 하는 세 값 (2026-08-19 사용자 요청) ──────
+  // TF가 바뀌면 표시·구동 캔들을 통째로 다시 받아야 해서 로드 이펙트가 재실행되고,
+  // 그 cleanup이 재생을 멈춘다(로딩 중에 커서를 굴릴 수는 없다).
+  // 그래서 **멈추기 직전 상태를 기억해 뒀다가 로드가 끝나면 되켠다.**
+  const playingRef  = useRef(false);
+  playingRef.current = playing;
+  const wasPlayingRef = useRef(false);   // cleanup 시점의 재생 여부
+  const prevLoadRef   = useRef(null);    // { rangeKey, tf } — "TF만 바뀌었나" 판정용
+
   const driveTf = driveTfFor(tf);
 
   // 저장은 debounce한다 — 틱마다 직렬화하면 재생이 눈에 띄게 느려진다
@@ -68,6 +77,22 @@ export function useReplay({
     saveTimerRef.current = setTimeout(() => {
       if (sessionKeyRef.current) saveSession(sessionKeyRef.current, brokerRef.current);
     }, 500);
+  }, []);
+
+  /**
+   * 대기 중인 저장을 **지금 당장** 흘려보낸다.
+   *
+   * ⚠ TF 전환에 반드시 필요하다. 재생 중에는 매 틱(기본 300ms)마다 scheduleSave가
+   *   500ms 타이머를 다시 깔기 때문에 **저장이 한 번도 일어나지 않는다.**
+   *   진행 위치는 `broker.lastTime`으로만 저장되므로(replay/session.js), 이걸 안 흘리면
+   *   TF를 바꾼 순간 **재생을 시작하기 전 지점으로 되감긴다** — 몇 분을 재생했든.
+   */
+  const flushSave = useCallback(() => {
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    if (sessionKeyRef.current && brokerRef.current) {
+      saveSession(sessionKeyRef.current, brokerRef.current);
+    }
   }, []);
 
   // 주문 액션(paperActions)이 부를 수 있도록 스토어에 걸어 둔다
@@ -141,6 +166,18 @@ export function useReplay({
 
   // ── 로드 ────────────────────────────────────────────────────────────────
   useEffect(() => {
+    // ── TF만 바뀐 재실행인가 ────────────────────────────────────────────
+    // 구간(symbol·startMs·endMs)이 그대로인데 다시 로드한다 = 사용자가 TF를 바꿨다.
+    // 그때만 재생을 되켠다 — 날짜를 옮기거나 리플레이를 처음 켠 경우까지 자동
+    // 재생하면 화면이 준비되기도 전에 봉이 흘러간다.
+    // ⚠ 이 판정은 **cleanup보다 뒤, prevLoadRef 갱신보다 앞**에서 해야 한다.
+    //   cleanup이 wasPlayingRef를 채우고, 아래에서 prevLoadRef를 새 값으로 덮는다.
+    const rangeKey = `${symbol}|${startMs}|${endMs}`;
+    const prev     = prevLoadRef.current;
+    const resume   = !!prev && prev.rangeKey === rangeKey && prev.tf !== tf && wasPlayingRef.current;
+    wasPlayingRef.current = false;
+    prevLoadRef.current = enabled ? { rangeKey, tf } : null;
+
     if (!enabled || !tf || !startMs || !endMs || endMs <= startMs) {
       engineRef.current = null;
       brokerRef.current = null;
@@ -227,6 +264,8 @@ export function useReplay({
 
         setCandles([...eng.candles]);
         syncStatus();
+        // 끊긴 재생을 이어붙인다. 끝에 닿아 있으면 되켜지 않는다(재생 루프가 바로 멈춘다)
+        if (resume && !eng.atEnd) setPlaying(true);
       } catch (e) {
         if (e.name !== "AbortError" && !cancelled) {
           console.error("[replay] 로드 실패:", e);
@@ -237,8 +276,16 @@ export function useReplay({
       }
     })();
 
-    return () => { cancelled = true; ac.abort(); setPlaying(false); };
-  }, [enabled, tf, driveTf, startMs, endMs, symbol, warmupBars, startBalance, syncStatus]);
+    return () => {
+      cancelled = true;
+      ac.abort();
+      // ⚠ **순서가 중요하다.** 저장을 먼저 흘려야 아래에서 다시 로드할 때
+      //   loadSession이 방금까지 재생한 지점을 읽는다 (flushSave 주석 참고)
+      flushSave();
+      wasPlayingRef.current = playingRef.current;
+      setPlaying(false);
+    };
+  }, [enabled, tf, driveTf, startMs, endMs, symbol, warmupBars, startBalance, syncStatus, flushSave]);
 
   // ── 커서 이동 결과를 화면에 반영 ────────────────────────────────────────
   // barClosed일 때만 새 배열을 만든다 (useCandles와 같은 규칙)
