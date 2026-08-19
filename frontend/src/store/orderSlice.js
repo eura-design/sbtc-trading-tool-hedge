@@ -79,7 +79,8 @@ export const createOrderSlice = (set, get) => ({
 
   saveTpsl: async (newTp, newSl, dragSide) => {
     if (get().replayOn) return paperActions.saveTpsl(get, newTp, newSl, dragSide);
-    const { position, tpsl, tpslSaving, setTpslSaving, setTpsl, setOrderStatus, setDragTpsl } = get();
+    const { position, tpsl, tpslSaving, setTpslSaving, setTpsl, setOrderStatus, setDragTpsl,
+            _refetchTpsl } = get();
     if (!position || tpslSaving) return;
     if (!newTp && !newSl) return;
     const positionSide = dragSide ?? (position.long ? "LONG" : "SHORT");
@@ -92,19 +93,32 @@ export const createOrderSlice = (set, get) => ({
     setTpslSaving(true); setOrderStatus(null);
     try {
       const data = await api("PUT", "/api/tpsl", body);
+      // ⚠ **TP를 걸면 그 사이드 분할 TP는 백엔드가 전부 취소한다** — 로컬 상태도 같이 비운다.
+      //   안 비우면 다음 폴링(60초)까지 이미 사라진 분할 TP 선이 차트에 남는다.
+      //   단 **취소가 실패한 게 있으면 비우지 않는다**(`splitFailed`) — 거래소에 살아 있는
+      //   주문을 화면에서 지우면 아래 에러 배너("공존 중")와 화면이 서로 다른 말을 한다
+      const clearSplit = newTp && !data.splitFailed;
       setTpsl(prev => ({
         ...prev,
         [sideKey]: {
           ...prev[sideKey],
           tp: newTp ? data.tp : prev[sideKey]?.tp,
           sl: newSl ? data.sl : prev[sideKey]?.sl,
+          splitTps: clearSplit ? [] : (prev[sideKey]?.splitTps ?? []),
         },
       }));
       if (data.noSl) {
         setOrderStatus({ type: "error", msg: "⚠ SL 등록 실패 — 포지션에 SL이 없습니다! 즉시 수동 설정 필요" });
+      } else if (data.splitFailed) {
+        // 못 지운 분할 TP가 남았다 = 단일 TP와 공존 중이다. 조용히 넘기면 안 된다
+        setOrderStatus({ type: "error",
+          msg: `⚠ 분할 TP ${data.splitFailed}개 취소 실패 — 단일 TP와 공존 중입니다. 수동 취소 필요` });
+      } else if (data.splitCanceled) {
+        setOrderStatus({ type: "success", msg: `TP 등록 완료 — 분할 TP ${data.splitCanceled}개 취소됨` });
       } else {
         setOrderStatus({ type: "success", msg: "TP/SL 수정 완료" });
       }
+      if (newTp) setTimeout(() => { _refetchTpsl(); }, 500);
     } catch (e) {
       setOrderStatus({ type: "error", msg: `TP/SL 수정 실패: ${e.message}` });
     } finally {

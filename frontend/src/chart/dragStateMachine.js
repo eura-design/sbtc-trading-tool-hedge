@@ -96,6 +96,25 @@ export const DRAG_HANDLERS = {
         });
         return;
       }
+      // ⚠ **같은 사이드에 포지션이 있으면 그쪽 플랜 박스는 그려지지 않는다**
+      //   (2026-08-19 사용자 요청). 롱을 들고 있으면 숏 박스만, 숏을 들고 있으면 롱 박스만.
+      //   이유: 포지션이 있는 쪽에 플랜을 그려도 **주문을 낼 수 없다** — PlanCard가
+      //   `sameSidePos`를 보고 실행 버튼 대신 `포지션이 이미 있습니다`를 띄운다.
+      //   그런데 진입 주문이 나가면 그 박스의 TP가 자동 등록되면서 **이미 걸어 둔
+      //   분할 TP와 공존**할 수 있어(단일 TP ↔ 분할 TP 배타 규칙이 이 경로만 못 막는다),
+      //   애초에 못 그리게 하는 게 그 구멍까지 같이 닫는다
+      //   ※ 2026-08-19 이전에 있던 "포지션이 있으면 박스를 **지운다**"(App.jsx)와는 다르다.
+      //     저건 그려진 뒤 조용히 증발해서 왜 사라졌는지 알 수 없었다 — 그래서 제거됐다.
+      //     여기서는 **그리는 순간 되돌리고 이유를 배너로 띄운다** (위 orderId 가드와 같은 방식).
+      //     되살릴 거면 "지우기"가 아니라 이 방식으로 할 것
+      if (state?.position?.[isLong ? "long" : "short"]) {
+        setCurrent(null);
+        setters.setOrderStatus?.({
+          type: "error",
+          msg: `${isLong ? "▲ LONG" : "▼ SHORT"} 포지션이 이미 있습니다 — 청산 후 플랜을 그릴 수 있습니다`,
+        });
+        return;
+      }
       const slDist = ey - sy; // 양수(롱/아래), 음수(숏/위)
       const tpPx   = Math.min(Math.max(sy - slDist * 2, 0), IH); // SL 거리의 2배 반대 방향
       setDrawing(isLong, {

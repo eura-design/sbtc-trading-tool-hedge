@@ -87,9 +87,17 @@ export class PaperBroker {
   /** 포지션의 TP/SL 수정 (둘 중 준 것만 바꾼다) */
   setTpsl(positionSide, { tp, sl }) {
     const t = this.tpsl[positionSide];
-    if (tp) t.tp = { orderId: this.nextId(), price: tp, isAlgo: false };
+    let splitCanceled = 0;
+    if (tp) {
+      // 실거래와 동일: 단일 TP를 걸면 그 사이드 분할 TP를 전부 내린다 (수량이 겹친다).
+      // 반대 방향은 addSplitTp가 t.tp = null로 처리한다 — **양방향 배타**다.
+      // 한쪽만 고치면 연습이 실거래와 다르게 체결된다 (backend/routes/tpsl.js PUT)
+      splitCanceled = t.splitTps.length;
+      t.splitTps = [];
+      t.tp = { orderId: this.nextId(), price: tp, isAlgo: false };
+    }
     if (sl) t.sl = { orderId: this.nextId(), price: sl, isAlgo: false };
-    return { tp: t.tp, sl: t.sl };
+    return { tp: t.tp, sl: t.sl, splitCanceled };
   }
 
   addScaleIn({ positionSide, orderType, price, qty }) {

@@ -404,9 +404,10 @@ export function useChartInteraction({
         updateFibEndpoint, setFibPosition,
         moveStructPoint, normalizeStruct, clearStructPart,
       },
-      state: { drawings, dragTpsl, dragScaleIn, dragSplitTp },
+      // position은 `draw.onUp`이 **같은 사이드 포지션 보유 시 박스 그리기를 막는 데** 쓴다
+      state: { drawings, dragTpsl, dragScaleIn, dragSplitTp, position },
     });
-  }, [candles, drawings, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
+  }, [candles, drawings, dragTpsl, dragSplitTp, dragScaleIn, position, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
 
   const onDoubleClick = useCallback(e => {
     const pos    = getSvgPos(e);
