@@ -31,14 +31,14 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     balance, balError, _refetchBal,
     position, tpsl, tpslSaving,
     riskPctLong, riskPctShort, setRiskPct, leverage, setLeverage,
-    drawMode, drawing, orderStatus, setOrderStatus,
+    drawMode, drawings, orderStatus, setOrderStatus,
     liveClose, executeOrder, replayOn, paperBroker, replayNowMs,
   } = useStore(useShallow(s => ({
     balance: s.balance, balError: s.balError, _refetchBal: s._refetchBal,
     position: s.position, tpsl: s.tpsl, tpslSaving: s.tpslSaving,
     riskPctLong: s.riskPctLong, riskPctShort: s.riskPctShort, setRiskPct: s.setRiskPct,
     leverage: s.leverage, setLeverage: s.setLeverage,
-    drawMode: s.drawMode, drawing: s.drawing, orderStatus: s.orderStatus, setOrderStatus: s.setOrderStatus,
+    drawMode: s.drawMode, drawings: s.drawings, orderStatus: s.orderStatus, setOrderStatus: s.setOrderStatus,
     liveClose: s.liveClose, executeOrder: s.executeOrder,
     replayOn: s.replayOn, paperBroker: s.paperBroker, replayNowMs: s.replayNowMs,
   })));
@@ -62,7 +62,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
 
   const {
     hasLong, hasShort, hasPos, hasBoth,
-    longPendingExists, shortPendingExists, hasPending,
+    longPendingExists, shortPendingExists, hasPending, drawLocked,
   } = derivePositionFlags(position);
   const effectiveLastPrice = liveClose ?? lastPrice;
 
@@ -132,10 +132,15 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     setLeverageErr(null);
   }, [replayOn]);
 
-  // 플랜 박스가 가리키는 사이드의 리스크 — 슬라이더가 둘이라 어느 쪽 값인지 여기서 고른다
-  const planRiskPct = drawing ? riskPctFor({ riskPctLong, riskPctShort }, drawing.isLong) : riskPctLong;
-
-  const posCalc = useMemo(() => {
+  // ⚠ 플랜 박스가 **롱·숏 각각 하나**라 수량 계산도 사이드마다 따로 돈다 (2026-08-19).
+  //   리스크 %도 사이드별이므로(settingsSlice) 두 값이 짝을 이뤄야 한다 —
+  //   한쪽 리스크로 양쪽 수량을 내면 화면과 실제 주문이 어긋난다.
+  //
+  //   ⚠ **두 박스는 같은 `availableBalance`를 본다.** 둘 다 실행하면 첫 주문이
+  //     증거금을 묶은 뒤라 두 번째는 여기 보이던 수량보다 작게 나갈 수 있다
+  //     (calcPosition의 레버리지 상한에 걸린다). 합계를 미리 빼서 보여주지는 않는다 —
+  //     어느 쪽을 먼저 낼지는 사용자가 정하는 것이고, 순서를 가정하면 둘 다 틀린 값이 된다
+  const calcFor = (drawing) => {
     if (!drawing || !balance) return null;
     
     if (drawing.orderId && position?.pending) {
@@ -152,8 +157,13 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       }
     }
 
-    return calcPosition(balance.availableBalance ?? 0, planRiskPct / 100, drawing.entry, drawing.sl, leverage);
-  }, [balance, drawing, planRiskPct, leverage, position?.pending]);
+    const risk = riskPctFor({ riskPctLong, riskPctShort }, drawing.isLong);
+    return calcPosition(balance.availableBalance ?? 0, risk / 100, drawing.entry, drawing.sl, leverage);
+  };
+
+  const deps = [balance, drawings, riskPctLong, riskPctShort, leverage, position?.pending];
+  const longCalc  = useMemo(() => calcFor(drawings.long),  deps);  // eslint-disable-line react-hooks/exhaustive-deps
+  const shortCalc = useMemo(() => calcFor(drawings.short), deps);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{
@@ -332,7 +342,14 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
 
       {/* 플랜 버튼 — 헷지모드: 양쪽 포지션 모두 있거나 pending 주문 추적 중일 때만 잠금 */}
       {(() => {
-        const planLocked = hasBoth || !!(drawing?.orderId);
+        // ⚠ **양쪽 슬롯이 다 막혔을 때만** 잠근다 (2026-08-19).
+        //   예전엔 박스가 하나뿐이라 "그 박스에 주문이 걸리면 잠금"(`drawing?.orderId`)이었는데,
+        //   지금은 롱에 주문이 걸려 있어도 숏 플랜은 새로 그릴 수 있어야 한다.
+        //   ⚠ 판정은 차트 쪽 잠금(`drawLocked` — hitDetection 3.7의 `locked`)과 **같은 값**이다.
+        //     따로 만들면 버튼은 살아 있는데 차트에서는 안 그려지는(또는 반대) 상태가 생긴다.
+        //   ※ 주문을 낸 직후 position 재조회(1.5초) 전까지는 여기가 아직 false지만,
+        //     그 창에서 같은 사이드를 덮어 그리는 건 `draw.onUp`이 되돌린다 (이중 방어)
+        const planLocked = drawLocked;
         return (
           <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
             <button
@@ -376,23 +393,27 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
         />
 
 
-        {drawing && (
+        {/* 플랜 카드도 사이드마다 하나 — 롱을 위에 둔다 (차트 라벨 ▲/▼와 같은 순서) */}
+        {[[true, drawings.long, longCalc, longPendingExists],
+          [false, drawings.short, shortCalc, shortPendingExists]].map(([isLong, box, calc, pend]) => box && (
           <PlanCard
-            drawing={drawing} posCalc={posCalc} leverage={leverage} riskPct={planRiskPct}
+            key={isLong ? "long" : "short"}
+            drawing={box} posCalc={calc} leverage={leverage}
+            riskPct={riskPctFor({ riskPctLong, riskPctShort }, isLong)}
             position={position}
-            hasPending={drawing.isLong ? longPendingExists : shortPendingExists}
-            onConfirm={executeOrder}
-            onCancel={() => onCancelOrder(isLongToPosition(drawing.isLong))}
+            hasPending={pend}
+            onConfirm={(orderType) => executeOrder(orderType, isLong)}
+            onCancel={() => onCancelOrder(isLongToPosition(isLong))}
           />
-        )}
-        {/* 헷지모드: 각 사이드 orphan pending을 별도 카드로 표시 (drawing이 매칭되는 사이드는 PlanCard가 대체) */}
-        {longPendingExists && !(drawing && drawing.isLong) && (
+        ))}
+        {/* 헷지모드: 각 사이드 orphan pending을 별도 카드로 표시 (그 사이드 박스가 있으면 PlanCard가 대체) */}
+        {longPendingExists && !drawings.long && (
           <OrphanPendingCard
             pending={position.pending.long}
             onCancel={() => onCancelOrder("LONG")}
           />
         )}
-        {shortPendingExists && !(drawing && !drawing.isLong) && (
+        {shortPendingExists && !drawings.short && (
           <OrphanPendingCard
             pending={position.pending.short}
             onCancel={() => onCancelOrder("SHORT")}

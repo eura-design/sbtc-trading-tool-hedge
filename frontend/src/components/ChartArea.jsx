@@ -84,7 +84,7 @@ export function ChartArea({
 }) {
   // 스토어에서 필요한 상태만
   const {
-    drawing, setDrawing, drawMode, setDrawMode,
+    drawings, setDrawing, drawMode, setDrawMode,
     tpsl, tpslSaving, position,
     dragTpsl, setDragTpsl,
     dragScaleIn, setDragScaleIn,
@@ -94,7 +94,7 @@ export function ChartArea({
     closeConfirm, setCloseConfirm,
     cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition,
   } = useStore(useShallow(s => ({
-    drawing: s.drawing, setDrawing: s.setDrawing,
+    drawings: s.drawings, setDrawing: s.setDrawing,
     drawMode: s.drawMode, setDrawMode: s.setDrawMode,
     tpsl: s.tpsl, tpslSaving: s.tpslSaving, position: s.position,
     dragTpsl: s.dragTpsl, setDragTpsl: s.setDragTpsl,
@@ -271,7 +271,7 @@ export function ChartArea({
       scalesRef,
       onLineDoubleClick: (id, type, x, y) => setOpacityPopup({ id, type, x, y }),
       xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,
-      drawing, setDrawing, setCurrent, drawMode, setDrawMode, locked,
+      drawings, setDrawing, setCurrent, drawMode, setDrawMode, locked,
       lineMode, lineStart, lines, selectedLineId,
       setLineStart, setLinePreview, setSelectedLineId,
       addLine, updateLineEndpoint, setLinePosition,
@@ -358,7 +358,7 @@ export function ChartArea({
         scaleInOrders={position?.scaleInOrders} dragScaleIn={dragScaleIn}
         splitTps={splitTps} dragSplitTp={dragSplitTp}
         lines={lines} selectedLineId={selectedLineId} lineStart={lineStart} linePreview={linePreview} isLog={isLog}
-        drawing={drawing} current={current} locked={locked} selectedBox={selectedBox}
+        drawings={drawings} current={current} locked={locked} selectedBox={selectedBox}
         channels={channels} selectedChannelId={selectedChannelId}
         channelStep={channelStep} channelPoints={channelPoints} channelPreview={channelPreview}
         circles={circles} selectedCircleId={selectedCircleId}

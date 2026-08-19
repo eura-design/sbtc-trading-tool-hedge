@@ -76,12 +76,12 @@ export const createReplaySlice = (set, get) => ({
     //   하나를 공유해서, 연습에서 레버리지를 50x로 올리면 실거래 설정이 그대로
     //   50x가 됐다 — 리플레이를 끄고 다음 실주문을 낼 때 그 값이 쓰인다
     //   (store/settingsSlice.js의 swapTradeSettings 참고)
-    const drawing = swapDrawingStorage(on, get().drawing);
+    const drawings = swapDrawingStorage(on, get().drawings);
     const trade   = swapTradeSettings(on);
     set(on
-      ? { replayOn: true, balError: null, drawing, ...trade }
+      ? { replayOn: true, balError: null, drawings, ...trade }
       : {
-          replayOn: false, replayNowMs: null, replayPrice: null, drawing, ...trade,
+          replayOn: false, replayNowMs: null, replayPrice: null, drawings, ...trade,
           // ⚠ 나갈 때 페이퍼 스냅샷을 **앱 시작 직후 상태로 되돌린다**
           //   (serverSlice의 초기값과 글자 그대로 같은 값 — 이미 모든 화면이 다루는 상태다).
           //

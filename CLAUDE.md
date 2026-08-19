@@ -88,7 +88,20 @@ frontend/src/
 │   │                               `replay_riskPct`)로 떨어진다. 옛 키를 지우지 말 것 —
 │   │                               업데이트 직후 첫 실행에 리스크가 조용히 2%로 되돌아간다
 │   │                               (replay/session.js가 구버전 세션을 계속 읽는 것과 같은 이유)
-│   ├── uiSlice.js             ← UI/드로잉/드래그 상태: drawing/drawMode/orderStatus/criticalAlerts/selectedBox/opacityPopup/dragTpsl/dragScaleIn/dragSplitTp
+│   ├── uiSlice.js             ← UI/드로잉/드래그 상태: drawings/drawMode/orderStatus/criticalAlerts/selectedBox/opacityPopup/dragTpsl/dragScaleIn/dragSplitTp
+│   │                             ⚠ **플랜 박스는 `{ long, short }` — 사이드당 하나, 최대 두 개**
+│   │                               (2026-08-19 사용자 요청). 예전엔 `drawing` 객체 하나라
+│   │                               두 번째를 그리면 첫 번째가 **조용히 덮여 사라졌다** —
+│   │                               막는 코드가 있었던 게 아니라 담을 자리가 하나뿐이었다
+│   │                               (헷지모드 전환 때 position·tpsl만 이중화한 잔재)
+│   │                             `setDrawing(isLong, v)` — v는 박스·null·갱신함수.
+│   │                               **반대쪽 슬롯은 절대 건드리지 않는다**
+│   │                             `clearDrawings()` — 양쪽을 한 번에 (리플레이 구간 이동)
+│   │                             ⚠ `selectedBox`는 **불리언이 아니라 사이드**(`"long"`|`"short"`|null) —
+│   │                               Delete가 어느 박스를 지울지 정해야 한다. truthy 검사는 그대로 동작
+│   │                             ⚠ 박스 하나만 저장하던 **구버전 localStorage를 계속 읽는다**
+│   │                               (`"isLong" in saved`면 박스 자체). 안 읽으면 업데이트 직후
+│   │                               첫 실행에 그려 둔 플랜이 사라진다
 │   │                             ⚠ `criticalAlerts`는 **목록**이다 (2026-08-15). 문자열 하나로
 │   │                               되돌리지 말 것 — 한 reconcile에서 LONG·SHORT 경보가 61ms
 │   │                               간격으로 와서 뒤엣것이 앞엣것을 덮어썼다(실측 trade_log).
@@ -367,7 +380,9 @@ frontend/src/
 │       │                         (포지션 보유 중 레버리지 감소 차단, 확인 패널 표시)
 │       │                         useShallow 셀렉터로 liveClose 틱 등 무관 리렌더 차단
 │       │                         derivePositionFlags 호출로 hasLong/hasBoth/hasPending 계산
-│       │                         헷지모드: 양쪽 포지션 모두 있거나 drawing.orderId 있을 때 플랜 버튼 잠금
+│       │                         플랜 버튼 잠금은 **차트 쪽 `drawLocked`와 같은 값**을 쓴다 (2026-08-19) —
+│       │                           따로 만들면 버튼은 살아 있는데 차트에선 안 그려지는 상태가 생긴다
+│       │                         리스크 슬라이더 2개(▲롱/▼숏) + 레버리지 1개, 수량 계산도 사이드별
 │       │                         아코디언 상태(stats/dailyLoss/settings) localStorage 영속화
 │       ├── BalanceCard.jsx    ← 잔고 표시 카드
 │       ├── MarketInfoCard.jsx ← 펀딩비(카운트다운 포함) + 공포·탐욕 지수
@@ -376,6 +391,9 @@ frontend/src/
 │       │                         아코디언 펼침 상태 localStorage `accordion_pos_{LONG|SHORT}` 영속화
 │       │                         PendingCard: 포지션 없을 때만 표시 (현재 SidebarPanel에서 미사용)
 │       ├── PlanCard.jsx       ← 드로잉 플랜 카드 + OrphanPendingCard
+│       │                         ⚠ **사이드마다 하나씩, 최대 두 장**이 뜬다 (롱이 위 — 차트 ▲/▼와 같은 순서)
+│       │                         `onConfirm(orderType)`은 사이드바가 사이드를 묶어 넘긴다
+│       │                           (`(ot) => executeOrder(ot, isLong)`)
 │       ├── ScaleInCard.jsx    ← 추가 진입 카드 (LIMIT/MARKET, 가격 방향 검증) — PositionCard 아코디언 내 embedded
 │       ├── SplitTPCard.jsx    ← 분할 TP 카드 (지정가, 잔여 수량 표시) — PositionCard 아코디언 내 embedded
 │       ├── StatsCard.jsx      ← 거래 통계 카드 (날짜 필터, 승률/PnL/수수료/펀딩비)
@@ -438,8 +456,9 @@ frontend/src/
 - **settingsSlice**: riskPctLong/riskPctShort, leverage, interval_, indicators (localStorage 동기화) — 변경 시 800ms debounce 후 `replacePendingOrder` 자동 호출 (미체결 주문과 **같은 사이드**의 값이 바뀐 경우에만)
   - **리스크 %는 롱·숏 따로**, 레버리지는 하나 — 바이낸스가 레버리지를 심볼 단위로만 받는다(`positionSide` 없음). 읽을 땐 `riskPctFor(s, isLong)`
   - 실거래·연습 값도 따로 (`swapTradeSettings`) → 리스크는 총 **네 벌**, 레버리지는 두 벌
-- **uiSlice**: drawing, drawMode, orderStatus, criticalAlert, selectedBox, opacityPopup, 드래그 상태(dragTpsl/dragScaleIn/dragSplitTp) — drawing은 200ms debounce localStorage 영속화
+- **uiSlice**: drawings, drawMode, orderStatus, criticalAlert, selectedBox, opacityPopup, 드래그 상태(dragTpsl/dragScaleIn/dragSplitTp) — drawings는 200ms debounce localStorage 영속화
 - **orderSlice**: 모든 주문 액션 (executeOrder/saveTpsl/scaleIn/cancelScaleIn/moveScaleIn/addSplitTp/cancelSplitTp/moveSplitTp/closePosition/updatePendingTpsl/replacePendingOrder/deleteBox) + 일일 손실 한도 가드 + side 매핑 헬퍼 사용
+  - ⚠ 플랜 박스를 쓰는 셋(`executeOrder`/`replacePendingOrder`/`updatePendingTpsl`)은 **`isLong`을 인자로 받는다** (2026-08-19). 박스가 둘이라 스토어에서 알아서 고르게 두면 무엇이 나갈지가 부르는 쪽에 안 드러난다
 - `useOrderFlow.js`는 orderSlice 액션을 컴포넌트에서 편리하게 사용하기 위한 재-export 래퍼
 - `SidebarPanel`·`ChartArea`는 `useShallow` 셀렉터로 구독 — 무관 상태 변경 시 리렌더 차단
 
@@ -465,6 +484,36 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - `DRAG_HANDLERS[type].onMove()` / `.onUp()` 호출로 분기 (if 체인 없음)
 - 박스 타입: `draw`, `pan`, `entry`, `tp`, `sl`, `box_x`, `pos_tp`, `pos_sl`, `scale_in`, `split_tp`
 - **박스 그리기 방향**: 클릭점=진입가, 드래그 끝=손절가 기준 / 롱=아래로 드래그, 숏=위로 드래그 / TP는 SL 거리의 2배 자동 계산
+- **⚠ 플랜 박스는 롱·숏 각각 하나씩 최대 두 개다** (2026-08-19 사용자 요청, `store/uiSlice.js`)
+  - **방향이 곧 슬롯이다.** 아래로 끌면 롱 슬롯, 위로 끌면 숏 슬롯 — 같은 사이드에 다시
+    그리면 그 사이드만 교체된다 (반대쪽은 그대로)
+  - ⚠ **주문이 걸린 박스(`orderId` 있음)는 덮어쓰지 않는다** (`dragStateMachine`의 `draw.onUp`).
+    덮으면 orderId 연결이 끊겨 바이낸스에 살아 있는 미체결 주문이 화면에서 미아가 된다
+    (플랜 카드에서 빠지고 OrphanPendingCard로 떨어져 박스로 가격을 못 고친다).
+    방향은 드래그를 놓아야 정해지므로 시작 시점엔 막을 수 없다 — 놓는 순간 되돌리고
+    이유를 배너로 띄운다
+  - ⚠ **겹쳤을 때 훑는 순서: 선택된 박스 → 롱 → 숏** (`hitDetection`의 `boxOrder`).
+    고정 순서만 두면 위에 깔린 박스가 아래 것을 영영 가린다 — 한 번 클릭해 고르면
+    그다음부터 그쪽이 먼저 잡히므로 사용자가 손으로 풀 수 있다
+  - ⚠ **그리는 순서(`ChartSvg`)는 그 역순**이라야 "위에 보이는 걸 눌렀는데 아래 게 잡힌다"가
+    안 생긴다. 한쪽만 바꾸지 말 것
+  - `dragRef`가 `isLong`을 들고 다닌다 — `DRAG_HANDLERS`의 `boxOf(state, drag)`가 그걸로 고른다.
+    `state.drawings`를 훑어 "있는 것"을 고르면 겹친 자리에서 엉뚱한 쪽이 끌려간다
+  - **`Delete`는 `selectedBox`(사이드)를 넘긴다.** 안 넘기면 `deleteBox`가 "박스가 하나뿐일
+    때만" 사이드를 추론하므로 둘 다 그려 뒀을 때 아무것도 안 지워진다
+  - ⚠ **"같은 사이드 포지션이 있으면 박스를 지운다"는 규칙은 제거됐다** (App.jsx).
+    원래 의도("시장가로 들어갔으니 플랜은 끝났다")는 `executeOrder`가 직접 처리하고
+    지정가는 orderId 규칙이 받는다 → 남아 있던 **유일한 실제 효과는 "포지션을 든 쪽에
+    플랜을 그리면 즉시 사라지는 것"**이었다 (실측: 숏 포지션 보유 중 숏 박스가 그리는 즉시 증발).
+    그 상태에서 주문이 나가지는 않는다 — PlanCard가 `sameSidePos`를 보고 실행 버튼 대신
+    `포지션이 이미 있습니다 / 청산 후 주문 가능`을 띄운다 (그 분기는 여태 죽어 있었다)
+  - ⚠ **두 박스는 같은 `availableBalance`로 수량을 낸다.** 둘 다 실행하면 첫 주문이
+    증거금을 묶은 뒤라 두 번째는 화면에 보이던 수량보다 작게 나갈 수 있다.
+    합계를 미리 빼서 보여주지는 않는다 — 어느 쪽을 먼저 낼지는 사용자가 정하는 것이고,
+    순서를 가정하면 둘 다 틀린 값이 된다
+  - ⚠ 리스크 %가 사이드별이라(settingsSlice) **레버리지를 바꾸면 롱·숏 미체결이 둘 다
+    재등록된다.** 그 루프는 **`await`로 순차 진행**할 것 — 동시에 쏘면 둘 다 재등록 전의
+    잔고를 읽어 서로의 증거금이 묶여 있는 줄 알고 수량을 잡는다
 - **박스 좌우 폭 조절**(`box_x`, 2026-08-14 사용자 요청): 세로 모서리를 잡아 끈다.
   - 폭은 **주문에 들어가지 않는 순수 표시값**이라 onUp에서 재등록을 부르지 않는다
     (entry/sl은 `replacePendingOrder`, tp는 `updatePendingTpsl`을 부르는 것과 대비)

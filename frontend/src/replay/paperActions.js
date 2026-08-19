@@ -15,6 +15,7 @@ import { calcPosition } from "../utils/calc";
 import { isLongToPosition, closeToPosition } from "../utils/side";
 import { computePaperDailyLoss } from "./dailyLoss";
 import { riskPctFor } from "../store/settingsSlice";
+import { boxKey } from "../store/uiSlice";
 
 const ok = (get, msg) => {
   get().syncPaper();
@@ -27,13 +28,14 @@ const err = (get, e)   => get().setOrderStatus({ type: "error", msg: e.message }
 
 export const paperActions = {
 
-  executeOrder: (get, orderType) => {
+  executeOrder: (get, orderType, isLong) => {
     const st = get();
-    const { drawing, leverage, balance, paperBroker, setDrawing, replayNowMs } = st;
+    const { drawings, leverage, balance, paperBroker, setDrawing, replayNowMs } = st;
+    const drawing = drawings[boxKey(isLong)];
     if (!drawing || !paperBroker) return;
     // 실거래와 같은 규칙 — 리스크 %는 사이드별이다 (settingsSlice.riskPctFor).
     // 연습에서만 한쪽 값을 쓰면 같은 플랜이 모드에 따라 다른 수량으로 나간다
-    const riskPct = riskPctFor(st, drawing.isLong);
+    const riskPct = riskPctFor(st, isLong);
 
     // ⚠ 일일 손실 한도는 **연습에도 건다.** 이 앱의 핵심 리스크 규칙인데
     //   연습에서만 무제한이면, 실전에서 막히는 매매를 계속 연습하게 되어
@@ -58,8 +60,8 @@ export const paperActions = {
         entry: drawing.entry, tp: drawing.tp, sl: drawing.sl,
         qty: posCalc.actualQty, leverage,
       });
-      if (orderType === "LIMIT") setDrawing(prev => prev ? { ...prev, orderId: r.orderId } : prev);
-      else setDrawing(null);
+      if (orderType === "LIMIT") setDrawing(isLong, prev => prev ? { ...prev, orderId: r.orderId } : prev);
+      else setDrawing(isLong, null);
       ok(get, `연습 주문 완료 (${posCalc.actualQty.toFixed(3)} BTC)`);
     } catch (e) { err(get, e); }
   },
@@ -82,8 +84,9 @@ export const paperActions = {
     ok(get, `${side} ${which.toUpperCase()} 제거 완료`);
   },
 
-  updatePendingTpsl: (get) => {
-    const { drawing, paperBroker } = get();
+  updatePendingTpsl: (get, isLong) => {
+    const { drawings, paperBroker } = get();
+    const drawing = drawings[boxKey(isLong)];
     if (!drawing?.orderId || !paperBroker) return;
     for (const side of ["LONG", "SHORT"]) {
       const p = paperBroker.pending[side];
@@ -95,13 +98,14 @@ export const paperActions = {
   },
 
   // 리스크·레버리지를 바꾸면 미체결 주문을 지우고 새 수량으로 다시 건다
-  replacePendingOrder: (get) => {
-    const { drawing, paperBroker, setDrawing } = get();
+  replacePendingOrder: (get, isLong) => {
+    const { drawings, paperBroker, setDrawing } = get();
+    const drawing = drawings[boxKey(isLong)];
     if (!drawing?.orderId || !paperBroker) return;
-    const positionSide = isLongToPosition(drawing.isLong);
+    const positionSide = isLongToPosition(isLong);
     paperBroker.cancelPending(positionSide);
-    setDrawing(prev => prev ? { ...prev, orderId: undefined } : prev);
-    paperActions.executeOrder(get, "LIMIT");
+    setDrawing(isLong, prev => prev ? { ...prev, orderId: undefined } : prev);
+    paperActions.executeOrder(get, "LIMIT", isLong);
   },
 
   scaleIn: (get, side, orderType, price, quantity) => {
@@ -165,12 +169,16 @@ export const paperActions = {
   },
 
   deleteBox: (get, sideOverride) => {
-    const { drawing, paperBroker, setDrawing } = get();
+    const { drawings, paperBroker, setDrawing } = get();
     if (!paperBroker) return;
-    const side = sideOverride ?? (drawing ? isLongToPosition(drawing.isLong) : undefined);
+    // 실거래(orderSlice.deleteBox)와 **같은 규칙** — 박스가 하나뿐일 때만 사이드를 추론한다
+    const only = (!!drawings.long) !== (!!drawings.short)
+      ? (drawings.long ?? drawings.short) : null;
+    const side = sideOverride ?? (only ? isLongToPosition(only.isLong) : undefined);
     if (!side) return;
     paperBroker.cancelPending(side);
-    if (drawing && isLongToPosition(drawing.isLong) === side) setDrawing(null);
+    const sideKey = side === "LONG" ? "long" : "short";
+    if (drawings[sideKey]) setDrawing(side === "LONG", null);
     ok(get, "미체결 주문 취소 완료");
   },
 };

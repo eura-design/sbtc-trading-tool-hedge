@@ -402,7 +402,7 @@ export function buildHitChain(ctx) {
     selectedLineId, lines, dragRef,
     hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
     position, IH, IW, onMarkerClose,
-    drawing, locked, drawMode, setCurrent,
+    drawings, selectedBox, locked, drawMode, setCurrent,
     xDomainRef,
     setSelectedBox,
     isLog,
@@ -430,6 +430,24 @@ export function buildHitChain(ctx) {
   // 다음에 찍을 꼭짓점 타입 — 직전 점의 반대 (첫 점은 커서 위치로 판정)
   const lastDraft   = structDraft?.points?.[structDraft.points.length - 1];
   const nextPtType  = lastDraft ? (lastDraft.type === "H" ? "L" : "H") : null;
+
+  // ── 플랜 박스 (롱·숏 각각 하나, 2026-08-19) ──────────────────────────────
+  // 겹쳤을 때 훑는 순서: **선택된 박스 → 롱 → 숏**.
+  // 고정 순서만 두면 위에 깔린 박스가 아래 박스를 영영 가린다 — 한 번 클릭해
+  // 선택하면 그다음부터 그쪽이 먼저 잡히므로 사용자가 손으로 풀 수 있다.
+  const hasAnyBox = !!(drawings?.long || drawings?.short);
+  const boxOrder = () => {
+    const out = [];
+    const push = (k) => { const b = drawings?.[k]; if (b) out.push([k === "long", b]); };
+    if (selectedBox) push(selectedBox);
+    if (selectedBox !== "long")  push("long");
+    if (selectedBox !== "short") push("short");
+    return out;
+  };
+  const selectBox = (isLong) => {
+    setSelectedBox(isLong ? "long" : "short");
+    clearAllSelections(drawables);
+  };
 
   return [
     // 0. 채널 그리기 모드
@@ -529,15 +547,25 @@ export function buildHitChain(ctx) {
       },
     },
     // 3. 박스 라인 드래그
+    //
+    // ⚠ 박스가 **롱·숏 둘**이라 순서가 필요하다 (2026-08-19, `boxOrder`).
+    //   **선택된 박스 → 롱 → 숏**. 두 박스가 겹치면 고정 순서만으로는 아래쪽을
+    //   영영 못 잡는데, 한 번 클릭해 고르면 그다음부터 그쪽이 먼저 잡히므로
+    //   사용자가 손으로 풀 수 있다. 순서를 고정으로 되돌리지 말 것
     {
-      when: !!drawing && !(drawing.isLong ? hasLong : hasShort),
+      when: hasAnyBox,
       handle() {
-        const ePx = yScale(drawing.entry), tPx = yScale(drawing.tp), slPx = yScale(drawing.sl);
-        const x1  = xScale(tsToIdx(drawing.tStart, candles)), x2 = xScale(tsToIdx(drawing.tEnd, candles));
-        if (pos.x < x1-10 || pos.x > x2+10) return false;
-        if (Math.abs(pos.y-slPx) < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"sl",    startY:pos.y, startSl:drawing.sl }; return true; }
-        if (Math.abs(pos.y-tPx)  < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"tp",    startY:pos.y, startTp:drawing.tp }; return true; }
-        if (Math.abs(pos.y-ePx)  < HIT) { setSelectedBox(true); clearAllSelections(drawables); dragRef.current = { type:"entry", startY:pos.y, startX:pos.x, startEntry:drawing.entry, startTp:drawing.tp, startSl:drawing.sl, startTStart:drawing.tStart, startTEnd:drawing.tEnd }; return true; }
+        for (const [isLong, d] of boxOrder()) {
+          // 같은 사이드 포지션이 열려 있으면 가격 3선은 못 끈다 (주문이 이미 나갔다)
+          if (isLong ? hasLong : hasShort) continue;
+          const ePx = yScale(d.entry), tPx = yScale(d.tp), slPx = yScale(d.sl);
+          const x1  = xScale(tsToIdx(d.tStart, candles)), x2 = xScale(tsToIdx(d.tEnd, candles));
+          if (pos.x < x1-10 || pos.x > x2+10) continue;
+          const pick = (drag) => { selectBox(isLong); dragRef.current = { ...drag, isLong }; return true; };
+          if (Math.abs(pos.y-slPx) < HIT) return pick({ type:"sl",    startY:pos.y, startSl:d.sl });
+          if (Math.abs(pos.y-tPx)  < HIT) return pick({ type:"tp",    startY:pos.y, startTp:d.tp });
+          if (Math.abs(pos.y-ePx)  < HIT) return pick({ type:"entry", startY:pos.y, startX:pos.x, startEntry:d.entry, startTp:d.tp, startSl:d.sl, startTStart:d.tStart, startTEnd:d.tEnd });
+        }
         return false;
       },
     },
@@ -550,21 +578,22 @@ export function buildHitChain(ctx) {
     //      순수 표시값이라, 포지션이 열려 있어도 조절할 수 있어야 한다.
     //      ※ clamp 전 좌표를 본다 — BoxOverlay가 그립을 그리는 기준과 같아야 한다
     {
-      when: !!drawing,
+      when: hasAnyBox,
       handle() {
-        const rx1 = xScale(tsToIdx(drawing.tStart, candles));
-        const rx2 = xScale(tsToIdx(drawing.tEnd,   candles));
-        const yLo = Math.min(yScale(drawing.tp), yScale(drawing.sl));
-        const yHi = Math.max(yScale(drawing.tp), yScale(drawing.sl));
-        if (pos.y < yLo - HIT || pos.y > yHi + HIT) return false;
         const iw = xScale.range()[1];                  // = IW (getScales가 [0, IW]로 만든다)
-        for (const [edge, ex] of [["start", rx1], ["end", rx2]]) {
-          if (ex < 0 || ex > iw) continue;             // 화면 밖 모서리는 잡을 게 없다
-          if (Math.abs(pos.x - ex) < HIT) {
-            setSelectedBox(true);
-            clearAllSelections(drawables);
-            dragRef.current = { type: "box_x", edge };
-            return true;
+        for (const [isLong, d] of boxOrder()) {
+          const rx1 = xScale(tsToIdx(d.tStart, candles));
+          const rx2 = xScale(tsToIdx(d.tEnd,   candles));
+          const yLo = Math.min(yScale(d.tp), yScale(d.sl));
+          const yHi = Math.max(yScale(d.tp), yScale(d.sl));
+          if (pos.y < yLo - HIT || pos.y > yHi + HIT) continue;
+          for (const [edge, ex] of [["start", rx1], ["end", rx2]]) {
+            if (ex < 0 || ex > iw) continue;           // 화면 밖 모서리는 잡을 게 없다
+            if (Math.abs(pos.x - ex) < HIT) {
+              selectBox(isLong);
+              dragRef.current = { type: "box_x", edge, isLong };
+              return true;
+            }
           }
         }
         return false;
@@ -572,15 +601,16 @@ export function buildHitChain(ctx) {
     },
     // 3.5. 박스 내부 클릭 → 선택 (선보다 우선)
     {
-      when: !!drawing,
+      when: hasAnyBox,
       handle() {
-        const x1   = xScale(tsToIdx(drawing.tStart, candles)), x2 = xScale(tsToIdx(drawing.tEnd, candles));
-        const yMin = Math.min(yScale(drawing.tp), yScale(drawing.sl));
-        const yMax = Math.max(yScale(drawing.tp), yScale(drawing.sl));
-        if (pos.x >= x1 && pos.x <= x2 && pos.y >= yMin && pos.y <= yMax) {
-          setSelectedBox(true);
-          clearAllSelections(drawables);
-          return true;
+        for (const [isLong, d] of boxOrder()) {
+          const x1   = xScale(tsToIdx(d.tStart, candles)), x2 = xScale(tsToIdx(d.tEnd, candles));
+          const yMin = Math.min(yScale(d.tp), yScale(d.sl));
+          const yMax = Math.max(yScale(d.tp), yScale(d.sl));
+          if (pos.x >= x1 && pos.x <= x2 && pos.y >= yMin && pos.y <= yMax) {
+            selectBox(isLong);
+            return true;
+          }
         }
         return false;
       },
@@ -801,18 +831,18 @@ export function buildHitChain(ctx) {
       when: !drawMode,
       handle() {
         const hit = findHitLine(pos.x, pos.y, lines, xScale, yScale, candles, 8, isLog);
-        if (hit)   { selectDrawable(drawables, "line",    hit.id);   setSelectedBox(false); return true; }
+        if (hit)   { selectDrawable(drawables, "line",    hit.id);   setSelectedBox(null); return true; }
         const hitCh = findHitChannel(pos.x, pos.y, channels ?? [], xScale, yScale, candles, 8, isLog);
-        if (hitCh) { selectDrawable(drawables, "channel", hitCh.id); setSelectedBox(false); return true; }
+        if (hitCh) { selectDrawable(drawables, "channel", hitCh.id); setSelectedBox(null); return true; }
         const hitCi = findHitCircle(pos.x, pos.y, circles ?? [], xScale, yScale, candles);
-        if (hitCi) { selectDrawable(drawables, "circle",  hitCi.id); setSelectedBox(false); return true; }
+        if (hitCi) { selectDrawable(drawables, "circle",  hitCi.id); setSelectedBox(null); return true; }
         // 피보나치는 도형 하나가 가로선 7~10개라 선·채널·원보다 넓게 걸린다 → 그 뒤에서 판정.
         // 다만 x 범위가 두 앵커 사이로 한정돼 있어 구조·ZZ만큼 화면을 덮지는 않는다
         const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, isLog);
-        if (hitFb) { selectDrawable(drawables, "fib",     hitFb.id); setSelectedBox(false); return true; }
+        if (hitFb) { selectDrawable(drawables, "fib",     hitFb.id); setSelectedBox(null); return true; }
         // 구조는 여러 봉에 걸친 폴리라인이라 클릭을 많이 삼키므로 맨 뒤에서 판정
         const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
-        if (hitSt) { selectDrawable(drawables, "structure", hitSt.id); setSelectedBox(false); return true; }
+        if (hitSt) { selectDrawable(drawables, "structure", hitSt.id); setSelectedBox(null); return true; }
         // 자동 ZZ는 그보다 더 넓게 깔리므로 마지막. 선택되면 금색 + 투명도 조절 대상이 된다.
         //
         // ※ 다른 도형과 달리 **선택하면서 팬 드래그도 함께 건다.** 자동 지그재그는
@@ -821,7 +851,7 @@ export function buildHitChain(ctx) {
         //   → 클릭만 하면 선택, 끌면 팬.
         if (showZZ && findHitZzLeg(pos.x, pos.y, zzSegments, xScale, yScale)) {
           selectDrawable(drawables, "zz", ZZ_ID);
-          setSelectedBox(false);
+          setSelectedBox(null);
           dragRef.current = { type: "pan", startX: pos.x, xDom0: [...xDomainRef.current] };
           return true;
         }
@@ -834,7 +864,7 @@ export function buildHitChain(ctx) {
     {
       when: true,
       handle() {
-        setSelectedBox(false);
+        setSelectedBox(null);
         dragRef.current = { type:"pan", startX:pos.x, xDom0:[...xDomainRef.current] };
       },
     },

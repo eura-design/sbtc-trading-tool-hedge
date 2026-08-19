@@ -61,14 +61,21 @@ const readLev  = () => num(localStorage.getItem(_keys.lev), DEFAULT_LEV);
 function scheduleReplace(get, sides) {
   sides.forEach(s => _replaceSides.add(s));
   clearTimeout(_replaceTimer);
-  _replaceTimer = setTimeout(() => {
+  _replaceTimer = setTimeout(async () => {
     const changed = _replaceSides;
     _replaceSides = new Set();
-    const { drawing, replacePendingOrder } = get();
+    const { drawings, replacePendingOrder } = get();
     // 미체결 주문이 걸린 사이드의 값이 실제로 바뀐 경우에만 재등록한다.
     // ⚠ 사이드를 **모아서** 판정하는 이유: 롱 리스크를 만진 직후 800ms 안에 숏 리스크를
     //   만지면 타이머가 교체되는데, 마지막 호출의 사이드만 보면 앞의 롱 변경이 통째로 증발한다.
-    if (drawing?.orderId && changed.has(drawing.isLong ? "long" : "short")) replacePendingOrder();
+    // ⚠ 플랜 박스가 둘이라 **양쪽 다 재등록될 수 있다** — 레버리지를 바꾸면 실제로
+    //   롱·숏 미체결이 둘 다 새 수량으로 다시 걸려야 맞다
+    // ⚠ **순차로 돈다(await).** 동시에 쏘면 둘 다 재등록 전의 `availableBalance`를 읽어,
+    //   서로의 증거금이 아직 묶여 있는 줄 알고 수량을 잡는다 (레버리지를 바꾸면
+    //   롱·숏이 함께 재등록되므로 실제로 일어나는 상황이다)
+    for (const key of ["long", "short"]) {
+      if (drawings?.[key]?.orderId && changed.has(key)) await replacePendingOrder(key === "long");
+    }
   }, 800);
 }
 

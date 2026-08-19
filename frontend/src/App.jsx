@@ -45,7 +45,7 @@ export default function App() {
     interval_, setInterval_,
     indicators, toggleIndicator,
     setDrawMode,
-    drawing, setDrawing,
+    drawings, setDrawing, clearDrawings,
     criticalAlerts, dismissCriticalAlert,
     selectedBox, setSelectedBox,
     position,
@@ -129,34 +129,44 @@ export default function App() {
     setIndicatorParam("struct", "tfs", INTERVALS.filter(i => next.includes(i.value)).map(i => i.value));
   };
 
-  // ── drawing ↔ pending order 동기화 ────────────────────────────────────────
+  // ── drawings ↔ pending order 동기화 ───────────────────────────────────────
+  // ⚠ **사이드마다 완전히 독립이다** (2026-08-19). 예전엔 박스가 하나뿐이라 하나만
+  //   보고 return했는데, 지금 그렇게 하면 롱을 정리하는 턴에 숏이 통째로 건너뛰어진다.
+  //   그래서 return이 아니라 두 사이드를 다 훑는다
   useEffect(() => {
     if (!position) return;
-    // 헷지모드: 같은 사이드 포지션이 열렸을 때만 drawing 제거 (MARKET 진입)
-    if (drawing && !drawing.orderId) {
-      if (drawing.isLong  && position.long)  { setDrawing(null); return; }
-      if (!drawing.isLong && position.short) { setDrawing(null); return; }
-    }
-    // drawing이 주문과 연결됐는데 해당 사이드 pending이 사라진 경우 → drawing 제거
-    if (drawing?.orderId) {
-      const matchPending = drawing.isLong ? position.pending?.long : position.pending?.short;
-      if (!matchPending) { setDrawing(null); return; }
-    }
-    // drawing 없고 pending 있으면 → 저장된 drawing으로 복원 (LONG 우선)
-    if (!drawing) {
-      const lp = position.pending?.long;
-      const sp = position.pending?.short;
-      const pd = lp?.drawing ? lp : sp?.drawing ? sp : null;
-      if (pd) {
-        const d = { ...pd.drawing };
+    for (const isLong of [true, false]) {
+      const key   = isLong ? "long" : "short";
+      const box   = drawings[key];
+      const pend  = position.pending?.[key];
+
+      // ⚠ **"같은 사이드 포지션이 있으면 박스를 지운다"는 규칙은 제거됐다** (2026-08-19).
+      //   원래 의도는 "시장가로 들어갔으니 플랜은 끝났다"였는데, 그 정리는
+      //   `executeOrder`가 MARKET 성공 시 직접 한다(`setDrawing(isLong, null)`).
+      //   지정가는 아래 orderId 규칙이 받는다. 즉 이 규칙에 남아 있던 **유일한 실제
+      //   효과는 "포지션을 들고 있는 쪽에 플랜 박스를 그리면 즉시 지워지는 것"**이었다.
+      //   박스가 롱·숏 둘이 되면서 그게 눈에 띄었다 — 숏 포지션이 있으면 숏 박스를
+      //   그리는 순간 사라져 고장으로 보인다(실측). 되살리지 말 것.
+      //   ※ 그 상태에서 주문이 나가지는 않는다. PlanCard가 `sameSidePos`를 보고
+      //     실행 버튼 대신 `포지션이 이미 있습니다 / 청산 후 주문 가능`을 띄운다
+      //     (그 분기는 이 규칙 때문에 여태 죽어 있었다).
+      // 주문과 연결됐는데 그 사이드 pending이 사라졌다 → 박스도 정리
+      if (box?.orderId && !pend)       { setDrawing(isLong, null); continue; }
+      // 박스는 없는데 pending이 살아 있다 → 서버가 들고 있던 박스로 복원
+      if (!box && pend?.drawing) {
+        const d = { ...pend.drawing };
         if (!d.tStart) { d.tStart = 0; d.tEnd = 0; }
-        d.orderId = String(pd.orderId);
-        setDrawing(d);
+        d.orderId = String(pend.orderId);
+        // ⚠ 슬롯과 박스의 사이드가 어긋나면 안 된다 — 서버 값이 이상하면 버린다
+        if (!!d.isLong === isLong) setDrawing(isLong, d);
       }
     }
-  }, [position, hasPos, hasPending, drawing, setDrawing]);
+  }, [position, hasPos, hasPending, drawings, setDrawing]);
 
-  useEffect(() => { if (!drawing) setSelectedBox(false); }, [drawing, setSelectedBox]);
+  // 선택했던 박스가 사라지면 선택도 푼다 (선택은 `"long"`|`"short"`|null)
+  useEffect(() => {
+    if (selectedBox && !drawings[selectedBox]) setSelectedBox(null);
+  }, [drawings, selectedBox, setSelectedBox]);
 
   // 콘솔에서 `__structDebug()` — 수동 구조의 CHoCH 판정 근거를 표로 출력
   useEffect(() => { installStructDebug(); }, []);
@@ -417,7 +427,7 @@ export default function App() {
     setFibMode:        fibTool.setFibMode,
     drawables,
     setSelectedBox,
-    drawing, hasPending, locked: drawLocked, selectedBox,
+    drawings, hasPending, locked: drawLocked, selectedBox,
     deleteBox,
     interval_,
     onIntervalChange:  val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain({ defer: true }); },
@@ -498,7 +508,7 @@ export default function App() {
             // 여기선 ① gen을 올려 **React 상태까지** 새로 읽게 하고 (둘 다 해야 한다.
             // 상태에 남아 있으면 다음 저장에 그대로 되살아난다)
             // ② 연습 플랜 박스도 비운다 — 저건 스토어에 있어서 clearReplayDrawings가 못 건드린다
-            onDrawingsCleared={() => { setDrawingGen(g => g + 1); setDrawing(null); }}
+            onDrawingsCleared={() => { setDrawingGen(g => g + 1); clearDrawings(); }}
             // ⚠ 시크 뒤에는 **y 도메인도 되돌려야 한다.** 크게 건너뛰면 가격대가
             //   통째로 바뀌는데(실측: $78k 구간에서 $64k 구간으로) y축이 그대로라
             //   캔들이 화면 밖으로 나가 차트가 텅 빈 것처럼 보인다

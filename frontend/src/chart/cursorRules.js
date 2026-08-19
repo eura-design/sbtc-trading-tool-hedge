@@ -29,6 +29,9 @@ const PLUS_HOTSPOT = Math.floor(PLUS_PX / 2);
 const STRUCT_LINK_CURSOR =
   `url("data:image/svg+xml,${encodeURIComponent(PLUS_SVG)}") ${PLUS_HOTSPOT} ${PLUS_HOTSPOT}, cell`;
 
+// 플랜 박스 둘 중 실제로 있는 것만 (롱·숏 각각 하나 — store/uiSlice.js)
+const boxes = (drawings) => [drawings?.long, drawings?.short].filter(Boolean);
+
 export const CURSOR_RULES = [
   {
     test: ({ selectedLineId, lines, pos, xScale, yScale, candles }) => {
@@ -78,38 +81,42 @@ export const CURSOR_RULES = [
     },
     cursor: "ns-resize",
   },
+  // ⚠ 플랜 박스는 롱·숏 **둘 다** 훑는다 (2026-08-19). 하나만 보면 다른 쪽 박스
+  //   위에서 커서가 안 바뀌어 "이건 못 잡는 선인가" 싶어진다.
+  //   순서(`boxes`)는 hitDetection의 boxOrder와 달리 굳이 선택을 우선하지 않는다 —
+  //   커서 모양은 어느 박스를 집든 같아서 구분할 이유가 없다
   {
-    test: ({ drawing, pos, xScale, yScale, candles }) => {
-      if (!drawing) return false;
-      const ePx = yScale(drawing.entry);
-      const x1  = xScale(tsToIdx(drawing.tStart, candles)), x2 = xScale(tsToIdx(drawing.tEnd, candles));
-      return pos.x >= x1-10 && pos.x <= x2+10 && Math.abs(pos.y-ePx) < HIT;
-    },
+    test: ({ drawings, pos, xScale, yScale, candles }) =>
+      boxes(drawings).some(d => {
+        const ePx = yScale(d.entry);
+        const x1  = xScale(tsToIdx(d.tStart, candles)), x2 = xScale(tsToIdx(d.tEnd, candles));
+        return pos.x >= x1-10 && pos.x <= x2+10 && Math.abs(pos.y-ePx) < HIT;
+      }),
     cursor: "move",
   },
   {
-    test: ({ drawing, pos, xScale, yScale, candles }) => {
-      if (!drawing) return false;
-      const tPx = yScale(drawing.tp), slPx = yScale(drawing.sl);
-      const x1  = xScale(tsToIdx(drawing.tStart, candles)), x2 = xScale(tsToIdx(drawing.tEnd, candles));
-      return pos.x >= x1-10 && pos.x <= x2+10 &&
-            (Math.abs(pos.y-tPx)<HIT || Math.abs(pos.y-slPx)<HIT);
-    },
+    test: ({ drawings, pos, xScale, yScale, candles }) =>
+      boxes(drawings).some(d => {
+        const tPx = yScale(d.tp), slPx = yScale(d.sl);
+        const x1  = xScale(tsToIdx(d.tStart, candles)), x2 = xScale(tsToIdx(d.tEnd, candles));
+        return pos.x >= x1-10 && pos.x <= x2+10 &&
+              (Math.abs(pos.y-tPx)<HIT || Math.abs(pos.y-slPx)<HIT);
+      }),
     cursor: "ns-resize",
   },
   // 박스 좌우 모서리 — 폭 조절 (가로선 규칙보다 뒤에 둬야 꼭짓점에서 가격 이동이 이긴다)
   {
-    test: ({ drawing, pos, xScale, yScale, candles }) => {
-      if (!drawing) return false;
-      const yLo = Math.min(yScale(drawing.tp), yScale(drawing.sl));
-      const yHi = Math.max(yScale(drawing.tp), yScale(drawing.sl));
-      if (pos.y < yLo - HIT || pos.y > yHi + HIT) return false;
-      const iw = xScale.range()[1];
-      return [drawing.tStart, drawing.tEnd].some(t => {
-        const ex = xScale(tsToIdx(t, candles));
-        return ex >= 0 && ex <= iw && Math.abs(pos.x - ex) < HIT;
-      });
-    },
+    test: ({ drawings, pos, xScale, yScale, candles }) =>
+      boxes(drawings).some(d => {
+        const yLo = Math.min(yScale(d.tp), yScale(d.sl));
+        const yHi = Math.max(yScale(d.tp), yScale(d.sl));
+        if (pos.y < yLo - HIT || pos.y > yHi + HIT) return false;
+        const iw = xScale.range()[1];
+        return [d.tStart, d.tEnd].some(t => {
+          const ex = xScale(tsToIdx(t, candles));
+          return ex >= 0 && ex <= iw && Math.abs(pos.x - ex) < HIT;
+        });
+      }),
     cursor: "ew-resize",
   },
   {

@@ -15,7 +15,7 @@ export function useChartInteraction({
   candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, showLegPct, onLineDoubleClick,
   scalesRef,
   xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,
-  drawing, setDrawing, setCurrent, drawMode, setDrawMode, locked,
+  drawings, setDrawing, setCurrent, drawMode, setDrawMode, locked,
   lineMode, lineStart, lines, selectedLineId,
   setLineStart, setLinePreview, setSelectedLineId,
   addLine, updateLineEndpoint, setLinePosition,
@@ -58,6 +58,8 @@ export function useChartInteraction({
 }) {
   const replacePendingOrder = useStore(s => s.replacePendingOrder);
   const updatePendingTpsl   = useStore(s => s.updatePendingTpsl);
+  // 주문이 걸린 박스 위에 새로 그리려 할 때 이유를 알려 준다 (dragStateMachine의 draw.onUp)
+  const setOrderStatus      = useStore(s => s.setOrderStatus);
 
   const dragRef           = useRef(null);
   const cursorRef         = useRef("crosshair");
@@ -146,7 +148,7 @@ export function useChartInteraction({
       selectedLineId, lines, dragRef,
       hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
       position, IH, IW, onMarkerClose,
-      drawing, locked, drawMode, setCurrent,
+      drawings, selectedBox, locked, drawMode, setCurrent,
       xDomainRef,
       setSelectedBox,
       isLog,
@@ -171,7 +173,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawing, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitLiveStructPoint, showZZ]);
+  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitLiveStructPoint, showZZ]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -349,7 +351,7 @@ export function useChartInteraction({
       if (!drag) {
         if (scales) {
           const { xScale, yScale } = scales;
-          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawing, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedStructId, structures, structMode, structDraft, structLive: getStructLiveSegment(), isLog });
+          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawings, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedStructId, structures, structMode, structDraft, structLive: getStructLiveSegment(), isLog });
           if (cursor) { setCursor(cursor); return; }
         }
         setCursor((drawMode || lineMode || channelMode || circleMode || fibMode || structMode) ? "crosshair" : "grab"); return;
@@ -367,7 +369,7 @@ export function useChartInteraction({
         updateFibEndpoint, setFibPosition,
         moveStructPoint, normalizeStruct,
       };
-      const state = { drawing, dragTpsl, dragScaleIn, dragSplitTp };
+      const state = { drawings, dragTpsl, dragScaleIn, dragSplitTp };
 
       if (drag.type === "pan") {
         const rect2 = svgRef.current?.getBoundingClientRect();
@@ -379,7 +381,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawing, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
+  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
@@ -396,15 +398,15 @@ export function useChartInteraction({
       setters: {
         setDrawing, setCurrent, setDragTpsl, setCursor, saveTpsl, setDrawMode,
         setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp,
-        setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart,
+        setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart, setOrderStatus,
         updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
         updateFibEndpoint, setFibPosition,
         moveStructPoint, normalizeStruct, clearStructPart,
       },
-      state: { drawing, dragTpsl, dragScaleIn, dragSplitTp },
+      state: { drawings, dragTpsl, dragScaleIn, dragSplitTp },
     });
-  }, [candles, drawing, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
+  }, [candles, drawings, dragTpsl, dragSplitTp, dragScaleIn, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
 
   const onDoubleClick = useCallback(e => {
     const pos    = getSvgPos(e);
@@ -438,7 +440,7 @@ export function useChartInteraction({
     if (showZZ && findHitZzLeg(pos.x, pos.y, getZzSegments(), xScale, yScale)) {
       onLineDoubleClick?.(ZZ_ID, "zz", e.clientX, e.clientY);
     }
-  }, [candles, lines, channels, circles, fibs, structures, structMode, finishStruct, drawing, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, lines, channels, circles, fibs, structures, structMode, finishStruct, drawings, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMouseLeave = useCallback(() => {
     dragRef.current = null;

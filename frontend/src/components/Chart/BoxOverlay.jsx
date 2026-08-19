@@ -22,7 +22,7 @@ import { tsToIdx } from "../../chart/scales";
  * ※ ④를 지우면서 `hasLong`/`hasShort` prop도 필요 없어졌다 (ChartSvg 호출부에서도 뺐다) —
  *   같은 사이드 포지션 유무로 감출 마커가 더는 없다. 되살리려면 그 배선부터 다시 필요하다.
  */
-export const BoxOverlay = memo(function BoxOverlay({ drawing, scales, IW, selectedBox, candles }) {
+export const BoxOverlay = memo(function BoxOverlay({ drawing, scales, IW, selected, candles }) {
   if (!drawing || !scales || !candles?.length) return null;
   const { xScale, yScale } = scales;
 
@@ -37,7 +37,7 @@ export const BoxOverlay = memo(function BoxOverlay({ drawing, scales, IW, select
 
   return (
     <g>
-      {selectedBox && (
+      {selected && (
         <rect x={x1-2} y={Math.min(tPx, slPx)-2} width={w+4} height={Math.abs(tPx - slPx)+4}
           fill="none" stroke="#f0b90b" strokeWidth={1.5} strokeDasharray="5,3" rx={2} opacity={0.7} />
       )}

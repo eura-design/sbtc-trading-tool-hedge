@@ -21,6 +21,13 @@ function moveTimeDelta(xScale, pos, drag, candles) {
   return di * getCandleMs(candles);
 }
 
+// 드래그 중인 **플랜 박스 하나**를 꺼낸다.
+//
+// ⚠ 박스가 롱·숏 둘이라(2026-08-19) 어느 쪽을 끌고 있는지는 `dragRef`가 들고 있다
+//   (`hitDetection`이 히트한 순간 `isLong`을 실어 둔다). 여기서 `state.drawings`를
+//   훑어 "있는 것"을 고르면 두 박스가 겹쳐 있을 때 엉뚱한 쪽이 끌려간다.
+const boxOf = (state, drag) => state?.drawings?.[drag.isLong ? "long" : "short"] ?? null;
+
 export const DRAG_HANDLERS = {
   pan: {
     onMove({ pos, drag, candles, IW, setters }) {
@@ -69,7 +76,7 @@ export const DRAG_HANDLERS = {
       } : null);
       setters.setCursor("crosshair");
     },
-    onUp({ pos, drag, scales, candles, IW, IH, setters }) {
+    onUp({ pos, drag, scales, candles, IW, IH, setters, state }) {
       const { setDrawing, setCurrent, setDrawMode } = setters;
       const { xScale, yScale } = scales;
       const sx = drag.startX, sy = drag.startY;
@@ -77,9 +84,21 @@ export const DRAG_HANDLERS = {
       const ey = Math.min(Math.max(pos.y, 0), IH);
       if (Math.abs(ex - sx) < 15 || Math.abs(ey - sy) < 15) { setCurrent(null); return; }
       const isLong = ey > sy; // 롱=아래로 드래그, 숏=위로 드래그
+      // ⚠ **주문이 걸린 박스는 덮어쓰지 않는다** (2026-08-19). 덮으면 `orderId` 연결이
+      //   끊겨 바이낸스에 살아 있는 미체결 주문이 화면에서 미아가 된다
+      //   (플랜 카드에서 빠지고 OrphanPendingCard로 떨어져 박스로 가격을 못 고친다).
+      //   방향은 드래그를 놓아야 정해지므로 시작 시점에는 막을 수 없다 — 여기서 되돌린다
+      if (state?.drawings?.[isLong ? "long" : "short"]?.orderId) {
+        setCurrent(null);
+        setters.setOrderStatus?.({
+          type: "error",
+          msg: `${isLong ? "▲ LONG" : "▼ SHORT"} 플랜에 이미 주문이 걸려 있습니다 — 먼저 취소하세요`,
+        });
+        return;
+      }
       const slDist = ey - sy; // 양수(롱/아래), 음수(숏/위)
       const tpPx   = Math.min(Math.max(sy - slDist * 2, 0), IH); // SL 거리의 2배 반대 방향
-      setDrawing({
+      setDrawing(isLong, {
         tStart: idxToTimestamp(xScale.invert(Math.min(sx, ex)), candles),
         tEnd:   idxToTimestamp(xScale.invert(Math.max(sx, ex)), candles),
         entry:  yScale.invert(sy),
@@ -89,7 +108,7 @@ export const DRAG_HANDLERS = {
       });
       setCurrent(null);
       setDrawMode(false);
-      setters.setSelectedBox?.(true);
+      setters.setSelectedBox?.(isLong ? "long" : "short");
       setters.setCursor("crosshair");
     },
   },
@@ -102,7 +121,7 @@ export const DRAG_HANDLERS = {
       if (!scales || !candles.length) return;
       const t  = idxToTimestamp(scales.xScale.invert(Math.min(Math.max(pos.x, 0), IW)), candles);
       const ms = getCandleMs(candles);
-      setters.setDrawing(p => {
+      setters.setDrawing(drag.isLong, p => {
         if (!p) return p;
         // 최소 1봉은 남긴다 — 폭이 0이 되면 BoxOverlay가 x2 <= x1로 렌더를 통째로 접어
         // 박스가 사라진 것처럼 보이고 다시 잡을 수도 없다
@@ -134,7 +153,7 @@ export const DRAG_HANDLERS = {
       const di = xScale.invert(Math.min(Math.max(pos.x, 0), IW))
                - xScale.invert(drag.startX);
       const dt = di * getCandleMs(candles);
-      setters.setDrawing(p => ({
+      setters.setDrawing(drag.isLong, p => ({
         ...p,
         entry:  v,
         tp:     newTp,
@@ -144,37 +163,41 @@ export const DRAG_HANDLERS = {
       }));
       setters.setCursor("move");
     },
-    onUp({ setters, state }) {
+    onUp({ setters, state, drag }) {
       setters.setCursor("crosshair");
-      if (state.drawing?.orderId) setters.replacePendingOrder?.();
+      if (boxOf(state, drag)?.orderId) setters.replacePendingOrder?.(drag.isLong);
     },
   },
 
   tp: {
     onMove({ pos, drag, scales, IH, setters, state }) {
+      const box = boxOf(state, drag);
+      if (!box) return;
       const v = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
-      if (state.drawing.isLong && v <= state.drawing.entry) return;
-      if (!state.drawing.isLong && v >= state.drawing.entry) return;
-      setters.setDrawing(p => ({ ...p, tp: v }));
+      if (drag.isLong  && v <= box.entry) return;
+      if (!drag.isLong && v >= box.entry) return;
+      setters.setDrawing(drag.isLong, p => ({ ...p, tp: v }));
       setters.setCursor("ns-resize");
     },
-    onUp({ setters, state }) {
+    onUp({ setters, state, drag }) {
       setters.setCursor("crosshair");
-      if (state.drawing?.orderId) setters.updatePendingTpsl?.();
+      if (boxOf(state, drag)?.orderId) setters.updatePendingTpsl?.(drag.isLong);
     },
   },
 
   sl: {
     onMove({ pos, drag, scales, IH, setters, state }) {
+      const box = boxOf(state, drag);
+      if (!box) return;
       const v = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
-      if (state.drawing.isLong && v >= state.drawing.entry) return;
-      if (!state.drawing.isLong && v <= state.drawing.entry) return;
-      setters.setDrawing(p => ({ ...p, sl: v }));
+      if (drag.isLong  && v >= box.entry) return;
+      if (!drag.isLong && v <= box.entry) return;
+      setters.setDrawing(drag.isLong, p => ({ ...p, sl: v }));
       setters.setCursor("ns-resize");
     },
-    onUp({ setters, state }) {
+    onUp({ setters, state, drag }) {
       setters.setCursor("crosshair");
-      if (state.drawing?.orderId) setters.replacePendingOrder?.();
+      if (boxOf(state, drag)?.orderId) setters.replacePendingOrder?.(drag.isLong);
     },
   },
 

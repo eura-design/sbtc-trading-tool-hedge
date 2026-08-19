@@ -3,6 +3,7 @@ import { api }           from "../api/client";
 import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from "../utils/side";
 import { paperActions }  from "../replay/paperActions";
 import { riskPctFor }   from "./settingsSlice";
+import { boxKey }       from "./uiSlice";
 
 // 리플레이(페이퍼) 모드면 같은 이름의 페이퍼 핸들러로 넘긴다.
 // 각 액션 첫 줄에서 한 번만 갈라지므로 아래 실거래 코드는 원래대로 읽힌다.
@@ -11,10 +12,14 @@ import { riskPctFor }   from "./settingsSlice";
 
 export const createOrderSlice = (set, get) => ({
 
-  executeOrder: async (orderType) => {
-    if (get().replayOn) return paperActions.executeOrder(get, orderType);
+  // ⚠ 플랜 박스가 롱·숏 둘이라 **어느 박스인지**를 인자로 받는다 (2026-08-19).
+  //   `get().drawings`에서 알아서 고르게 두지 말 것 — 둘 다 있을 때 무엇이 나갈지가
+  //   부르는 쪽 코드에 드러나지 않는다 (사이드바 실행 버튼은 카드마다 따로 있다)
+  executeOrder: async (orderType, isLong) => {
+    if (get().replayOn) return paperActions.executeOrder(get, orderType, isLong);
     const st = get();
-    const { drawing, leverage, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos, _refetchTpsl } = st;
+    const { drawings, leverage, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos, _refetchTpsl } = st;
+    const drawing = drawings[boxKey(isLong)];
     if (!drawing) return;
     // 리스크 %는 **사이드별**이다 (settingsSlice.riskPctFor) — 레버리지와 달리 거래소에
     // 보내지 않고 수량 계산에만 쓰이므로 롱·숏이 서로 다른 값을 가질 수 있다
@@ -49,9 +54,9 @@ export const createOrderSlice = (set, get) => ({
         drawing:  drawingPayload,
       });
       if (orderType === "LIMIT") {
-        setDrawing(prev => prev ? { ...prev, orderId: String(data.entry.orderId) } : prev);
+        setDrawing(isLong, prev => prev ? { ...prev, orderId: String(data.entry.orderId) } : prev);
       }
-      if (orderType === "MARKET") setDrawing(null);
+      if (orderType === "MARKET") setDrawing(isLong, null);
       if (data.warning) {
         setOrderStatus({ type: "error", msg: `⚠ 진입 체결됨, ${data.warning}` });
       } else {
@@ -129,9 +134,10 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
-  updatePendingTpsl: async () => {
-    if (get().replayOn) return paperActions.updatePendingTpsl(get);
-    const { drawing, setOrderStatus } = get();
+  updatePendingTpsl: async (isLong) => {
+    if (get().replayOn) return paperActions.updatePendingTpsl(get, isLong);
+    const { drawings, setOrderStatus } = get();
+    const drawing = drawings[boxKey(isLong)];
     if (!drawing?.orderId) return;
     try {
       await api("PATCH", "/api/order", { orderId: drawing.orderId, tp: drawing.tp, sl: drawing.sl });
@@ -141,12 +147,13 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
-  replacePendingOrder: async () => {
-    if (get().replayOn) return paperActions.replacePendingOrder(get);
+  replacePendingOrder: async (isLong) => {
+    if (get().replayOn) return paperActions.replacePendingOrder(get, isLong);
     const st = get();
-    const { drawing, leverage, balance, position, setDrawing, setOrderStatus, _refetchPos, _refetchBal } = st;
+    const { drawings, leverage, balance, position, setDrawing, setOrderStatus, _refetchPos, _refetchBal } = st;
+    const drawing = drawings[boxKey(isLong)];
     if (!drawing?.orderId) return;
-    const riskPct = riskPctFor(st, drawing.isLong);
+    const riskPct = riskPctFor(st, isLong);
 
     const sideKey = drawing.isLong ? "long" : "short";
     const pendingOrder = position?.pending?.[sideKey];
@@ -157,7 +164,7 @@ export const createOrderSlice = (set, get) => ({
     const capital = (balance?.availableBalance ?? 0) + pendingMargin;
     const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage);
     if (!posCalc) return;
-    setDrawing(prev => prev ? { ...prev, orderId: undefined } : prev);
+    setDrawing(isLong, prev => prev ? { ...prev, orderId: undefined } : prev);
     const cancelSide = isLongToPosition(drawing.isLong);
     try {
       await api("DELETE", "/api/orders", { side: cancelSide });
@@ -175,7 +182,7 @@ export const createOrderSlice = (set, get) => ({
           isLong: drawing.isLong, entry: drawing.entry, tp: drawing.tp, sl: drawing.sl,
         },
       });
-      setDrawing(prev => prev ? { ...prev, orderId: String(data.entry.orderId) } : prev);
+      setDrawing(isLong, prev => prev ? { ...prev, orderId: String(data.entry.orderId) } : prev);
       setOrderStatus({ type: "success", msg: `주문 수량 재설정 완료 (${posCalc.actualQty.toFixed(3)} BTC)` });
       setTimeout(() => { _refetchPos(); _refetchBal(); }, 500);
     } catch (e) {
@@ -292,11 +299,16 @@ export const createOrderSlice = (set, get) => ({
 
   deleteBox: async (sideOverride) => {
     if (get().replayOn) return paperActions.deleteBox(get, sideOverride);
-    const { drawing, position, setDrawing, setPosition, setOrderStatus } = get();
-    // 사이드 결정 우선순위: 명시적 sideOverride > drawing의 사이드
-    const side = sideOverride
-      ?? (drawing ? isLongToPosition(drawing.isLong) : undefined);
-    const hasPending = !!(position?.pending?.long || position?.pending?.short);
+    const { drawings, position, setDrawing, setPosition, setOrderStatus } = get();
+    // 사이드 결정 우선순위: 명시적 sideOverride > 박스가 하나뿐이면 그 사이드
+    const only = (!!drawings.long) !== (!!drawings.short)
+      ? (drawings.long ?? drawings.short) : null;
+    const side = sideOverride ?? (only ? isLongToPosition(only.isLong) : undefined);
+    // ⚠ 미체결 판정은 **그 사이드만** 본다 (2026-08-19). 예전엔 양쪽을 합쳐 봐서,
+    //   숏 주문이 걸려 있으면 롱 박스를 지울 때도 취소 API를 불렀다.
+    //   박스가 둘이 된 지금은 "숏 주문 때문에 롱 박스 삭제가 에러를 뱉는" 경로가 된다
+    const sideKey = side === "LONG" ? "long" : side === "SHORT" ? "short" : null;
+    const hasPending = !!(sideKey && position?.pending?.[sideKey]);
     if (hasPending) {
       if (!side) {
         setOrderStatus({ type: "error", msg: "취소할 사이드를 알 수 없습니다" });
@@ -309,8 +321,8 @@ export const createOrderSlice = (set, get) => ({
         setOrderStatus({ type: "error", msg: `취소 실패: ${e.message}` }); return;
       }
     }
-    // drawing이 취소한 사이드와 같을 때만 drawing 제거
-    if (drawing && isLongToPosition(drawing.isLong) === side) setDrawing(null);
+    // 취소한 사이드의 박스만 지운다 — 반대쪽 플랜은 그대로 둔다
+    if (sideKey && drawings[sideKey]) setDrawing(side === "LONG", null);
     setPosition(prev => {
       if (!prev?.pending) return prev;
       if (side === "LONG")  return { ...prev, pending: { ...prev.pending, long:  null } };

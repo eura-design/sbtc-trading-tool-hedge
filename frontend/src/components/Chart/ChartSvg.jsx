@@ -33,7 +33,7 @@ export function ChartSvg({
   legRefs,
   hasPos, hasLong, hasShort, position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, closeConfirm,
   lines, selectedLineId, lineStart, linePreview, isLog,
-  drawing, current, locked, selectedBox,
+  drawings, current, locked, selectedBox,
   channels, selectedChannelId, channelStep, channelPoints, channelPreview,
   circles, selectedCircleId, circleCenter, circlePreview,
   fibs, selectedFibId, fibStart, fibPreview,
@@ -80,7 +80,15 @@ export function ChartSvg({
             scales={scales} candles={candles} IW={IW} IH={IH}
           />
         )}
-        <BoxOverlay drawing={drawing} scales={scales} IW={IW} selectedBox={selectedBox} candles={candles} />
+        {/* 플랜 박스는 **롱·숏 각각 하나**다 (2026-08-19).
+            ⚠ 그리는 순서를 히트 판정(hitDetection의 `boxOrder`)과 **같게 유지할 것**:
+              선택된 박스가 맨 위 · 아니면 롱이 위. 어긋나면 겹친 자리에서
+              "위에 보이는 박스를 눌렀는데 아래 것이 잡힌다"가 된다 */}
+        {/* 히트 순서가 [선택, 롱, 숏]이므로 그리는 순서는 그 **역순**이다 (뒤에 그린 게 위) */}
+        {(selectedBox === "short" ? ["long", "short"] : ["short", "long"]).map(k => (
+          <BoxOverlay key={k} drawing={drawings?.[k]} scales={scales} IW={IW}
+            selected={selectedBox === k} candles={candles} />
+        ))}
         <DrawingCurrent current={current} scales={scales} IW={IW} IH={IH} />
       </g>
 

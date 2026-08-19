@@ -11,7 +11,7 @@ export function useKeyboardShortcuts({
   setFibMode,
   drawables,   // { line, channel, circle, fib, structure, zz } — chart/drawables.js 인터페이스
   setSelectedBox,
-  drawing, hasPending, locked,
+  drawings, hasPending, locked,
   selectedBox,
   deleteBox,
   interval_,
@@ -27,14 +27,19 @@ export function useKeyboardShortcuts({
         cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw();
         cancelStructDraw();   // 그리던 구조는 확정하지 않고 버린다 (확정은 우클릭/더블클릭)
         clearAllSelections(drawables);
-        setSelectedBox(false);
+        setSelectedBox(null);
         return;
       }
 
       if (match(e, "delete")) {
         const sel = getSelectedDrawable(drawables);
         if (sel)                                          sel.delete(sel.id);
-        else if (selectedBox && (drawing || hasPending))  deleteBox();
+        // ⚠ 플랜 박스가 롱·숏 둘이라 **선택된 사이드를 넘겨야 한다** (2026-08-19).
+        //   `selectedBox`가 그 사이드다 (`"long"`|`"short"` — 불리언이 아니다).
+        //   안 넘기면 deleteBox가 "박스가 하나뿐일 때만" 사이드를 추론하므로,
+        //   둘 다 그려 뒀을 때 아무것도 안 지워진다
+        else if (selectedBox && (drawings?.[selectedBox] || hasPending))
+          deleteBox(selectedBox === "long" ? "LONG" : "SHORT");
         return;
       }
 
@@ -99,7 +104,7 @@ export function useKeyboardShortcuts({
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [shortcuts, drawables, selectedBox, drawing, hasPending, locked, deleteBox, interval_, onIntervalChange,
+  }, [shortcuts, drawables, selectedBox, drawings, hasPending, locked, deleteBox, interval_, onIntervalChange,
       setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelStructDraw,
       setStructMode, structEnabled, structMode, ensureStructTf,
       setFibMode, setSelectedBox]);
