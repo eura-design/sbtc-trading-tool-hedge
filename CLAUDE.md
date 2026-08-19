@@ -18,6 +18,11 @@ backend/
 │   ├── order.js               ← POST /api/order (진입주문 + TP/SL 자동등록, 일일 손실 가드) / PATCH /api/order (미체결 TP/SL 수정)
 │   ├── orders.js              ← DELETE /api/orders (전체 미체결 취소)
 │   ├── close.js               ← POST /api/close (전량: TP/SL+SCALE_IN 취소 후 시장가 / 부분: 분할TP 비율 재등록)
+│   │                             ⚠ 부분 청산의 수량 계산은 `utils/splitTp.js`가 전부 한다 — 여기서 다시 계산하지 말 것
+│   │                             ⚠ 분할 TP를 **가격 내림차순으로 정렬해서** 넘긴다 (openOrders는 순서 보장이 없다)
+│   │                             ⚠ 포지션 크기를 못 읽으면 **취소하지 않고** 청산만 진행 + 경보 (2026-08-19).
+│   │                               예전엔 취소부터 하고 재등록은 `originalSize > 0` 가드에 막혀
+│   │                               건너뛰어서 **분할 TP가 통째로 사라졌다**
 │   ├── tpsl.js                ← GET /api/tpsl → { long: { tp, sl, splitTps }, short: { tp, sl, splitTps } }
 │   │                             PUT /api/tpsl + POST/DELETE /api/tpsl/split (분할 TP)
 │   ├── scalein.js             ← POST/DELETE /api/scale-in (추가 진입 — scaleInOrders는 position에서 반환)
@@ -43,7 +48,12 @@ backend/
 ├── middleware/
 │   └── validate.js            ← POST /api/order 입력 검증
 ├── utils/
-│   └── side.js                ← 헷지모드 side 매핑 헬퍼 (sideToPosition/positionToSide/closeToPosition/positionToClose)
+│   ├── side.js                ← 헷지모드 side 매핑 헬퍼 (sideToPosition/positionToSide/closeToPosition/positionToClose)
+│   └── splitTp.js             ← rescaleSplitTps() — 부분 청산 후 분할 TP 잔여 비율 재계산 (순수 함수, **import 없음**)
+│                                 pivotLevels.js·fib.js와 같은 이유로 의존성 0 — 틀리면
+│                                 **사용자가 시키지 않은 물량이 TP 가격에서 나가고** 체결된 뒤에야 안다
+│                                 ⚠ frontend/src/replay/paperBroker.js가 **같은 규칙을 미러링**한다
+│                                   (별개 패키지라 공유 불가) — 한쪽만 고치면 연습이 실거래와 다르게 체결된다
 ├── .env                       ← API 키
 └── package.json
 ```
@@ -396,6 +406,17 @@ frontend/src/
 │       │                           (`(ot) => executeOrder(ot, isLong)`)
 │       ├── ScaleInCard.jsx    ← 추가 진입 카드 (LIMIT/MARKET, 가격 방향 검증) — PositionCard 아코디언 내 embedded
 │       ├── SplitTPCard.jsx    ← 분할 TP 카드 (지정가, 잔여 수량 표시) — PositionCard 아코디언 내 embedded
+│       │                         ⚠ 슬라이더는 **잔여 대비 %**다 (2026-08-19 사용자 요청).
+│       │                           예전엔 포지션 전체 대비라, 40%짜리를 하나 걸면 60~100 구간이
+│       │                           통째로 죽은 구간이 됐다 — 끌리긴 하는데 버튼이 비활성이고
+│       │                           `80% (0.600 BTC)`처럼 **숫자와 수량이 어긋났다**(0.600은 60%다).
+│       │                           등록 개수와 무관하게 규칙은 하나 — **"남은 것의 몇 %"**,
+│       │                           끝까지 밀면 "남은 것 전부"
+│       │                         ⚠ 다만 **저장·표시되는 pct는 포지션 대비 그대로**(`posPct`) —
+│       │                           목록의 `(40%)`와 부분 청산 재계산(backend/utils/splitTp.js)이
+│       │                           전부 포지션 기준이다. 슬라이더 아래 `→ 포지션의 N%`가 둘을 잇는다
+│       │                         ⚠ 잔여가 0이면 슬라이더 대신 안내 문구 — 끌 수 있는데 못 누르는
+│       │                           상태를 다시 만들지 말 것 (그게 이 변경의 이유다)
 │       ├── StatsCard.jsx      ← 거래 통계 카드 (날짜 필터, 승률/PnL/수수료/펀딩비)
 │       └── ReplayStatsCard.jsx ← 연습 성적 카드 — 리플레이면 "거래 통계" 자리를 대신 채운다
 │                                 거래수/**청산수**/승패/승률/PF/평균/최대낙폭/수수료/펀딩비/순손익
@@ -448,7 +469,19 @@ frontend/src/
 - **PositionCard**: 롱·숏 각각 별개 카드로 렌더, ScaleInCard·SplitTPCard는 아코디언으로 내장
 - **saveTpsl**: `dragSide` 또는 현재 활성 포지션 사이드로 어느 쪽 TP/SL을 수정할지 결정
 - **레버리지 변경 가드** (`backend/routes/order.js`): 반대쪽 포지션 존재 시 레버리지 변경 생략 → 기존 포지션 레버리지 보호
-- **부분 청산 분할 TP 재등록** (`backend/routes/close.js`): partial 청산 시 해당 사이드 SPLIT_TP만 취소 → 시장가 청산 → 잔여 비율로 LIMIT 재등록 (롤백 안전망 포함)
+- **부분 청산 분할 TP 재등록** (`backend/routes/close.js` + `backend/utils/splitTp.js`): partial 청산 시 해당 사이드 SPLIT_TP만 취소 → 시장가 청산 → 잔여 비율로 LIMIT 재등록 (롤백 안전망 포함)
+  - ⚠ **전부 같은 규칙(원래 수량 × 잔여비율)으로 줄인다.** 2026-08-19 이전에는 **마지막 항목만**
+    `잔여 - 앞의 합`으로 계산했는데(반올림 누적 방지), 그건 **분할 TP가 포지션을 100% 덮고 있을
+    때만** 맞는 식이라 안 덮은 부분이 전부 마지막 항목으로 딸려 들어갔다.
+    → **TP 없이 끌고 가려던 물량이 TP 가격에서 같이 나간다.** 되돌리지 말 것
+    - 실측: 진입 1.0 + 분할 TP 0.4/0.6 → **추가 진입 +0.5**(포지션 1.5, 0.5 미커버)
+      → 50% 청산 시 기대 `0.3/0.2`(합 0.5)인데 실제 `0.3/0.45`(합 0.75)가 됐다
+    - **미커버는 사용자가 이상한 설정을 해야 생기는 게 아니다 — 추가 진입 한 번이면 생긴다**
+      (SplitTPCard의 `⚠ N BTC 미커버 — 추매 등으로…` 경고가 그 상황이다)
+  - 반올림 누적 방지는 그대로다: 다 곱한 뒤 **합이 잔여를 넘을 때만 넘친 만큼(0.001 단위)을
+    뒤에서부터 깎는다.** 모자라는 건 두는 게 맞다 (미커버는 정상 상태)
+  - ⚠ 그래서 **정렬이 결과를 정한다** → 부르는 쪽이 가격 내림차순으로 넘긴다
+    (`GET /api/tpsl`·`paperBroker.addSplitTp`와 같은 정렬)
 
 ### 글로벌 상태 관리 (Zustand Store)
 - `store/index.js`가 4개 slice를 조립 (`createServerSlice`/`createSettingsSlice`/`createUiSlice`/`createOrderSlice`)
@@ -1448,6 +1481,7 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 | "거래 1건" = **포지션 1개** (진입 → 전량 청산). 청산 횟수는 `fills`로 따로 본다 — 2026-08-19 변경 | 청산 단위로 세면 승률이 매매 실력이 아니라 **주문을 몇 조각으로 쪼개는가**를 재게 된다 (분할 TP는 여러 개지만 SL은 하나 — 비대칭). 실측: 3분할 익절 후 나머지 SL = **승률 75%인데 순손익 −$0.26**. 5분할이면 같은 매매가 83%가 된다. ※ 예전 근거("절반 익절 + 절반 손절이 뭉개진다")는 `fills`가 들고 있다 |
 | 손실 0이면 PF는 `null`("—") | "∞"를 띄우면 표본 2건짜리가 완벽한 전략처럼 보인다 |
 | 부분 청산(손으로)을 하면 **분할 TP를 잔여 비율로 다시 건다** | 원래 수량이 그대로 남아 합이 잔여 포지션보다 커진다 → 첫 분할이 포지션을 통째로 먹고 나머지가 증발한다. 실거래는 재등록한다(`backend/routes/close.js`) — 연습에서만 다르게 체결되면 안 된다 |
+| 재계산은 **전부 같은 비율**로 (`paperBroker.rescaleSplitTps`) | 마지막 항목만 잔여에서 역산하면 미커버분이 그 항목으로 몰린다 — `backend/utils/splitTp.js`의 실측 참고. **백엔드와 글자 그대로 같은 규칙을 유지할 것** (전 케이스 node 대조 검산됨) |
 | `onBar`는 **봉을 처리하기 전에** `lastTime`을 올린다 | 그 봉의 체결이 전부 직전 봉 시각으로 기록된다 → 진입선 계단이 한 구동봉 앞에서 시작하고, 더 나쁘게는 직전 계단과 시각이 같아져 병합 규칙에 걸려 **추가 진입 계단이 통째로 사라진다** (실측: 진입 100 → 98 추가 2회 후 `entrySteps`가 `[{t:0,avg:98}]` 한 칸) |
 - 수수료 메이커 0.02% / 테이커 0.04%, 펀딩비는 **그 시점 실제 이력**을 8시간마다 반영
 - 청산가는 격리 근사(유지증거금률 0.4%). SL이 청산가보다 멀면 **청산이 먼저** 터진다(정상)

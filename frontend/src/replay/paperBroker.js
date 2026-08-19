@@ -30,6 +30,7 @@ const ENTRY_SIDE = { LONG: "BUY",  SHORT: "SELL" };
 
 /** 유지증거금률 — 바이낸스 BTCUSDT 1구간(≤50k 명목) 근사값 */
 const MAINT_MARGIN_RATE = 0.004;
+const MIN_QTY = 0.001;      // BTCUSDT LOT_SIZE (backend/utils/splitTp.js와 같은 값)
 
 export class PaperBroker {
   constructor({ startBalance = 10_000, fundingRates = [] } = {}) {
@@ -145,18 +146,7 @@ export class PaperBroker {
     const rest = this.pos[positionSide];
     const t = this.tpsl[positionSide];
     if (!rest || !t.splitTps.length) return;
-    const ratio = rest.size / originalSize;
-    let sum = 0;
-    const scaled = [];
-    t.splitTps.forEach((sp, i) => {
-      // 마지막 항목은 반올림 오차가 쌓이지 않게 잔여에서 역산한다 (백엔드와 같은 규칙)
-      const raw = i === t.splitTps.length - 1 ? Math.max(0, rest.size - sum) : sp.qty * ratio;
-      const q = Math.round(raw * 1000) / 1000;
-      if (q < 0.001) return;
-      sum += q;
-      scaled.push({ ...sp, qty: q, pct: Math.round((q / rest.size) * 100) });
-    });
-    t.splitTps = scaled;
+    t.splitTps = rescaleSplitTps(t.splitTps, originalSize, amount);
   }
 
   // ── 시간 진행 ──────────────────────────────────────────────────────────
@@ -420,6 +410,46 @@ export class PaperBroker {
 }
 
 function blankTpsl() { return { tp: null, sl: null, splitTps: [] }; }
+
+const r3 = (v) => Math.round(v * 1000) / 1000;
+
+/**
+ * 부분 청산 후 분할 TP를 잔여 비율로 다시 계산한다.
+ *
+ * ⚠ **`backend/utils/splitTp.js`의 `rescaleSplitTps`와 글자 그대로 같은 규칙이다.**
+ *   한쪽만 고치면 연습이 실거래와 다르게 체결된다 — 그게 이 미러링의 존재 이유다.
+ *   (프론트·백엔드가 별개 패키지라 모듈을 공유할 수 없어 복제한다. 대신 검산은
+ *    백엔드 쪽 순수 함수로 하고, 여기서는 같은 값이 나오는지만 맞춘다.)
+ *
+ * ⚠ 2026-08-19 이전에는 **마지막 항목만** `잔여 - 앞의 합`으로 계산했다.
+ *   분할 TP가 포지션을 100% 덮고 있을 때만 맞는 식이라, 안 덮은 부분이 있으면
+ *   그게 전부 마지막 항목으로 딸려 들어갔다 (미커버는 **추가 진입 한 번**이면 생긴다).
+ *   실측: 포지션 1.5 / 커버 1.0(0.6·0.4) / 50% 청산 → 기대 0.3·0.2 인데 0.3·0.45가 됐다
+ *   = TP 없이 끌고 가려던 0.25가 TP 가격에서 같이 나간다.
+ *
+ * `splitTps`는 `addSplitTp`가 **가격 내림차순**으로 정렬해 둔다 — 반올림 초과분을
+ * 뒤에서부터 깎으므로 순서가 결과를 0.001만큼 좌우한다 (백엔드도 같은 정렬).
+ */
+function rescaleSplitTps(splitTps, originalSize, closeQty) {
+  const newSize = Math.max(0, r3(originalSize - closeQty));
+  if (!splitTps.length || !(originalSize > 0) || newSize < MIN_QTY) return [];
+
+  const ratio = newSize / originalSize;
+  const out = splitTps.map(sp => ({ ...sp, qty: r3(sp.qty * ratio) }));
+
+  // 반올림으로 합이 잔여를 넘었을 때만, 넘친 만큼을 **뒤에서부터** 깎는다
+  // (모자라는 건 그대로 둔다 — 미커버는 정상 상태다)
+  let over = r3(out.reduce((s, x) => s + x.qty, 0) - newSize);
+  for (let i = out.length - 1; i >= 0 && over >= MIN_QTY / 2; i--) {
+    const cut = Math.min(out[i].qty, over);
+    out[i].qty = r3(out[i].qty - cut);
+    over = r3(over - cut);
+  }
+
+  return out
+    .filter(x => x.qty >= MIN_QTY)
+    .map(x => ({ ...x, pct: Math.round((x.qty / newSize) * 100) }));
+}
 
 // ── 체결 판정은 **방향이 있어야 한다** ────────────────────────────────────
 // "봉의 고가~저가 안에 그 가격이 있는가"로 판정하면 **갭을 통째로 놓친다.**
