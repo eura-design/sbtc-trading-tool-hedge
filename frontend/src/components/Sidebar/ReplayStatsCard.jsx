@@ -34,7 +34,11 @@ export function ReplayStatsCard() {
   const pct   = v => `${d3.format(".1f")(v)}%`;
   const pnlC  = v => v > 0 ? WIN : v < 0 ? LOSS : MUTED;
 
-  if (!broker || stats.trades === 0) {
+  // ⚠ 판정은 `trades`(완결 포지션)가 아니라 **`fills`(청산 체결)**로 한다.
+  //   포지션 단위로 세면서 `trades === 0`을 조건으로 두면, 절반만 익절하고 아직
+  //   들고 있는 상태에서 카드가 "아직 연습 거래가 없습니다"로 되돌아간다 —
+  //   방금 익절한 사람에게 기록이 사라진 것처럼 보인다
+  if (!broker || stats.fills === 0) {
     return (
       <div style={{ padding: "4px 0", fontSize: "12px", color: theme.textFaint }}>
         아직 연습 거래가 없습니다
@@ -42,10 +46,18 @@ export function ReplayStatsCard() {
     );
   }
 
+  // ⚠ "거래"는 **포지션 단위**다 — 진입해서 전량 청산될 때까지가 1건.
+  //   그 안의 분할 TP·부분 청산 횟수는 아래 `청산`에 따로 나온다 (2026-08-19).
+  //   두 줄을 나란히 두는 이유: 승률이 포지션 기준이라는 걸 숫자로 보여준다
+  //   (거래 3건인데 청산 8건이면 "쪼개서 나갔구나"가 바로 읽힌다)
   const rows = [
-    ["거래",     `${stats.trades}건`, MUTED],
+    ["거래",     `${stats.trades}건${stats.open ? ` (+${stats.open} 보유중)` : ""}`, MUTED],
+    ["청산",     `${stats.fills}건`, MUTED],
     ["승 / 패",  `${stats.wins} / ${stats.losses}`, MUTED],
-    ["승률",     pct(stats.winRate), stats.winRate >= 50 ? WIN : LOSS],
+    // 완결된 포지션이 아직 없으면 승률이 없다 — null을 그대로 넘기면 "0.0%"로 찍혀
+    // "다 졌다"로 읽힌다 (익절만 하고 아직 들고 있는 상태가 정확히 그렇다)
+    ["승률",     stats.winRate == null ? "—" : pct(stats.winRate),
+                 stats.winRate == null ? MUTED : stats.winRate >= 50 ? WIN : LOSS],
     // 손실이 한 번도 없으면 null이다 — "∞"를 띄우면 표본 2건짜리가 완벽해 보인다
     ["손익비 PF", stats.profitFactor == null ? "—" : d3.format(".2f")(stats.profitFactor),
                   stats.profitFactor == null ? MUTED : stats.profitFactor >= 1 ? WIN : LOSS],

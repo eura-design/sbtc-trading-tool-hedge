@@ -130,8 +130,33 @@ export class PaperBroker {
     const p = this.pos[positionSide];
     if (!p) return;
     const price = this.lastPrice ?? p.entryPrice;
-    const amount = Math.min(qty ?? p.size, p.size);
+    const originalSize = p.size;
+    const amount = Math.min(qty ?? originalSize, originalSize);
+    const partial = amount < originalSize;
     this._closePosition(positionSide, amount, price, TAKER_FEE, "수동 청산");
+
+    // ⚠ 부분 청산이면 **분할 TP를 잔여 비율로 다시 건다** — 실거래와 같다
+    //   (backend/routes/close.js의 재등록 로직). 안 맞추면 절반을 손으로 닫은 뒤에도
+    //   분할 TP가 원래 수량 그대로 남아, 합이 잔여 포지션보다 커진다. 그러면 첫 분할이
+    //   포지션을 통째로 먹고 나머지가 조용히 증발해 **연습에서만 다르게 체결된다**.
+    //   ※ 분할 TP가 스스로 체결됐을 때는 재조정하지 않는다 — 그쪽은 실거래에서도
+    //     남은 주문을 건드리지 않는다 (reduceOnly끼리는 서로 모른다)
+    if (!partial) return;
+    const rest = this.pos[positionSide];
+    const t = this.tpsl[positionSide];
+    if (!rest || !t.splitTps.length) return;
+    const ratio = rest.size / originalSize;
+    let sum = 0;
+    const scaled = [];
+    t.splitTps.forEach((sp, i) => {
+      // 마지막 항목은 반올림 오차가 쌓이지 않게 잔여에서 역산한다 (백엔드와 같은 규칙)
+      const raw = i === t.splitTps.length - 1 ? Math.max(0, rest.size - sum) : sp.qty * ratio;
+      const q = Math.round(raw * 1000) / 1000;
+      if (q < 0.001) return;
+      sum += q;
+      scaled.push({ ...sp, qty: q, pct: Math.round((q / rest.size) * 100) });
+    });
+    t.splitTps = scaled;
   }
 
   // ── 시간 진행 ──────────────────────────────────────────────────────────
@@ -144,12 +169,18 @@ export class PaperBroker {
    */
   onBar(bar) {
     this.events = [];
+    // ⚠ **시각은 봉을 처리하기 전에 올린다.** 예전엔 맨 끝에서 올렸는데, 그러면 이 봉에서
+    //   체결된 진입이 전부 **직전 봉의 시각**으로 기록된다. 두 가지가 깨졌다:
+    //   ① 진입선 계단(entrySteps)이 구동봉 하나만큼 앞에서 시작한다
+    //   ② 직전 계단과 시각이 같아져 `steps[last].t === lastTime` 병합 규칙에 걸려
+    //      **추가 진입 계단이 통째로 사라졌다** (실측: 시장가 진입 100 → 98에 추가 두 번
+    //      후 entrySteps가 `[{t:0, avg:98}]` 한 칸 — 진입가 100짜리 첫 칸이 덮였다)
+    this.lastTime = bar.t;
     this._applyFunding(bar.t);
     this._fillEntries(bar);
     this._checkLiquidation(bar);
     this._fillExits(bar);
     this.lastPrice = bar.c;
-    this.lastTime = bar.t;
     return this.events;
   }
 

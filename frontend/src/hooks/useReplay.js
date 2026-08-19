@@ -4,7 +4,7 @@ import { indexOfTime } from "../replay/soa.js";
 import { fetchFundingRates } from "../replay/klines.js";
 import { ReplayEngine } from "../replay/engine.js";
 import { PaperBroker } from "../replay/paperBroker.js";
-import { sessionKey, saveSession, loadSession, restoreInto, hasProgress } from "../replay/session.js";
+import { sessionKey, saveSession, loadSession, clearSession, restoreInto, hasProgress, sameRange } from "../replay/session.js";
 import { driveTfFor, tfMs, ticksPerBar } from "../replay/timeframes.js";
 import { useStore } from "../store";
 
@@ -79,31 +79,57 @@ export function useReplay({
   /**
    * 엔진 커서만큼 페이퍼 브로커를 따라가게 한다.
    *
-   * ⚠ **뒤로 시크하면 연습 계좌를 초기화한다.** 시간을 되감았는데 아까 낸 주문과
-   *   손익이 남아 있으면 "손실만 지우고 다시 하기"가 되어 연습이 무의미해진다.
-   *   되감은 시점에는 포지션도 주문도 없으므로, 지나간 봉을 다시 먹일 필요는 없다
-   *   (빈 계좌에 봉을 먹여봐야 아무 일도 안 일어난다).
+   * ⚠ **뒤로 시크해도 연습 계좌를 건드리지 않는다** (2026-08-19 사용자 확정).
+   *   예전에는 여기서 브로커를 통째로 새로 만들었고, 그래서 진행 슬라이더를 살짝
+   *   왼쪽으로 옮기기만 해도 몇 시간 쌓은 연습 성적이 말없이 사라졌다.
+   *   **초기화는 이제 명시적인 버튼 하나로만 일어난다**(`resetPaper`).
+   *   ※ 옛 주석의 근거("손실만 지우고 다시 하기가 된다")는 뒤집힌 얘기였다 —
+   *     되감아도 장부가 남으므로 오히려 지금이 손실을 지울 수 없는 쪽이다.
+   *
+   *   되감은 뒤에는 지나간 봉을 다시 먹이지 않는다(이미 반영된 체결이라 두 번 세면
+   *   안 된다). 대신 **브로커의 현재가·시각을 되감은 지점으로 맞춘다** — 안 그러면
+   *   시장가 주문이 미래 가격에 체결되고 포지션 미실현이 미래 가격으로 계산된다.
    */
   const syncBroker = useCallback(() => {
     const e = engineRef.current, b = brokerRef.current;
     if (!e || !b) return;
     if (e.cursor < fedRef.current) {
-      const fresh = new PaperBroker({ startBalance, fundingRates: b.fundingRates });
-      fresh.lastPrice = e.price;
-      fresh.lastTime  = e.nowMs;
-      brokerRef.current = fresh;
-      useStore.getState().setPaperBroker(fresh);
+      b.lastPrice = e.price;
+      b.lastTime  = e.nowMs;
       fedRef.current = e.cursor;
-      useStore.getState().syncPaper();
-      scheduleSave();
-      return;
+    } else {
+      const d = e.drive;
+      for (let i = fedRef.current; i < e.cursor; i++) {
+        b.onBar({ t: d.t[i], o: d.o[i], h: d.h[i], l: d.l[i], c: d.c[i], v: d.v[i] });
+      }
+      fedRef.current = e.cursor;
     }
-    const d = e.drive;
-    for (let i = fedRef.current; i < e.cursor; i++) {
-      b.onBar({ t: d.t[i], o: d.o[i], h: d.h[i], l: d.l[i], c: d.c[i], v: d.v[i] });
-    }
-    fedRef.current = e.cursor;
+    // ⚠ 시계를 **먼저** 맞춘다. syncPaper는 마크 가격으로 `replayPrice`를 읽는데,
+    //   App의 시계 반영은 렌더 뒤 useEffect라 한 틱 늦다. 크게 시크하면 그 한 틱이
+    //   수천 달러 차이라, 되감은 직후 포지션 미실현이 엉뚱한 값으로 찍혔다
+    useStore.getState().setReplayClock(e.nowMs, e.price);
     useStore.getState().syncPaper();
+    scheduleSave();
+  }, [scheduleSave]);
+
+  /**
+   * 연습 계좌·성적 초기화 — **사용자가 버튼을 눌렀을 때만** 부른다.
+   * 자동으로 불리는 경로는 하나도 없어야 한다 (위 syncBroker 주석 참고).
+   */
+  const resetPaper = useCallback(() => {
+    const e = engineRef.current, b = brokerRef.current;
+    if (!b) return;
+    const fresh = new PaperBroker({ startBalance, fundingRates: b.fundingRates });
+    fresh.lastPrice = e?.price ?? null;
+    fresh.lastTime  = e?.nowMs ?? null;
+    // 펀딩비 커서는 이미 지나온 구간만큼 앞으로 당겨 둔다 — 0으로 두면 재생을
+    // 이어갈 때 지금까지의 펀딩비가 한꺼번에 청구된다
+    while (fresh._fundIdx < fresh.fundingRates.length
+           && fresh.fundingRates[fresh._fundIdx].time <= (fresh.lastTime ?? 0)) fresh._fundIdx++;
+    brokerRef.current = fresh;
+    useStore.getState().setPaperBroker(fresh);
+    useStore.getState().syncPaper();
+    clearSession();
     scheduleSave();
   }, [startBalance, scheduleSave]);
 
@@ -169,19 +195,31 @@ export function useReplay({
         broker.lastTime  = eng.nowMs;
         fedRef.current = 0;
 
-        // 이전 세션 이어하기 — 같은 구간의 저장분이 있으면 계좌와 진행 위치를 되살린다.
-        // 진행 위치는 시각으로 저장돼 있어 그동안 TF를 바꿨어도 맞는다 (replay/session.js)
+        // 이전 세션 이어하기 (replay/session.js의 두 단계 규칙)
+        //   ① 같은 구간 → 계좌·포지션·진행 위치까지 전부. 진행 위치는 시각으로
+        //      저장돼 있어 그동안 TF를 바꿨어도 맞는다
+        //   ② 다른 구간 → **연습 성적(장부)만** 이어받는다. 포지션은 두고 온다
+        //      (다른 시기의 진입가는 화면 밖이라 유령 포지션이 된다)
+        //      ⚠ 여기서 장부까지 버리면 날짜를 옮길 때마다 성적이 사라진다 —
+        //        초기화는 버튼으로만 한다는 규칙이 깨진다 (2026-08-19)
         const key = sessionKey(symbol, startMs, endMs);
         sessionKeyRef.current = key;
-        const saved = loadSession(key);
+        const saved = loadSession();
         if (hasProgress(saved)) {
-          restoreInto(broker, saved);
-          const idx = indexOfTime(drive, saved.lastTime);
-          // lastTime은 **처리한 마지막 봉의 시가**다 → 그 봉까지 소비한 상태로 맞춘다
-          const cursor = Math.min(drive.n, idx + 1);
-          eng.seek(cursor);
-          fedRef.current = cursor;
-          candlesRef.current = eng.candles;
+          const full = sameRange(saved, key);
+          restoreInto(broker, saved, full);
+          if (full) {
+            const idx = indexOfTime(drive, saved.lastTime);
+            // lastTime은 **처리한 마지막 봉의 시가**다 → 그 봉까지 소비한 상태로 맞춘다
+            const cursor = Math.min(drive.n, idx + 1);
+            eng.seek(cursor);
+            fedRef.current = cursor;
+            candlesRef.current = eng.candles;
+          } else {
+            // 새 구간의 시작 시점 시세로 맞춘다 (restoreInto가 채우지 않는 두 값)
+            broker.lastPrice = eng.price ?? display.c[Math.max(0, eng.closedCount() - 1)];
+            broker.lastTime  = eng.nowMs;
+          }
         }
         brokerRef.current = broker;
         useStore.getState().setPaperBroker(broker);
@@ -265,7 +303,7 @@ export function useReplay({
     error,
     // 재생 제어
     playing, play, pause, toggle, speed, setSpeed,
-    stepTick, stepBar, seekProgress,
+    stepTick, stepBar, seekProgress, resetPaper,
     // 상태
     ...status,
     driveTf,

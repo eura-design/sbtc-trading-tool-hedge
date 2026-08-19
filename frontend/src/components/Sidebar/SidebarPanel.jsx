@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 import { SIDEBAR_W } from "../../constants";
 import { useTheme }  from "../../ThemeContext";
 import { useHealth } from "../../hooks/useHealth";
@@ -121,6 +121,15 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     setPendingLeverage(null);
     setLeverageErr(null);
   }, []);
+
+  // ⚠ 모드를 바꾸면 확인 대기 중인 레버리지 변경을 버린다 (2026-08-19).
+  //   리스크·레버리지는 모드별로 따로 저장되므로(settingsSlice.swapTradeSettings),
+  //   이걸 안 지우면 **실거래에서 고르던 값이 연습 화면에 확인 버튼째로 남아 있다가
+  //   그대로 적용된다** — 분리한 의미가 사라진다
+  useEffect(() => {
+    setPendingLeverage(null);
+    setLeverageErr(null);
+  }, [replayOn]);
 
   const posCalc = useMemo(() => {
     if (!drawing || !balance) return null;

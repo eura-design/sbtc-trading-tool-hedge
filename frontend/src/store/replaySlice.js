@@ -12,6 +12,7 @@
 
 import { setReplayGuard } from "../api/client";
 import { swapDrawingStorage } from "./uiSlice";
+import { swapTradeSettings } from "./settingsSlice";
 
 const START_KEY = "replay_start_ms";
 
@@ -70,11 +71,17 @@ export const createReplaySlice = (set, get) => ({
     // ⚠ 플랜 박스(drawing)도 여기서 갈아끼운다. 안 하면 리플레이에 들어가는 순간
     //   App의 drawing↔pending 동기화가 페이퍼 position(pending 없음)을 보고
     //   **실거래 플랜 박스를 지운다** (uiSlice.js의 swapDrawingStorage 참고)
+    //
+    // ⚠ **리스크·레버리지도 여기서 갈아끼운다** (2026-08-19). 예전엔 두 모드가 값
+    //   하나를 공유해서, 연습에서 레버리지를 50x로 올리면 실거래 설정이 그대로
+    //   50x가 됐다 — 리플레이를 끄고 다음 실주문을 낼 때 그 값이 쓰인다
+    //   (store/settingsSlice.js의 swapTradeSettings 참고)
     const drawing = swapDrawingStorage(on, get().drawing);
+    const trade   = swapTradeSettings(on);
     set(on
-      ? { replayOn: true, balError: null, drawing }
+      ? { replayOn: true, balError: null, drawing, ...trade }
       : {
-          replayOn: false, replayNowMs: null, replayPrice: null, drawing,
+          replayOn: false, replayNowMs: null, replayPrice: null, drawing, ...trade,
           // ⚠ 나갈 때 페이퍼 스냅샷을 **앱 시작 직후 상태로 되돌린다**
           //   (serverSlice의 초기값과 글자 그대로 같은 값 — 이미 모든 화면이 다루는 상태다).
           //
