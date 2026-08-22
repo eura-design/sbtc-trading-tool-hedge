@@ -10,13 +10,24 @@ export function Slider({ label, value, min, max, step, onChange, format, color =
   const track = `linear-gradient(to right, ${color} ${pct}%, ${theme.borderSec} ${pct}%)`;
   return (
     <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
-      <span style={{ fontSize:"12px", color:theme.textMuted, flexShrink:0 }}>{label}</span>
+      {/* ⚠ 라벨 폭을 고정한다 (2026-08-22 사용자 요청). 안 그러면 글자 수만큼 트랙이
+          밀려서 `레버리지`(48px)만 `▲ 롱 리스크`(69.6px)보다 **22px 왼쪽에서** 시작했다.
+          세 슬라이더가 세로로 붙어 있어 시작점이 어긋나면 바로 보인다.
+          70 = 가장 긴 라벨(`▲ 롱 리스크`) 실측값 — 라벨을 더 길게 쓰려면 같이 올릴 것 */}
+      <span style={{ fontSize:"12px", color:theme.textMuted, flexShrink:0,
+        minWidth:"70px" }}>{label}</span>
+      {/* ⚠ `minWidth:0`이 없으면 **행이 사이드바 밖으로 삐져나온다** (2026-08-22).
+          `input[type=range]`는 브라우저 기본 너비(크롬 129px)를 갖는데, flex 아이템의
+          `min-width:auto`가 그 아래로 줄어드는 걸 막는다 → `flex:1`인데도 안 줄고
+          오른쪽 값(`0.9%`)이 12px 밀려났다. 다른 구역(아코디언 헤더·플랜 버튼)은
+          전부 x=1069에서 끝나는데 슬라이더만 1081이라 **오른쪽 여백이 없어 보였다**
+          (사용자 지적). 트랙이 그만큼 짧아지는 게 맞는 동작이다 */}
       {/* 손잡이를 9px로 줄인 얇은 슬라이더 — 스타일은 index.css의 `.slim-range`.
           accentColor로는 크기를 못 바꿔서 트랙까지 직접 그린다 (그쪽 주석 참고).
           색 두 개는 CSS 변수로 넘긴다: 손잡이는 슬라이더마다 다르고, 트랙은 테마를 탄다 */}
       <input type="range" className="slim-range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(Number(e.target.value))}
-        style={{ flex:1, cursor:"pointer", "--sl-color": color, "--sl-track": track }} />
+        style={{ flex:1, minWidth:0, cursor:"pointer", "--sl-color": color, "--sl-track": track }} />
       <span style={{ fontSize:"13px", color, fontWeight:"600", flexShrink:0, minWidth:"36px", textAlign:"right" }}>{format(value)}</span>
     </div>
   );

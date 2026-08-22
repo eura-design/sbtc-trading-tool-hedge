@@ -60,3 +60,18 @@ html, body, #root {
   border-radius: 50%;
   background: var(--sl-color, #f0b90b);
 }
+
+/* 스크롤은 되지만 막대는 그리지 않는다 (2026-08-22 사용자 요청 — 사이드바).
+   ⚠ `overflow:hidden`으로 바꾸지 말 것 — 그러면 **스크롤 자체가 죽어서** 창이 낮을 때
+     아래쪽 카드에 닿을 수 없다. 여기서 끄는 건 막대의 **표시**뿐이다.
+   ⚠ 막대는 나타났다 사라질 때마다 내용 폭을 밀어서, 창 높이가 경계에 걸치면
+     사이드바가 미세하게 출렁였다. 안 그리면 그 흔들림도 같이 사라진다. */
+.no-scrollbar {
+  scrollbar-width: none;      /* Firefox */
+  -ms-overflow-style: none;   /* 구 Edge/IE */
+}
+.no-scrollbar::-webkit-scrollbar { /* Chrome·Safari — 이 앱이 도는 곳 */
+  width: 0;
+  height: 0;
+  display: none;
+}

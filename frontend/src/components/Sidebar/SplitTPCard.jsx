@@ -2,6 +2,7 @@ import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
 import { useAutoUpdatedPrice } from "../../hooks/useAutoUpdatedPrice";
 import { usePersistedPct, PercentSlider, PriceField, SubmitButton, CardWrapper } from "./cardControls";
+import { iconBtn } from "../sidebarBtn";
 
 export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCancelSplitTp, embedded }) {
   const { theme } = useTheme();
@@ -54,10 +55,8 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
           <span style={{ fontSize: "11px", color }}>
             ${o.price?.toLocaleString()} · {o.qty.toFixed(3)} BTC{o.pct ? ` (${o.pct}%)` : ""}
           </span>
-          <button onClick={() => onCancelSplitTp(o.orderId)} style={{
-            background: "none", border: "none", color: PALETTE.short,
-            cursor: "pointer", fontSize: "12px", fontWeight: "700", padding: "0 2px",
-          }}>✕</button>
+          <button onClick={() => onCancelSplitTp(o.orderId)}
+            style={iconBtn(PALETTE.short, "12px")}>✕</button>
         </div>
       ))}
 

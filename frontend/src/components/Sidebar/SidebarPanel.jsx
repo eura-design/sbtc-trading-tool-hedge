@@ -20,6 +20,7 @@ import { PlanCard, OrphanPendingCard } from "./PlanCard";
 import { StatsCard }    from "./StatsCard";
 import { ReplayStatsCard } from "./ReplayStatsCard";
 import { computePaperDailyLoss } from "../../replay/dailyLoss";
+import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow } from "../sidebarBtn";
 
 
 export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
@@ -175,7 +176,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
 
       {/* 잔고 헤더 — 스크롤 고정 */}
       <div style={{ padding:"12px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
-        <BalanceCard balance={balance} error={balError} onRefetch={_refetchBal} online={online} />
+        <BalanceCard balance={balance} position={position} lastPrice={effectiveLastPrice}
+                     error={balError} onRefetch={_refetchBal} online={online} />
       </div>
 
       {/* 시장 정보 — 펀딩비 + 공포탐욕지수 */}
@@ -201,13 +203,10 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
             background: isExceeded ? theme.bgError : "transparent" }}>
             <button
               onClick={toggleDailyLoss}
-              style={{
-                width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
-                background:"transparent", border:"none", cursor:"pointer", padding:0,
-              }}
+              style={SECTION_HEADER}
             >
               <span style={{ fontSize:"12px", color: isExceeded ? "#f6465d" : theme.textMuted }}>일일 손실 한도</span>
-              <span style={{ fontSize:"10px", color:theme.textFaint }}>{dailyLossOpen ? "▲" : "▼"}</span>
+              <span style={headerArrow(theme)}>{dailyLossOpen ? "▲" : "▼"}</span>
             </button>
             {dailyLossOpen && (
               <div style={{ marginTop:"6px" }}>
@@ -228,17 +227,14 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
         <button
           onClick={toggleStats}
-          style={{
-            width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
-            background:"transparent", border:"none", cursor:"pointer", padding:0,
-          }}
+          style={SECTION_HEADER}
         >
           {/* 리플레이면 같은 자리에 연습 성적을 띄운다 — 실계좌 통계가 섞이면
               어느 쪽 성적인지 알 수 없고, 그 조회는 백엔드를 부른다 */}
           <span style={{ fontSize:"12px", color:theme.textMuted }}>
             {replayOn ? "연습 성적" : "거래 통계"}
           </span>
-          <span style={{ fontSize:"10px", color:theme.textFaint }}>{statsOpen ? "▲" : "▼"}</span>
+          <span style={headerArrow(theme)}>{statsOpen ? "▲" : "▼"}</span>
         </button>
         {statsOpen && (
           <div style={{ marginTop:"6px" }}>
@@ -251,38 +247,37 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
         <button
           onClick={toggleSettings}
-          style={{
-            width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
-            background:"transparent", border:"none", cursor:"pointer", padding:0,
-            marginBottom: settingsOpen ? "8px" : 0,
-          }}
+          style={{ ...SECTION_HEADER, marginBottom: settingsOpen ? "8px" : 0 }}
         >
           <span style={{ fontSize:"12px", color:theme.textMuted }}>설정</span>
-          <span style={{ fontSize:"10px", color:theme.textFaint }}>{settingsOpen ? "▲" : "▼"}</span>
+          <span style={headerArrow(theme)}>{settingsOpen ? "▲" : "▼"}</span>
         </button>
         {/* ⚠ 리스크 %는 **롱·숏 따로**다 (2026-08-19 사용자 요청).
             레버리지는 하나뿐인데, 바이낸스가 심볼 단위로만 받아서 사이드별로 나눌 수가 없다
             (`POST /fapi/v1/leverage`에 positionSide가 없다 — settingsSlice 주석 참고).
             리스크는 거래소에 안 보내고 수량 계산에만 쓰이므로 나눠도 어긋날 게 없다.
-            ▲/▼ 기호와 초록/빨강은 이 앱에서 롱·숏을 가리키는 색 그대로다 —
-            값 크기에 따라 색을 바꾸던 옛 규칙(초록/금색/빨강)은 여기선 쓸 수 없다.
-            슬라이더가 둘이 되는 순간 "숏이라서 빨강"인지 "리스크가 높아서 빨강"인지
-            구분이 안 되기 때문.
+            ⚠ **세 슬라이더 색은 전부 금색이다** (2026-08-22 사용자 확정) —
+              `color` prop을 넘기지 않아 Slider 기본값(#f0b90b)을 쓴다.
+              롱·숏 구분은 `▲`/`▼` 기호가 한다. 색으로 나누지 말 것:
+              ① 초록/빨강으로 나눴더니 숏만 손잡이와 값이 빨개서 **경고처럼 보였다**
+                 — 값이 최소면 채움 폭이 0이라 그 둘만 빨갛다 (사용자 지적)
+              ② 레버리지에 있던 값별 색(≤10 초록 / ≤20 금색 / 그 외 빨강)도 함께 없앴다.
+                 셋이 나란한데 하나만 값에 따라 색이 변하면 규칙이 둘로 읽힌다
+              ※ 사이드바에서 빨강은 손실·위험을 뜻하는 색으로 남겨 둔다.
             ※ "자본의 N% — 일일 한도 4%" 경고 문구는 2026-08-19 사용자 요청으로 제거됐다.
               일일 손실 한도는 바로 위 아코디언이 실제 잔여액으로 이미 답하고 있다 */}
         {settingsOpen && <>
         <Slider label="▲ 롱 리스크" value={riskPctLong} min={0.5} max={3} step={0.1}
-          onChange={v => setRiskPct(true, v)} format={v => `${v}%`} color="#0ecb81" />
+          onChange={v => setRiskPct(true, v)} format={v => `${v}%`} />
         <div style={{ height:"6px" }} />
         <Slider label="▼ 숏 리스크" value={riskPctShort} min={0.5} max={3} step={0.1}
-          onChange={v => setRiskPct(false, v)} format={v => `${v}%`} color="#f6465d" />
+          onChange={v => setRiskPct(false, v)} format={v => `${v}%`} />
         <div style={{ height:"8px" }} />
         <div style={{ opacity: hasPending ? 0.45 : 1, pointerEvents: hasPending ? "none" : "auto" }}>
           <Slider label="레버리지"
             value={pendingLeverage ?? leverage}
             min={leverageMin} max={50} step={1}
-            onChange={handleLeverageChange} format={v => `${v}x`}
-            color={leverage<=10?"#0ecb81":leverage<=20?"#f0b90b":"#f6465d"} />
+            onChange={handleLeverageChange} format={v => `${v}x`} />
         </div>
         {hasPending && !pendingLeverage && (
           <div style={{
@@ -300,42 +295,27 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           </div>
         )}
         {pendingLeverage && (
-          <div style={{
-            marginTop:8, padding:"10px 12px",
-            border:`1px solid #f0b90b55`, borderLeft:`2px solid #f0b90b`,
-            borderRadius:5,
-          }}>
-            <div style={{ fontSize:12, color:"#f0b90b", fontWeight:700, marginBottom:8 }}>
-              레버리지 변경 확인
-            </div>
-            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-              <span style={{ fontSize:12, color:theme.textMuted }}>현재</span>
-              <span style={{ fontSize:13, color:theme.textPrimary, fontWeight:600 }}>{leverage}x</span>
-            </div>
-            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
-              <span style={{ fontSize:12, color:theme.textMuted }}>변경</span>
-              <span style={{ fontSize:13, color:"#f0b90b", fontWeight:700 }}>{pendingLeverage}x</span>
+          /* ⚠ 버튼 둘뿐이다 (2026-08-22 사용자 요청).
+             규격은 `components/confirmBtn.js` — 시장가 청산의 `✓ 확인 / ✕ 취소`와
+             **같은 크기·같은 모양**이어야 해서 스타일을 그쪽 한 곳에 둔다.
+             ※ 예전엔 제목 + `현재`/`변경` 두 줄 → `5x → 10x` 한 줄로 줄였다가
+               이제 그것도 없다. **바뀌는 값은 슬라이더가 이미 보여준다**
+               (`value={pendingLeverage ?? leverage}` — 오른쪽 숫자가 바로 그 값이다).
+               호박색 테두리 상자도 같이 없앴다 — 버튼 둘이 떠 있는 것 자체가
+               "아직 적용 전"이라는 신호다 */
+          <div style={{ marginTop:8 }}>
+            <div style={CONFIRM_ROW}>
+              <button onClick={cancelLeverageChange} style={ghostBtn(theme)}>취소</button>
+              <button onClick={confirmLeverageChange} disabled={leverageLoading}
+                style={primaryBtn(theme, "#f0b90b", "#000", leverageLoading)}>
+                {leverageLoading ? "적용 중" : "적용"}
+              </button>
             </div>
             {leverageErr && (
-              <div style={{ fontSize:11, color:"#f6465d", marginBottom:8 }}>
+              <div style={{ fontSize:11, color:"#f6465d", marginTop:5 }}>
                 실패: {leverageErr}
               </div>
             )}
-            <div style={{ display:"flex", gap:6 }}>
-              <button onClick={cancelLeverageChange} style={{
-                flex:1, padding:"7px 0", borderRadius:4, cursor:"pointer",
-                background:"transparent", border:`1px solid ${theme.borderSec}`,
-                color:theme.textMuted, fontSize:12, fontFamily:"inherit",
-              }}>취소</button>
-              <button onClick={confirmLeverageChange} disabled={leverageLoading} style={{
-                flex:2, padding:"7px 0", borderRadius:4, cursor:leverageLoading?"not-allowed":"pointer",
-                background: leverageLoading ? theme.borderSec : "#f0b90b",
-                border:"none", color:"#000",
-                fontSize:13, fontFamily:"inherit", fontWeight:700,
-              }}>
-                {leverageLoading ? "적용 중..." : `${pendingLeverage}x 적용`}
-              </button>
-            </div>
           </div>
         )}</>}
       </div>
@@ -355,14 +335,12 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
             <button
               onClick={() => !planLocked && onDrawModeToggle?.()}
               style={{
-                width:"100%", padding:"7px 0", borderRadius:5,
-                cursor: planLocked ? "not-allowed" : "pointer",
-                fontSize:"13px", fontFamily:"inherit", fontWeight: drawMode ? "700" : "500",
+                ...actionBtn(theme, drawMode ? "#a78bfa" : theme.borderSec, false,
+                             drawMode ? "700" : "500"),
                 background: drawMode ? "#a78bfa" : "transparent",
-                border:`1px solid ${drawMode ? "#a78bfa" : theme.borderSec}`,
                 color: planLocked ? theme.textDisabled : drawMode ? "#000" : theme.textMuted,
+                cursor: planLocked ? "not-allowed" : "pointer",
                 opacity: planLocked ? 0.4 : 1,
-                transition:"all 0.15s",
               }}
             >플랜</button>
           </div>
@@ -370,7 +348,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       })()}
 
       {/* 스크롤 컨텐츠 */}
-      <div style={{ flex:1, overflowY:"auto", padding:"12px 16px" }}>
+      {/* 스크롤 막대만 감춘다 — 스크롤은 그대로다 (index.css `.no-scrollbar`) */}
+      <div className="no-scrollbar" style={{ flex:1, overflowY:"auto", padding:"12px 16px" }}>
 
         <StatusAlert status={orderStatus} onClose={() => setOrderStatus(null)} />
 

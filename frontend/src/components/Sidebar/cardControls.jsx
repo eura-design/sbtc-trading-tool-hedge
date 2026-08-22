@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
+import { actionBtn } from "../sidebarBtn";
 
 // localStorage에 영속화되는 percent state — 추가진입/분할TP 카드에서 공유
 export function usePersistedPct(storageKey, defaultPct = 50) {
@@ -69,15 +70,7 @@ export function SubmitButton({ disabled, onClick, color, children }) {
     <button
       disabled={disabled}
       onClick={onClick}
-      style={{
-        width: "100%", padding: "8px 0", borderRadius: "5px",
-        cursor: disabled ? "not-allowed" : "pointer",
-        background: "transparent",
-        border: `1px solid ${disabled ? theme.borderSec : color}`,
-        color: disabled ? theme.textFaint : color,
-        fontSize: "13px", fontFamily: "inherit", fontWeight: "700",
-        transition: "background 0.15s",
-      }}
+      style={actionBtn(theme, color, disabled)}
       onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = `${color}22`; }}
       onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
     >

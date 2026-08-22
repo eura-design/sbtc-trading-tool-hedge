@@ -4,6 +4,7 @@ import { PALETTE } from "../../constants";
 import { isLongToSide } from "../../utils/side";
 import { useAutoUpdatedPrice } from "../../hooks/useAutoUpdatedPrice";
 import { usePersistedPct, PercentSlider, PriceField, SubmitButton, CardWrapper } from "./cardControls";
+import { iconBtn } from "../sidebarBtn";
 
 export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders, onCancelScaleIn, embedded }) {
   const { theme } = useTheme();
@@ -49,10 +50,8 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
           <span style={{ fontSize: "11px", color: PALETTE.info }}>
             대기중 ${o.price?.toLocaleString()} · {o.qty} BTC
           </span>
-          <button onClick={() => onCancelScaleIn(o.orderId)} style={{
-            background: "none", border: "none", color: PALETTE.short,
-            cursor: "pointer", fontSize: "12px", fontWeight: "700", padding: "0 2px",
-          }}>✕</button>
+          <button onClick={() => onCancelScaleIn(o.orderId)}
+            style={iconBtn(PALETTE.short, "12px")}>✕</button>
         </div>
       ))}
 

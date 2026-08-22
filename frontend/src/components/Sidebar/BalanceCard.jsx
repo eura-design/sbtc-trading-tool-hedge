@@ -1,13 +1,47 @@
 ﻿import * as d3 from "d3";
 import { useTheme } from "../../ThemeContext";
+import { totalEquity } from "../../utils/equity";
+import { iconBtn } from "../sidebarBtn";
 
-export function BalanceCard({ balance, error, onRefetch, online }) {
+// 큰 초록 숫자 — 왼쪽이 총자산, 오른쪽이 가용. **한 줄에 나란히** 둔다
+// (2026-08-22 사용자 요청). 둘은 **같은 모양**이어야 한다 — 크기를 다르게 하면
+// 한쪽이 부차적인 값처럼 읽힌다
+//   ⚠ **글자가 하나도 없다** (2026-08-22 요청) — `총자산`/`가용` 라벨, `미실현 $x` 줄,
+//     끝의 `USDT`까지 전부 제거됐다. 숫자 둘과 구분자 `/`뿐이다
+//     (미실현은 바로 아래 포지션 카드가 이미 보여준다 — 중복.
+//      단위는 이 앱이 USDT 하나만 다루므로 적을 이유가 없었고,
+//      실제로 **⟳ 버튼과 겹쳐** 자리만 잡아먹고 있었다 — 실측)
+//   ⚠ 소수점도 없다 (같은 날 요청) — `,.0f`. 총자산은 **틱마다 움직이는 값**이라
+//     센트 두 자리가 쉴 새 없이 굴러 시선을 끌었다. 자릿수가 고정이라
+//     `tabular-nums`와 함께 폭도 흔들리지 않는다
+function Amount({ value, fmt, size }) {
+  return (
+    <span style={{ fontSize:size, fontWeight:"700", color:"#0ecb81",
+      fontVariantNumeric:"tabular-nums" }}>
+      {fmt(value)}
+    </span>
+  );
+}
+
+// ⚠ 자릿수가 늘면 **글자를 줄여서** 한 줄을 지킨다 (사이드바 폭은 고정이다).
+//   안 줄이면 `$1,001,083 / $990,000`에서 `USDT`·접속 점·⟳ 버튼이 밖으로 밀려
+//   **새로고침을 누를 수 없게 된다**(실측). 잔고가 클수록 못 쓰는 건 말이 안 된다
+//   ※ 두 숫자는 **항상 같은 크기**다 — 긴 쪽에 맞춰 둘 다 줄인다.
+//     한쪽만 줄이면 그쪽이 부차적인 값처럼 읽힌다
+function amountSize(a, b) {
+  const len = a.length + b.length;
+  if (len <= 16) return "20px";   // $101,083 / $50,000 까지
+  if (len <= 20) return "17px";   // $1,001,083 / $990,000 까지
+  return "14px";                  // 그 이상
+}
+
+export function BalanceCard({ balance, position, lastPrice, error, onRefetch, online }) {
   const { theme } = useTheme();
-  const fmt = p => `$${d3.format(",.2f")(p)}`;
+  // 음수는 `-$1,234` — 부호가 `$` 앞이다 (PositionCard 주석 참고)
+  const fmt = p => `${p < 0 ? "-" : ""}$${d3.format(",.0f")(Math.abs(p))}`;
 
   const refetchBtn = (
-    <button onClick={onRefetch} style={{ background:"none", border:"none",
-      color:theme.textFaint, cursor:"pointer", fontSize:"14px", padding:"0" }}
+    <button onClick={onRefetch} style={iconBtn(theme.textFaint)}
       onMouseEnter={e => e.target.style.color="#f0b90b"}
       onMouseLeave={e => e.target.style.color=theme.textFaint}>⟳</button>
   );
@@ -26,31 +60,31 @@ export function BalanceCard({ balance, error, onRefetch, online }) {
     </div>
   );
 
+  // ⚠ 폴링으로 들어온 `crossUnPnl`을 쓰지 않는다 — 그건 갱신 주기마다 계단처럼 뛴다.
+  //   `lastPrice`로 매 틱 다시 계산해야 "포지션이 있으면 실시간으로 움직인다"가 성립한다.
+  //   포지션이 없으면 미실현이 0이라 지갑 잔고 그대로 = 가만히 있는다 (요구사항)
+  //   식은 `utils/equity.js` 하나가 갖는다 — PositionCard의 `미실현`과 같은 값에서 나와야 한다
+  const equity = totalEquity(balance.walletBalance, position, lastPrice);
+  const size = amountSize(fmt(equity), fmt(balance.availableBalance));
+
   return (
-    <>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <div style={{ display:"flex", alignItems:"baseline", gap:"5px" }}>
-          <span style={{ fontSize:"20px", fontWeight:"700", color:"#0ecb81",
-            fontVariantNumeric:"tabular-nums" }}>
-            {fmt(balance.availableBalance)}
-          </span>
-          <span style={{ fontSize:"11px", color:theme.textFaint }}>USDT</span>
-          {online !== undefined && (
-            <span style={{
-              width:"5px", height:"5px", borderRadius:"50%",
-              display:"inline-block", marginLeft:"2px",
-              background: online ? "#0ecb81" : "#f6465d",
-              boxShadow: online ? "0 0 4px #0ecb81" : "0 0 4px #f6465d",
-            }} />
-          )}
-        </div>
-        {refetchBtn}
+    <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:"6px" }}>
+      <div style={{ display:"flex", alignItems:"baseline", gap:"5px", minWidth:0 }}>
+        <Amount value={equity} fmt={fmt} size={size} />
+        {/* 구분자 — 라벨이 없으니 둘이 붙어 한 숫자로 읽히면 안 된다.
+            흐린 색으로 두어 숫자보다 뒤로 물러나게 한다 */}
+        <span style={{ fontSize:"15px", color:theme.textFaint }}>/</span>
+        <Amount value={balance.availableBalance} fmt={fmt} size={size} />
+        {online !== undefined && (
+          <span style={{
+            width:"5px", height:"5px", borderRadius:"50%",
+            display:"inline-block", marginLeft:"2px", flex:"none",
+            background: online ? "#0ecb81" : "#f6465d",
+            boxShadow: online ? "0 0 4px #0ecb81" : "0 0 4px #f6465d",
+          }} />
+        )}
       </div>
-      {balance.crossUnPnl !== 0 && (
-        <div style={{ fontSize:"12px", color: balance.crossUnPnl >= 0 ? "#0ecb81" : "#f6465d", marginTop:"2px" }}>
-          미실현 {balance.crossUnPnl >= 0 ? "+" : ""}{fmt(balance.crossUnPnl)}
-        </div>
-      )}
-    </>
+      {refetchBtn}
+    </div>
   );
 }

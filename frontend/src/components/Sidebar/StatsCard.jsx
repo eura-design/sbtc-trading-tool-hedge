@@ -2,6 +2,7 @@ import * as d3 from "d3";
 import { useState } from "react";
 import { useTheme } from "../../ThemeContext";
 import { useStats } from "../../hooks/useStats";
+import { iconBtn } from "../sidebarBtn";
 
 export function StatsCard() {
   const { theme } = useTheme();
@@ -40,8 +41,7 @@ export function StatsCard() {
               outline:"none", cursor:"pointer",
             }}
           />
-          <button onClick={refetch} style={{ background:"none", border:"none",
-            color:theme.textFaint, cursor:"pointer", fontSize:"14px", padding:"0", lineHeight:1 }}
+          <button onClick={refetch} style={iconBtn(theme.textFaint)}
             onMouseEnter={e => e.target.style.color="#f0b90b"}
             onMouseLeave={e => e.target.style.color=theme.textFaint}>⟳</button>
         </div>

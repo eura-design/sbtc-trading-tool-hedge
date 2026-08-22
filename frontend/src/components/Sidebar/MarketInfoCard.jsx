@@ -2,6 +2,7 @@ import { useTheme } from "../../ThemeContext";
 import { useMarketInfo } from "../../hooks/useMarketInfo";
 import { useStore } from "../../store";
 import { useAccordion } from "../../hooks/useAccordion";
+import { SECTION_HEADER, headerArrow } from "../sidebarBtn";
 
 export function MarketInfoCard() {
   const { theme } = useTheme();
@@ -26,13 +27,10 @@ export function MarketInfoCard() {
     <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
       <button
         onClick={toggle}
-        style={{
-          width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
-          background:"transparent", border:"none", cursor:"pointer", padding:0,
-        }}
+        style={SECTION_HEADER}
       >
         <span style={{ fontSize:"12px", color:theme.textMuted }}>시장 정보</span>
-        <span style={{ fontSize:"10px", color:theme.textFaint }}>{open ? "▲" : "▼"}</span>
+        <span style={headerArrow(theme)}>{open ? "▲" : "▼"}</span>
       </button>
       {open && (
         <div style={{ marginTop:"6px" }}>

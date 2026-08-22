@@ -4,6 +4,8 @@ import { useTheme } from "../../ThemeContext";
 import { useAccordion } from "../../hooks/useAccordion";
 import { ScaleInCard } from "./ScaleInCard";
 import { SplitTPCard } from "./SplitTPCard";
+import { unrealizedFor } from "../../utils/equity";
+import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow } from "../sidebarBtn";
 
 function AccordionSection({ label, badge, isOpen, onToggle, theme, posColor, children }) {
   return (
@@ -26,7 +28,7 @@ function AccordionSection({ label, badge, isOpen, onToggle, theme, posColor, chi
             }}>{badge}</span>
           )}
         </span>
-        <span style={{ fontSize:"10px", color:theme.textFaint }}>{isOpen ? "▲" : "▼"}</span>
+        <span style={headerArrow(theme)}>{isOpen ? "▲" : "▼"}</span>
       </button>
       {isOpen && (
         <div style={{ paddingTop:"8px" }}>
@@ -56,8 +58,12 @@ export function PositionCard({
 
   if (!posData) return null;
 
-  const fmtI = p => `$${d3.format(",.0f")(p)}`;
-  const fmt  = p => `$${d3.format(",.2f")(p)}`;
+  // ⚠ 음수는 **`-$1,202.59`**다 — `$-1,202.59`가 아니다 (2026-08-22 사용자 지적).
+  //   d3 포맷은 부호를 숫자 앞에 붙이므로 `$` + `-1,202.59`가 되어 달러 기호와 마이너스가
+  //   뒤집힌다. 부호를 밖으로 빼고 절댓값을 넣는다 (ReplayStatsCard·StatsCard와 같은 방식).
+  //   ※ 부르는 쪽이 양수에 `+`를 덧붙인다 — 여기서 `+`까지 붙이면 `++$x`가 된다
+  const fmtI = p => `${p < 0 ? "-" : ""}$${d3.format(",.0f")(Math.abs(p))}`;
+  const fmt  = p => `${p < 0 ? "-" : ""}$${d3.format(",.2f")(Math.abs(p))}`;
 
   const isLong     = side === "LONG";
   const posColor   = isLong ? "#0ecb81" : "#f6465d";
@@ -71,9 +77,9 @@ export function PositionCard({
   const slPnl = slPrice
     ? posData.size * (isLong ? slPrice - posData.entryPrice : posData.entryPrice - slPrice)
     : null;
-  const realTimeUnrealized = lastPrice 
-    ? (isLong ? (lastPrice - posData.entryPrice) : (posData.entryPrice - lastPrice)) * posData.size
-    : posData.unrealizedPnl;
+  // ⚠ 식은 `utils/equity.js` 하나가 갖는다 (2026-08-22) — 잔고 카드의 `총자산`이
+  //   같은 값에서 나와야 한다. 여기 인라인으로 되돌리면 한 화면의 두 숫자가 조용히 갈린다
+  const realTimeUnrealized = unrealizedFor(posData, lastPrice, isLong);
 
   const closeQty = parseFloat((posData.size * closePct / 100).toFixed(3));
   const splitTpCount = tpsl?.splitTps?.length ?? 0;
@@ -87,16 +93,12 @@ export function PositionCard({
       {/* 포지션 헤더 — 클릭으로 접기/펼치기 */}
       <button
         onClick={toggleExpanded}
-        style={{
-          width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
-          background:"transparent", border:"none", cursor:"pointer", padding:0,
-          marginBottom: expanded ? "8px" : 0,
-        }}
+        style={{ ...SECTION_HEADER, marginBottom: expanded ? "8px" : 0 }}
       >
-        <span style={{ fontSize:"13px", color:posColor, fontWeight:"700" }}>
+        <span style={{ fontSize:"13px", color:posColor, fontWeight:"700", lineHeight:"1" }}>
           {isLong ? "▲ LONG" : "▼ SHORT"} 포지션
         </span>
-        <span style={{ fontSize:"10px", color:theme.textFaint }}>{expanded ? "▲" : "▼"}</span>
+        <span style={headerArrow(theme)}>{expanded ? "▲" : "▼"}</span>
       </button>
 
       {expanded && <>
@@ -143,37 +145,29 @@ export function PositionCard({
           <div style={{ display:"flex", justifyContent:"space-between", fontSize:"11px", color:theme.textBare }}>
             <span>0%</span><span>100%</span>
           </div>
+          {/* ⚠ 세 버튼(`청산` / `✓ 확인` / `✕ 취소`)은 **`lineHeight:"1"`을 명시한다**
+              (2026-08-22 사용자 지적). 패딩·테두리·글자크기가 전부 같았는데도
+              청산 36px / 확인·취소 39px로 **3px 달람다**: `✓`(U+2713)·`✕`(U+2715)가
+              이 앱 폰트 스택(JetBrains Mono)에 없어 **OS 폴백 폰트**가 그리고,
+              그 폰트의 줄 높이가 더 커서 박스까지 밀어 올렸다
+              (ReplayBar 일시정지 글리프와 같은 원인 — 그쪽 주석 참고).
+              줄 높이를 1로 못박으면 글자 메트릭이 바뀔 때마다 높이가 달라진다.
+              결과는 세 버튼 모두 33px — 예전 36px보다 살짝 낮다(같은 날 요청) */}
           {confirming ? (
-            <div style={{ display:"flex", gap:"6px" }}>
+            <div style={CONFIRM_ROW}>
               <button
                 onClick={() => { setConfirming(false); onClose(side, closeQty, closePct < 100); }}
-                style={{
-                  flex:1, padding:"9px 0", borderRadius:"5px",
-                  cursor:"pointer", fontFamily:"inherit",
-                  fontSize:"13px", fontWeight:"700",
-                  background:"#60a5fa", border:"1px solid #60a5fa", color:"#fff",
-                }}
+                style={primaryBtn(theme, "#60a5fa")}
               >✓ 확인</button>
               <button
                 onClick={() => setConfirming(false)}
-                style={{
-                  flex:1, padding:"9px 0", borderRadius:"5px",
-                  cursor:"pointer", fontFamily:"inherit",
-                  fontSize:"13px", fontWeight:"700",
-                  background:"transparent", border:`1px solid ${theme.borderSec}`, color:theme.textMuted,
-                }}
+                style={ghostBtn(theme)}
               >✕ 취소</button>
             </div>
           ) : (
             <button
               onClick={() => setConfirming(true)}
-              style={{
-                width:"100%", padding:"9px 0", borderRadius:"5px",
-                cursor:"pointer", fontFamily:"inherit",
-                fontSize:"13px", fontWeight:"700",
-                background:"transparent", border:"1px solid #60a5fa", color:"#60a5fa",
-                transition:"background 0.15s",
-              }}
+              style={actionBtn(theme, "#60a5fa")}
               onMouseEnter={e => { e.currentTarget.style.background="#60a5fa22"; }}
               onMouseLeave={e => { e.currentTarget.style.background="transparent"; }}
             >
