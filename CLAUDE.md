@@ -738,7 +738,8 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   실제로 움직였을 때만 `drag.moved`로 부분 선택 해제 → 제자리 클릭은 "선택"으로 남는다)
 - 포지션 오버레이 타입: `scale_in`, `split_tp`
 - **마커 옆 `×` 버튼 (2026-08-15)** — TP/SL/추가/분할/진입 라벨 옆에서 눌러 제거한다
-  - 사각형은 `hitDetection`의 `closeBtnRect`/`entryCloseRect`/`markerCloseButtons`가 정한다
+  - 사각형은 `hitDetection`의 `closeBtnRect`/`markerCloseButtons`가 정한다
+    (진입 라벨의 ×만 `posEntryRows(...)`의 `close`에서 나온다 — 그 행 전체와 좌표를 공유한다)
     (렌더·클릭 공용 — 각자 만들면 보이는 자리와 눌리는 자리가 어긋난다)
   - ⚠ **드래그가 아니라 클릭**이고, 히트 체인에서 **드래그 단계보다 먼저(3.85)** 와야 한다.
     왼쪽 ×는 x 41~56이라 TP/SL 드래그 영역(0~60) 안에 있다 — 순서를 뒤집으면
@@ -1158,7 +1159,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   - 겹치면 수동 구조가 이긴다 (사용자가 직접 그린 쪽이 의도가 분명)
   - **진행 중 레그도 포함** — 수동 구조는 `getStructLiveSegment()`(점선), ZZ는 마지막 세그먼트(curSeg)
 - **React 상태를 쓰지 않는다** — 크로스헤어와 같은 imperative SVG 레이어
-  (`legPctRef` = 등락률 / `legVolRef` = 거래량, 색이 달라 요소를 나눴다).
+  (`useCrosshair`의 `legRefs` 하나에 등락률·거래량 요소를 모아 둔다 — 색이 달라 요소는 나뉘어 있다).
   마우스 이동마다 상태를 갱신하면 SVG 오버레이 전체가 리렌더된다
 - 표시 조건: 드래그·그리기 모드가 아니고 커서가 메인 패널(0 ≤ y ≤ IH) 안일 때.
   히트 반경은 클릭(8)보다 좁은 **6** — hover는 잘못 걸리면 라벨이 깜빡여 거슬린다
@@ -1389,7 +1390,7 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 ### 트렌드 라인 / 채널 / 원
 - `useTrendLines.js`가 lines/channels/circles를 각각 `useDrawableStore`로 관리 → localStorage 영구 저장
 - 트렌드라인: `line_ep`(끝점) / `line_move`(몸통) / Delete로 삭제
-- 채널: `channel_ep`(끝점) / `channel_move`(몸통) / `channel_offset`(미러선 폭)
+- 채널: `channel_ep`(끝점) / `channel_move`(몸통) / `channel_mid_offset`(미러선 폭)
 - 원: `circle_move`(이동) / `circle_radius`(반지름)
 - 선택된 도형: 금색(#f0b90b) + 핸들 표시
 
