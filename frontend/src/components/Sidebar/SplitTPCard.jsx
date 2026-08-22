@@ -29,8 +29,12 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
   //
   // ⚠ 다만 **저장·표시되는 `pct`는 포지션 대비 그대로 둔다**(`posPct`).
   //   목록의 `(40%)`와 부분 청산 후 재계산(`qty / 잔여포지션`, backend/utils/splitTp.js)이
-  //   전부 포지션 기준이라, 여기만 잔여 기준으로 저장하면 같은 화면에서 뜻이 둘이 된다.
-  //   슬라이더 아래 `→ 포지션의 N%` 줄이 둘을 이어 준다
+  //   전부 포지션 기준이라, 여기만 잔여 기준으로 저장하면 같은 화면에서 뜻이 둘이 된다
+  //
+  // ※ 슬라이더 아래에 있던 `→ 포지션의 N%` 줄과 라벨의 `(잔여 대비)`는
+  //   2026-08-22 사용자 요청으로 제거됐다 — 바로 위 `잔여: x.xxx BTC (NN%)` 줄과
+  //   슬라이더 옆 수량(BTC)이 이미 기준을 말해 준다. `posPct` 자체는 그대로다
+  //   (저장되는 값과 목록의 `(40%)`는 계속 포지션 기준)
   const floor3     = (v) => Math.floor(v * 1000) / 1000;
   const addQty     = Math.min(parseFloat((remaining * pct / 100).toFixed(3)), floor3(remaining));
   const posPct     = posData.size > 0 ? Math.round((addQty / posData.size) * 100) : 0;
@@ -75,9 +79,6 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
               ⚠ {remaining.toFixed(3)} BTC 미커버 — 추매 등으로 포지션이 늘었다면 분할 TP를 추가 등록하세요
             </div>
           )}
-          <div style={{ fontSize: "11px", color: theme.textFaint, textAlign: "right" }}>
-            잔여: {remaining.toFixed(3)} BTC ({((remaining / posData.size) * 100).toFixed(0)}%)
-          </div>
         </div>
       )}
 
@@ -89,6 +90,9 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
           : null}
       />
 
+      {/* ⚠ 슬라이더 우측은 **고른 값이 아니라 `잔여`**다 (2026-08-22 사용자 요청).
+          원래 목록 아래에 따로 있던 줄을 여기로 옮기고 `NN% (x.xxx BTC)`는 지웠다 —
+          슬라이더가 곧 잔여 대비 비율이라 기준값이 손잡이 옆에 있어야 읽힌다 */}
       {full ? (
         <div style={{ fontSize: "11px", color: theme.textFaint, textAlign: "center",
           padding: "8px 6px", marginBottom: "6px",
@@ -96,20 +100,18 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
           분할 TP가 포지션 전체를 덮고 있습니다 — 추가하려면 기존 항목을 지우세요
         </div>
       ) : (
-        <>
-          <PercentSlider
-            pct={pct} onChange={setPct} color={color}
-            label={allocQty > 0.0001 ? "수량 (잔여 대비)" : "수량"}
-            secondaryText={`${pct}% · ${addQty.toFixed(3)} BTC`}
-          />
-          {/* 슬라이더는 잔여 대비인데 목록·재계산은 포지션 대비다 — 그 둘을 이어 주는 줄 */}
-          {allocQty > 0.0001 && (
-            <div style={{ fontSize: "10px", color: theme.textFaint,
-              textAlign: "right", marginTop: "-2px", marginBottom: "6px" }}>
-              → 포지션의 {posPct}%
-            </div>
-          )}
-        </>
+        <PercentSlider
+          pct={pct} onChange={setPct} color={color}
+          label="수량"
+          secondaryText={
+            /* ⚠ 스타일은 목록 아래에 있던 그 줄 그대로다 — `secondaryText` 슬롯의
+               기본(12px·포지션색·600)을 안쪽 span으로 덮는다. 자리만 옮긴 것이지
+               강조하려고 옮긴 게 아니다 (추가진입 카드의 우측 값과는 성격이 다르다) */
+            <span style={{ fontSize: "11px", color: theme.textFaint, fontWeight: "400" }}>
+              잔여: {remaining.toFixed(3)} BTC ({((remaining / posData.size) * 100).toFixed(0)}%)
+            </span>
+          }
+        />
       )}
 
       <SubmitButton

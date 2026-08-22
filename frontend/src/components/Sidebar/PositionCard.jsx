@@ -48,13 +48,21 @@ export function PositionCard({
   const [closePct, setClosePct] = useState(() => Number(localStorage.getItem("closePct")) || 100);
   const handleClosePct = v => { setClosePct(v); localStorage.setItem("closePct", v); };
   const [confirming, setConfirming] = useState(false);
-  const [scaleInOpen, setScaleInOpen] = useState(false);
-  const [splitTPOpen, setSplitTPOpen] = useState(false);
-  const [closeOpen, setCloseOpen] = useState(false);
+  // ⚠ 세 아코디언(시장가 청산·추가 진입·분할 TP)은 **한 번에 하나만 열린다**
+  //   (2026-08-22 사용자 요청). 열린 것을 상태 하나로 들고 있으므로 다른 것을 열면
+  //   이전 것은 자동으로 닫힌다 — 불리언 셋으로 되돌리지 말 것.
+  //   같은 것을 다시 누르면 닫힌다(null). 카드 단위라 LONG·SHORT는 서로 독립이다
+  const [openSection, setOpenSection] = useState(null);   // "close" | "scaleIn" | "splitTP" | null
+  const scaleInOpen = openSection === "scaleIn";
+  const splitTPOpen = openSection === "splitTP";
+  const closeOpen   = openSection === "close";
   const [expanded, toggleExpanded] = useAccordion(`accordion_pos_${side}`, true);
-  const toggleScaleIn   = () => setScaleInOpen(v => !v);
-  const toggleSplitTP   = () => setSplitTPOpen(v => !v);
-  const toggleClose     = () => { setCloseOpen(v => !v); setConfirming(false); };
+  // 어느 쪽으로 옮겨 가든 청산 확인 단계는 푼다 — 접힌 채로 `✓ 확인`이 남아 있으면
+  // 다시 펼쳤을 때 한 번 클릭으로 시장가 청산이 나간다
+  const openOnly        = (k) => { setOpenSection(v => (v === k ? null : k)); setConfirming(false); };
+  const toggleScaleIn   = () => openOnly("scaleIn");
+  const toggleSplitTP   = () => openOnly("splitTP");
+  const toggleClose     = () => openOnly("close");
 
   if (!posData) return null;
 
