@@ -13,6 +13,9 @@ backend/trade_log.json
 backend/pending_orders.json
 backend/indicator_params.json
 
+# 월별 수익 결산 데이터 (실제 잔고·손익이라 저장소에 남기지 않는다)
+기타/tracker_data.json
+
 # Screenshots (자동 캡처된 진입/청산 PNG)
 ScreenShot/
 

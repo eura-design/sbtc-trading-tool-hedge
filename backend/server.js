@@ -8,6 +8,8 @@ const { syncServerTime }         = require("./services/binanceClient");
 const store                      = require("./store/pendingOrders");
 const push                       = require("./services/pushService");
 
+const path = require("path");
+
 const app  = express();
 const PORT = 3002;
 
@@ -15,6 +17,22 @@ const PORT = 3002;
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
   : ["http://localhost:5174"];
+
+// ── 기타/ 정적 페이지 (월별 결산·복리 계산기) ─────────────────────────────────
+//   http://localhost:3002/tools/monthly_tracker.html 로 열면 **동일 출처**라
+//   CORS가 아예 끼지 않는다. 권장 경로
+app.use("/tools", express.static(path.join(__dirname, "..", "기타")));
+
+// ⚠ /api/tracker만 `null` origin을 허용한다 — 그 페이지를 file://로 직접 열었을 때
+//   브라우저가 보내는 값이다. **전역 allowedOrigins에 "null"을 넣지 말 것**:
+//   그러면 아무 로컬 HTML이나 샌드박스 iframe이 주문·잔고 API까지 부를 수 있다.
+//   여기서 오가는 건 월별 결산 숫자뿐이라 범위가 이 라우트에 갇힌다
+//   ⚠ 전역 cors()보다 **먼저** 마운트해야 한다. 전역 cors가 origin 불일치 시에도
+//     OPTIONS 프리플라이트를 204로 끝내버려서, 뒤에 있으면 POST가 도달하지 못한다
+const trackerCors = cors({ origin: [...allowedOrigins, "null"] });
+app.options("/api/tracker", trackerCors);
+app.use("/api/tracker", trackerCors, express.json({ limit: "1mb" }), require("./routes/tracker"));
+
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "10mb" }));
 
