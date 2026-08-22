@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
 import { PALETTE } from "../../constants";
-import { posTpSlButtons, TPSL_BTN, CLOSE_BTN, ENTRY_LABEL_W, closeBtnRect, entryLabelX, entryCloseRect }
+import { posEntryRows, TPSL_BTN, closeBtnRect, qtyBadgeRect, pctBadgeRect }
   from "../../chart/hitDetection";
 import { tsToIdx } from "../../chart/scales";
 import { entryPathSegments } from "../../chart/entryPath";
@@ -36,6 +36,45 @@ function MarkerButton({ x, y, color, text, opacity, onEnter, onLeave, children }
   );
 }
 
+// 수량 배지 — `0.173 BTC` (2026-08-22 사용자 요청).
+//
+// ⚠ **마커 버튼을 늘리지 않고 옆에 따로 붙인다** (사용자 확정: "버튼 크기는 지금이 좋다").
+//   버튼 안에 수량을 넣으려면 폭이 28 → 60px가 되어 `TP`/`SL`/`추가`/`분할`이 전부 커진다
+// ⚠ 모양은 MarkerButton과 **같은 규칙**(어두운 면 + 사이드 색 테두리·글자)이지만
+//   **누를 수 없다** — 표시 전용이라 커서도 바꾸지 않고 클릭도 받지 않는다
+// ⚠ 좌표는 hitDetection이 준다 (qtyBadgeRect / row.qty) — 여기서 만들지 말 것
+function QtyBadge({ rect, color, text }) {
+  return (
+    <g style={{ pointerEvents: "none" }}>
+      <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h} rx={3}
+        fill="#0b1120" stroke={color} strokeWidth={1} opacity={BTN_REST_OPACITY} />
+      <text x={rect.x + rect.w / 2} y={rect.y + rect.h / 2 + 3.5} fill={color}
+        fontSize={9.5} fontWeight="700" textAnchor="middle" opacity={BTN_REST_OPACITY}>
+        {text}
+      </text>
+    </g>
+  );
+}
+
+// 수량 표기는 **BTC 수량 하나로 통일**한다 (2026-08-22 사용자 확정 — USD 명목가 대신).
+// ⚠ USD로 바꾸지 말 것: 현재가 기준이면 **틱마다** 값이 바뀌어 PositionLines가 매 틱
+//   리렌더된다(지금은 포지션이 바뀔 때만 돈다). 자릿수는 QTY_STEP(0.001)에 맞춘 3자리
+const fmtQty = q => `${Number(q).toFixed(3)} BTC`;
+
+// `추가`/`분할`이 포지션 전체의 몇 %인가 (2026-08-22 사용자 요청).
+//
+// ⚠ **지금 포지션 크기로 그때그때 계산한다** — 등록 시점에 저장해 둔 `pct`(사이드바
+//   분할 TP 목록의 `(40%)`)를 쓰지 않는다. 저 값은 등록 당시의 비율이라 **추가 진입으로
+//   포지션이 커지면 낡는다**(0.009 BTC를 5%로 걸어 둔 뒤 포지션이 두 배가 되면 실제론 2.6%인데
+//   저장값은 5% 그대로다). 바로 옆에 수량이 같이 떠 있으므로 두 숫자가 어긋나면 안 된다
+// ⚠ 포지션이 없으면 null — 나눌 수가 없다 (0%로 찍으면 "없다"는 뜻으로 읽힌다)
+// 1% 미만은 `<1%` — 반올림하면 `0%`가 되어 수량이 0인 것처럼 보인다
+function fmtPct(qty, size) {
+  if (!size || !(size > 0)) return null;
+  const pct = (Number(qty) / size) * 100;
+  return pct < 1 ? "<1%" : `${Math.round(pct)}%`;
+}
+
 // 마커 옆 `×` — 눌러서 지운다. 모양은 MarkerButton과 같은 규칙이고 폭만 좁다.
 // ⚠ 사각형은 hitDetection이 준 값을 그대로 쓴다 (직접 계산 금지 — 클릭 판정과 어긋난다)
 // confirm=true면 청산 확인 대기 상태 → `✓`로 바뀌고 호박색이 된다
@@ -66,6 +105,7 @@ function PriceLineMarker({
   handleChar,
   isActive, isDragging,
   showHandle = true,
+  qtyText, pctText,
   dragCenterText, dragCenterWidth = 40,
   onHandleEnter, onHandleLeave,
   closeHovered, onCloseEnter, onCloseLeave,
@@ -98,6 +138,14 @@ function PriceLineMarker({
         <CloseButton rect={closeBtnRect(yPx)} color={color}
           hovered={closeHovered} onEnter={onCloseEnter} onLeave={onCloseLeave} />
       )}
+      {/* 수량 배지 — 끄는 중에는 `×`와 같이 감춘다. 그때 값은 가운데 라벨이 말해준다 */}
+      {showHandle && !isDragging && qtyText && (
+        <QtyBadge rect={qtyBadgeRect(yPx)} color={color} text={qtyText} />
+      )}
+      {/* 비율 배지 — 수량 배지 오른쪽. `추가`/`분할`에만 붙는다 (TP/SL·진입은 늘 전량이다) */}
+      {showHandle && !isDragging && qtyText && pctText && (
+        <QtyBadge rect={pctBadgeRect(yPx)} color={color} text={pctText} />
+      )}
       {isDragging && dragCenterText && (
         <g>
           <rect x={IW/2 - dragCenterWidth/2} y={yPx-13} width={dragCenterWidth} height={18} rx={3}
@@ -114,7 +162,7 @@ function PriceLineMarker({
 // 진입선 옆의 `+TP` / `+SL` — 그 항목이 **없을 때만** 뜬다.
 // 잡고 위아래로 끌면 놓은 가격에 새로 등록된다 (드래그 자체는 pos_tp/pos_sl 핸들러가 처리).
 //
-// ⚠ 좌표를 여기서 만들지 말 것 — hitDetection의 posTpSlButtons가 유일한 출처다.
+// ⚠ 좌표를 여기서 만들지 말 것 — hitDetection의 posEntryRows가 유일한 출처다.
 //   따로 계산하면 보이는 자리와 잡히는 자리가 어긋난다
 // ⚠ **클릭만으로는 아무 일도 일어나지 않는다(의도).** 실주문이 나가는 동작이라
 //   "기본 거리에 자동 생성"은 넣지 않았다 — 오클릭 한 번이 곧 주문이 된다
@@ -133,11 +181,12 @@ function AddTpSlButton({ btn, color, hovered, onEnter, onLeave }) {
 // 진입선의 우측 라벨 — 여기만 남는다. 진입선은 왼쪽에 버튼이 없어서 유일한 표시다.
 // 모양은 MarkerButton과 같은 규칙(어두운 면 + 사이드 색 테두리·글자, 높이 TPSL_BTN.h)이지만
 // **누를 수 없다** — 진입선은 드래그 대상이 아니라 커서도 바꾸지 않는다
-function EntryLine({ yPx, color, label, IW, IH, path, confirm, closeHovered, onCloseEnter, onCloseLeave }) {
-  if (!inView(yPx, IH)) return null;
-  // 오른쪽 여백은 왼쪽 버튼과 **같은 값**을 쓴다(TPSL_BTN.x0) — 양끝이 대칭으로 보이게.
-  // 예전엔 여백 0이라 라벨이 플롯 오른쪽 끝에 붙어 있었다
-  const x = entryLabelX(IW);
+//
+// ⚠ `row`(hitDetection.posEntryRows)가 라벨·×·수량 배지 자리를 전부 정한다 —
+//   `+TP`/`+SL`도 같은 행에서 나온다. 여기서 좌표를 만들면 그 넷이 따로 논다.
+//   오른쪽 여백은 왼쪽 버튼과 **같은 값**(TPSL_BTN.x0) — 양끝이 대칭으로 보이게
+function EntryLine({ yPx, color, label, row, qtyText, IH, path, confirm, closeHovered, onCloseEnter, onCloseLeave }) {
+  if (!inView(yPx, IH) || !row) return null;
   return (
     <>
       {/* 진입선 — 진입봉부터 오른쪽 끝까지. 추가 매수로 평단이 바뀐 지점에서 꺾인다.
@@ -152,15 +201,19 @@ function EntryLine({ yPx, color, label, IW, IH, path, confirm, closeHovered, onC
         <line key={`v${k}`} x1={s.x} x2={s.x} y1={s.y1} y2={s.y2}
           stroke={color} strokeWidth={1} opacity={0.35} strokeDasharray="2,2" />
       ))}
+      {/* 수량 배지 — **TP·SL이 둘 다 없을 때만** 뜬다 (2026-08-22 사용자 확정).
+          하나라도 걸려 있으면 그 좌측 마커가 같은 숫자를 들고 있어 두 번 보인다
+          (단일 TP/SL은 closePosition이라 대상 수량 = 포지션 전체) */}
+      {row.qty && qtyText && <QtyBadge rect={row.qty} color={color} text={qtyText} />}
       {/* × 는 라벨 **왼쪽**에 — 오른쪽은 여백뿐이라 자리가 없다.
           한 번 누르면 ✓(호박색)로 바뀌고, 그 상태에서 다시 눌러야 시장가 청산이 나간다 */}
-      <CloseButton rect={entryCloseRect(yPx, IW)} color={color} confirm={confirm}
+      <CloseButton rect={row.close} color={color} confirm={confirm}
         hovered={closeHovered} onEnter={onCloseEnter} onLeave={onCloseLeave} />
-      <rect x={x} y={yPx - TPSL_BTN.h / 2} width={ENTRY_LABEL_W} height={TPSL_BTN.h} rx={3}
+      <rect x={row.label.x} y={row.label.y} width={row.label.w} height={row.label.h} rx={3}
         fill="#0b1120" stroke={color} strokeWidth={1} opacity={BTN_REST_OPACITY} />
       {/* ⚠ 진입선 라벨만 **굵지 않다**(400, 2026-08-15 사용자 요청).
           나머지 버튼(TP/SL/추가/분할/+TP)은 700 그대로 — 저건 누르는 것이고 이건 표시다 */}
-      <text x={x + ENTRY_LABEL_W / 2} y={yPx + 3.5} fill={color}
+      <text x={row.label.x + row.label.w / 2} y={row.label.y + row.label.h / 2 + 3.5} fill={color}
         fontSize={9.5} fontWeight="400" textAnchor="middle">
         {label}
       </text>
@@ -202,9 +255,14 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
   const entryPath = (pos) =>
     entryPathSegments(pos.entrySteps, pos.entryPrice, entryX, yScale, IW);
 
+  // 우측 진입 행 — `+TP`/`+SL` · 수량 배지 · `×` · `LONG/SHORT`가 한 덩어리다.
+  // 좌표는 hitDetection이 정한다 (렌더와 클릭 판정이 같은 함수를 봐야 어긋나지 않는다)
+  const entryRows = posEntryRows(position, tpsl, yScale, IW, IH);
+  const rowOf = (sideKey) => entryRows.find(r => r.sideKey === sideKey) ?? null;
+
   // TP/SL이 아직 없는 자리에 뜨는 `+TP` / `+SL`.
   // 저장 중이거나 지금 그걸 끌고 있는 중이면 감춘다 — 끄는 순간 선이 이미 그 자리에 보인다
-  const addButtons = (tpslSaving ? [] : posTpSlButtons(position, tpsl, yScale, IH))
+  const addButtons = (tpslSaving ? [] : entryRows.flatMap(r => r.add))
     .filter(b => !(dragTpsl?.side === b.side && dragTpsl?.type === b.type));
 
   // 롱/숏 × TP/SL = 4개의 동일 골격 마커. 호버 상태는 type별로 묶어 단일 setter로 처리
@@ -220,10 +278,12 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
       {/* 진입선 — **진입봉부터 차트 오른쪽 끝까지**, 평단이 바뀐 지점에서 꺾이는 계단
           (2026-08-15 사용자 요청). 전 폭 가로선이면 "언제 들어갔나"가 안 보인다 —
           왼쪽 끝이 진입 시점이라 보유 기간이 선 길이로 읽힌다. 좌표는 entryPath() 참고 */}
-      {position.long  && <EntryLine yPx={yScale(position.long.entryPrice)}  color={CL} label="LONG"  IW={IW} IH={IH}
+      {position.long  && <EntryLine yPx={yScale(position.long.entryPrice)}  color={CL} label="LONG"  IH={IH}
+        row={rowOf("long")}  qtyText={fmtQty(position.long.size)}
         path={entryPath(position.long)}
         confirm={closeConfirm === "LONG"}  {...closeProps("entry-LONG")} />}
-      {position.short && <EntryLine yPx={yScale(position.short.entryPrice)} color={CS} label="SHORT" IW={IW} IH={IH}
+      {position.short && <EntryLine yPx={yScale(position.short.entryPrice)} color={CS} label="SHORT" IH={IH}
+        row={rowOf("short")} qtyText={fmtQty(position.short.size)}
         path={entryPath(position.short)}
         confirm={closeConfirm === "SHORT"} {...closeProps("entry-SHORT")} />}
 
@@ -254,6 +314,9 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
             handleChar={m.label}
             isActive={isActive} isDragging={isDragging}
             showHandle={!tpslSaving}
+            // ⚠ 단일 TP/SL은 `closePosition`이라 대상 수량이 곧 **포지션 전체**다.
+            //   그래서 이 값이 보이면 진입 라벨은 수량을 감춘다 (posEntryRows의 showQty)
+            qtyText={position[sideKey] ? fmtQty(position[sideKey].size) : null}
             dragCenterText={m.label} dragCenterWidth={40}
             onHandleEnter={() => m.setHover(m.side)}
             onHandleLeave={() => m.setHover(null)}
@@ -277,6 +340,8 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
             //   이건 **이미 걸린 주문을 옮기는** 핸들이다
             handleChar="추가"
             isActive={isActive} isDragging={isDragging}
+            qtyText={fmtQty(o.qty)}
+            pctText={fmtPct(o.qty, position[o.side === "BUY" ? "long" : "short"]?.size)}
             dragCenterText="추가진입" dragCenterWidth={72}
             onHandleEnter={() => setHoveredScaleIn(o.orderId)}
             onHandleLeave={() => setHoveredScaleIn(null)}
@@ -299,6 +364,8 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
             //   (SELL = 롱 청산 = 초록) 진짜 TP 버튼과 구분이 안 된다
             handleChar="분할"
             isActive={isActive} isDragging={isDragging}
+            qtyText={fmtQty(o.qty)}
+            pctText={fmtPct(o.qty, position[o.side === "SELL" ? "long" : "short"]?.size)}
             dragCenterText="분할TP" dragCenterWidth={60}
             onHandleEnter={() => setHoveredSplitTp(o.orderId)}
             onHandleLeave={() => setHoveredSplitTp(null)}

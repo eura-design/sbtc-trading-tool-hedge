@@ -74,53 +74,96 @@ export function findHitFib(px, py, fibs, xScale, yScale, candles, isLog = false,
 }
 
 // timestamp → 현재 타임프레임 bar index → 픽셀 좌표
-// ── 진입선의 `+TP` / `+SL` 버튼 ──────────────────────────────────────────────
-// 그 방향의 TP(또는 SL)가 **아직 없을 때만** 뜬다. 잡고 끌면 놓은 가격에 새로 등록된다.
-// (이미 있는 걸 옮기는 건 기존 pos_tp/pos_sl 경로 그대로 — 여기와 무관하다)
+// ── 진입선 우측 행: `+TP` `+SL` · 수량 배지 · `×` · `LONG/SHORT` ──────────────
+//
+// ⚠ **`+TP`/`+SL`은 우측 진입 라벨 옆이다** (2026-08-22 사용자 요청).
+//   예전엔 좌측(x0=10)이었다 — 등록된 TP/SL 핸들과 **같은 자리**라, 아직 주문이 아닌
+//   것과 이미 걸린 것이 같은 레인에 번갈아 나타났다. 지금은 자리로 갈린다:
+//     · 아직 없다  → **우측**, 진입 라벨 옆의 `+TP`/`+SL` (잡고 끌면 등록)
+//     · 이미 있다  → **좌측**, 기존 `TP`/`SL` 핸들 + 수량 배지
+//   ※ 그래서 한쪽만 걸어 두면 좌우로 갈린다(TP는 왼쪽, `+SL`은 오른쪽) — 의도된 것이다
+//
+// 행은 **오른쪽 끝에서 왼쪽으로** 쌓는다 (오른쪽 여백은 좌측 버튼과 같은 TPSL_BTN.x0):
+//     [+TP][+SL][수량][×][LONG]
+//                        └ 라벨이 맨 오른쪽 — 어느 선의 행인지가 끝에서 읽힌다
 //
 // ⚠ 렌더(PositionLines.jsx)와 히트 판정(buildHitChain)이 **이 함수 하나만** 본다.
 //   각자 좌표를 만들면 눈에 보이는 자리와 실제로 잡히는 자리가 어긋난다
 //   (피보나치 레벨 배열을 렌더·히트·알림이 같이 쓰는 것과 같은 이유)
 export const TPSL_BTN = { w: 28, h: 15, gap: 3, x0: 10 };
 
-export function posTpSlButtons(position, tpsl, yScale, IH) {
-  if (!position || !tpsl || !yScale) return [];
+// 수량 배지 — `0.173 BTC`가 들어가는 폭. 마커 버튼(28)은 **그대로 두고** 옆에 따로 붙인다
+// (2026-08-22 사용자 확정: "버튼 크기는 지금이 좋고, 수량은 같은 디자인으로 옆에")
+export const QTY_BADGE = { w: 60 };
+
+// 비율 배지 — `추가`/`분할`에만 붙는 `29%` (2026-08-22 사용자 요청).
+// ⚠ 수량 배지를 넓혀 한 칸에 `0.009 BTC · 5%`로 합치지 말 것 — 폭이 90px를 넘어가고,
+//   TP/SL·진입 라벨은 비율이 없어서(전량 = 100%) 저것들까지 같이 넓어진다.
+//   배지를 하나 더 두면 **있는 마커에만** 늘어난다 (버튼을 옆에 붙이는 것과 같은 규칙)
+// ⚠ 폭은 **마커 버튼과 같은 28**이다 (2026-08-22 사용자 지적으로 36 → 28).
+//   들어가는 글자는 `5%`~`173%`뿐이라 36은 좌우가 남아 혼자 커 보였다.
+//   `TP`/`분할` 버튼과 같은 폭이라 한 줄에 놓였을 때 크기가 통일된다
+export const PCT_BADGE = { w: TPSL_BTN.w };
+
+/**
+ * 사이드별 우측 행 좌표. `+TP`/`+SL`·수량 배지·`×`·진입 라벨이 **한 덩어리**다.
+ *
+ * ⚠ 수량 배지는 **TP·SL이 둘 다 없을 때만** 이 행에 붙는다 (2026-08-22 사용자 확정).
+ *   단일 TP/SL은 `closePosition`이라 대상 수량이 곧 포지션 전체 = 진입 라벨과 같은 값이다.
+ *   하나라도 걸려 있으면 그쪽 좌측 마커가 이미 같은 숫자를 들고 있어 두 번 보인다
+ */
+export function posEntryRows(position, tpsl, yScale, IW, IH) {
+  if (!position || !yScale || !IW) return [];
+  const h = TPSL_BTN.h, gap = TPSL_BTN.gap;
   const rows = [];
   for (const [sideKey, side] of [["long", "LONG"], ["short", "SHORT"]]) {
     const p = position[sideKey];
     if (!p) continue;
-    const types = ["tp", "sl"].filter(t => !tpsl[sideKey]?.[t]); // 이미 걸린 건 버튼 없음
-    if (!types.length) continue;
     const ey = yScale(p.entryPrice);
-    // EntryLine의 inView와 같은 기준 — 진입선이 안 보이면 버튼도 두지 않는다
-    if (!(ey >= -20 && ey <= IH + 20)) continue;
-    // ⚠ **진입선 한가운데**에 걸친다 (2026-08-15 사용자 요청).
-    //   기존 TP/SL 핸들도 자기 선 한가운데라(`yPx - h/2`), 위/아래로 비켜 두면
-    //   같은 종류의 컨트롤인데 이것만 규칙이 달라 보인다
-    rows.push({ side, sideKey, types, entryPrice: p.entryPrice, y: ey - TPSL_BTN.h / 2 });
+    if (!seen(ey, IH)) continue;   // 진입선이 안 보이면 행도 두지 않는다
+    const missing = ["tp", "sl"].filter(t => !tpsl?.[sideKey]?.[t]); // 이미 걸린 건 버튼 없음
+    rows.push({
+      side, sideKey, entryPrice: p.entryPrice, size: p.size,
+      missing, showQty: missing.length === 2,
+      y: rowY(ey),
+    });
   }
 
-  // ⚠ 두 줄이 세로로 겹치면 아래쪽을 밀어낸다. 롱·숏 진입가가 가까우면 실제로 포개지는데
-  //   그러면 같은 자리에 사이드가 다른 버튼이 겹쳐 **어느 쪽을 누른 건지 알 수 없다**
-  //   — hitTpSlButton은 먼저 찾은 것(롱)을 돌려준다.
-  //   밀린 쪽은 자기 선에서 살짝 벗어나지만, 눌리지 않는 것보다는 낫다
+  // ⚠ 두 행이 세로로 겹치면 **아래쪽 행 전체**를 밀어낸다 (2026-08-22, 행 단위로 확장).
+  //   롱·숏 진입가가 붙어 있으면 실제로 포개지는데, 그러면 같은 자리에 사이드가 다른
+  //   버튼이 겹쳐 **어느 쪽을 누른 건지 알 수 없다** — hitTpSlButton은 먼저 찾은 것(롱)을
+  //   돌려준다. 예전엔 `+TP`/`+SL`만 밀었는데 지금은 라벨·×와 한 줄이라, 버튼만 내려가면
+  //   덩어리가 둘로 쪼개져 보인다 → 행을 통째로 민다.
+  //   밀린 행은 자기 선에서 살짝 벗어나지만(어느 선인지는 **색**이 말해준다),
+  //   겹쳐서 눌리지 않는 것보다는 낫다
   if (rows.length === 2) {
     const [a, b] = rows[0].y <= rows[1].y ? [rows[0], rows[1]] : [rows[1], rows[0]];
-    const need = TPSL_BTN.h + 3;
+    const need = h + gap;
     if (b.y - a.y < need) b.y = a.y + need;
   }
 
-  const out = [];
   for (const r of rows) {
-    const y = Math.min(Math.max(r.y, 0), Math.max(0, IH - TPSL_BTN.h));
-    let x = TPSL_BTN.x0;
-    for (const type of r.types) {
-      out.push({ side: r.side, sideKey: r.sideKey, type, x, y,
-        w: TPSL_BTN.w, h: TPSL_BTN.h, entryPrice: r.entryPrice });
-      x += TPSL_BTN.w + TPSL_BTN.gap;
+    const y = Math.min(Math.max(r.y, 0), Math.max(0, IH - h));
+    r.y     = y;
+    r.label = { x: IW - TPSL_BTN.x0 - ENTRY_LABEL_W, y, w: ENTRY_LABEL_W, h };
+    r.close = { x: r.label.x - gap - CLOSE_BTN.w,    y, w: CLOSE_BTN.w,   h };
+    let x   = r.close.x;
+    if (r.showQty) { x -= gap + QTY_BADGE.w; r.qty = { x, y, w: QTY_BADGE.w, h }; }
+    else r.qty = null;
+    // 오른쪽부터 채우므로 역순으로 놓는다 → 화면에는 왼쪽부터 `+TP` `+SL`
+    r.add = [];
+    for (const type of [...r.missing].reverse()) {
+      x -= gap + TPSL_BTN.w;
+      r.add.unshift({ side: r.side, sideKey: r.sideKey, type, x, y,
+        w: TPSL_BTN.w, h, entryPrice: r.entryPrice });
     }
   }
-  return out;
+  return rows;
+}
+
+/** 지금 화면에 있는 `+TP` / `+SL` 버튼 전부 (드래그로 새로 거는 입구) */
+export function posTpSlButtons(position, tpsl, yScale, IW, IH) {
+  return posEntryRows(position, tpsl, yScale, IW, IH).flatMap(r => r.add);
 }
 
 export function hitTpSlButton(px, py, buttons) {
@@ -141,11 +184,19 @@ const rowY = y => y - TPSL_BTN.h / 2;
 export function closeBtnRect(y) {
   return { x: TPSL_BTN.x0 + TPSL_BTN.w + TPSL_BTN.gap, y: rowY(y), w: CLOSE_BTN.w, h: TPSL_BTN.h };
 }
-/** 진입 라벨(LONG/SHORT)의 왼쪽 끝 — 오른쪽 여백은 왼쪽 버튼과 같은 값을 쓴다 */
-export function entryLabelX(IW) { return IW - TPSL_BTN.x0 - ENTRY_LABEL_W; }
-/** 진입 라벨 왼쪽에 붙는 × (오른쪽은 여백뿐이라 자리가 없다) */
-export function entryCloseRect(y, IW) {
-  return { x: entryLabelX(IW) - TPSL_BTN.gap - CLOSE_BTN.w, y: rowY(y), w: CLOSE_BTN.w, h: TPSL_BTN.h };
+/**
+ * 좌측 마커의 수량 배지 — `×` 오른쪽 (2026-08-22).
+ * ⚠ **`×`를 밀어내지 않는다.** 배지를 마커와 × 사이에 끼우면 손에 익은 × 자리가 옮겨간다
+ * ※ 드래그 판정 레인(왼쪽 60px)보다 오른쪽이라 조작에 걸리지 않는다 — 순수 표시다
+ */
+export function qtyBadgeRect(y) {
+  const c = closeBtnRect(y);
+  return { x: c.x + c.w + TPSL_BTN.gap, y: c.y, w: QTY_BADGE.w, h: TPSL_BTN.h };
+}
+/** 수량 배지 오른쪽에 붙는 비율 배지 (`추가`/`분할`만) */
+export function pctBadgeRect(y) {
+  const q = qtyBadgeRect(y);
+  return { x: q.x + q.w + TPSL_BTN.gap, y: q.y, w: PCT_BADGE.w, h: TPSL_BTN.h };
 }
 
 const seen = (y, IH) => y >= -20 && y <= IH + 20; // PositionLines의 inView와 같은 기준
@@ -160,8 +211,7 @@ export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, yS
   const push = (kind, price, extra) => {
     const y = yScale(price);
     if (!seen(y, IH)) return;
-    const r = kind === "entry" ? entryCloseRect(y, IW) : closeBtnRect(y);
-    out.push({ kind, ...extra, ...r });
+    out.push({ kind, ...extra, ...closeBtnRect(y) });
   };
   for (const [sideKey, side] of [["long", "LONG"], ["short", "SHORT"]]) {
     for (const which of ["tp", "sl"]) {
@@ -171,10 +221,10 @@ export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, yS
   }
   for (const o of scaleInOrders ?? []) push("scale_in", o.price, { orderId: o.orderId });
   for (const o of splitTps      ?? []) push("split_tp", o.price, { orderId: o.orderId });
-  // 진입 라벨은 맨 뒤 — 겹칠 일은 없지만(가로 위치가 반대편) 파괴적인 항목을 마지막에 둔다
-  for (const [sideKey, side] of [["long", "LONG"], ["short", "SHORT"]]) {
-    const p = position?.[sideKey];
-    if (p) push("entry", p.entryPrice, { side, size: p.size });
+  // 진입 라벨의 ×는 우측 행에서 가져온다 — **밀린 행이면 밀린 자리**여야 클릭이 맞는다.
+  // 맨 뒤에 두는 이유: 겹칠 일은 없지만(가로 위치가 반대편) 파괴적인 항목을 마지막에
+  for (const r of posEntryRows(position, tpsl, yScale, IW, IH)) {
+    out.push({ kind: "entry", side: r.side, size: r.size, ...r.close });
   }
   return out;
 }
@@ -642,7 +692,7 @@ export function buildHitChain(ctx) {
     {
       when: hasPos && !!tpsl && !!position,
       handle() {
-        const b = hitTpSlButton(pos.x, pos.y, posTpSlButtons(position, tpsl, yScale, IH));
+        const b = hitTpSlButton(pos.x, pos.y, posTpSlButtons(position, tpsl, yScale, IW, IH));
         if (!b) return false;
         dragRef.current = {
           type: b.type === "tp" ? "pos_tp" : "pos_sl",
