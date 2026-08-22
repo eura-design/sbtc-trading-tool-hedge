@@ -46,4 +46,19 @@ function pushAlert(level, msg) {
   broadcast("alert", { level, msg });
 }
 
-module.exports = { init, pushUpdate, pushAlert };
+/**
+ * 이미 띄운 경보를 거두는 신호 (2026-08-22).
+ *
+ * ⚠ **`msg`는 `pushAlert`로 보낸 문구와 글자 그대로 같아야 한다** — 프론트는
+ *   문구를 키로 목록에서 지운다(uiSlice.dismissCriticalAlert). 한쪽 문구만 고치면
+ *   배너가 영영 안 닫힌다. 그래서 무방비 경보는 orderWatcher의 `nakedMsg()` 하나가 만든다.
+ *
+ * 왜 필요한가: SL 없음 경보는 상태가 해소돼도(SL 재등록·포지션 종료) 화면에 그대로
+ * 남아 있었다. 실측(08-22): SL 교체 중 **0.1초**의 빈틈에 경보가 떴고, 20ms 뒤
+ * 새 SL이 걸렸는데도 배너는 몇 시간을 남아 "SL이 있는데 경보가 뜬다"로 보였다.
+ */
+function pushAlertClear(msg) {
+  broadcast("alert-clear", { msg });
+}
+
+module.exports = { init, pushUpdate, pushAlert, pushAlertClear };

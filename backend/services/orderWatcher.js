@@ -39,6 +39,30 @@ const resolvingOrphans = new Set();
 // (SL이 생기거나 포지션이 닫히면 해제 → 다음에 또 벌거벗으면 다시 울린다)
 const nakedWarned = new Set();
 
+// ⚠ **한 번 보고 경보하지 않는다 — 이 지연을 없애지 말 것** (2026-08-22, 실계좌 재현).
+//   SL을 차트에서 드래그해 옮기면 `PUT /api/tpsl`이 **취소 → 등록** 순서로 처리하므로
+//   그 사이 실제로 SL이 없는 순간이 생긴다(실측 69ms). 거기에 reconcile 조회가 끼어들어
+//   오경보가 떴다:
+//     01:37:01.010 기존 SL(72188.2) 취소 → .079 새 SL(65906.9) 등록 → .099 "SL이 없습니다"
+//   순서를 뒤집는 건 답이 아니다 — 같은 사이드에 closePosition STOP_MARKET이 둘이 되는
+//   순간이 생겨 바이낸스가 -4130으로 거절할 수 있다(`cancelExistingAlgoTPSL`이 있는 이유).
+//   → 대신 **경보를 내기 전에 한 번 더 확인한다.** 교체 창은 0.1초, 여기 지연은 5초다
+const NAKED_RECHECK_MS = 5000;
+
+// 무방비 경보 문구는 여기 하나가 만든다 — 띄울 때와 거둘 때가 **글자 그대로 같아야**
+// 프론트가 목록에서 지운다 (pushService.pushAlertClear 주석)
+const nakedMsg = side => `⚠ ${side} 포지션에 SL이 없습니다`;
+
+// 경보 해소 — 래치를 풀고, 이미 띄운 배너가 있으면 거둔다
+// (안 거두면 20ms 만에 해결된 경보가 몇 시간씩 화면에 남는다 — 그게 이번 신고였다)
+function resolveNaked(side) {
+  if (!nakedWarned.delete(side)) return;
+  push.pushAlertClear(nakedMsg(side));
+  console.log(`[안전망] ${side} SL 확인됨 → 경보 해제`);
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 // 지정가 주문 접수 직후 "이미 체결됐는지"를 한 번 확인한다.
 //
 // ⚠ 이 검증을 빼지 말 것 (2026-08-15, 실계좌 재현). 호가를 먹는 가격의 지정가는
@@ -316,14 +340,36 @@ async function reconcileWithBinance() {
     // 위 retryable 경로가 못 고친 건 사람이 판단해야 한다. 알리기만 한다.
     for (const side of ["LONG", "SHORT"]) {
       const open = side === "LONG" ? hasLong : hasShort;
-      if (!open) { nakedWarned.delete(side); continue; }
-      const { hasSL } = await checkExistingTPSL(side);
-      if (hasSL) { nakedWarned.delete(side); continue; }
+      if (!open) { resolveNaked(side); continue; }
+      const first = await checkExistingTPSL(side);
+      if (first.hasSL) { resolveNaked(side); continue; }
       // 위 retryable이 이번 사이클에 고칠 예정이면 중복 경보를 내지 않는다
       const willRetry = retryable.some(([, o]) => closeToPosition(o.closeSide) === side);
       if (willRetry || nakedWarned.has(side)) continue;
+
+      // ── 재확인 (NAKED_RECHECK_MS 주석 참고) ────────────────────────────
+      //   5초 뒤 **포지션과 SL을 같이** 다시 본다. 포지션까지 보는 이유는 그새 청산될
+      //   수 있어서다 — 닫힌 포지션에 "SL이 없다"고 알리면 그것도 오경보다
+      await sleep(NAKED_RECHECK_MS);
+      const [second, posRes] = await Promise.all([
+        checkExistingTPSL(side),
+        binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }).catch(() => null),
+      ]);
+      if (second.hasSL) { resolveNaked(side); continue; }
+      if (posRes) {
+        const amt = parseFloat(posRes.data.find(p => p.positionSide === side)?.positionAmt ?? 0);
+        if (amt === 0) { resolveNaked(side); continue; }   // 그새 닫혔다
+      }
+      // ⚠ **"없다"와 "못 물어봤다"를 구분한다** — 조회가 실패했으면 침묵하고 다음
+      //   사이클(60초)에 다시 본다. 통신이 한 번 튄 것을 SL 사고로 알리면 안 된다
+      //   (binanceClient.checkExistingTPSL의 `ok` 주석)
+      if (!second.ok) {
+        console.warn(`[안전망] ${side} SL 확인 실패 → 경보 보류 (다음 사이클에 재확인)`);
+        continue;
+      }
+
       nakedWarned.add(side);
-      const msg = `⚠ ${side} 포지션에 SL이 없습니다`;
+      const msg = nakedMsg(side);
       console.error(`[안전망] ${msg}`);
       tradeLog.append({ event: "NAKED_POSITION", side });
       push.pushAlert("critical", msg);

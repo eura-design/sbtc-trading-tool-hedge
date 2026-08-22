@@ -149,12 +149,19 @@ async function placeTPSL({ closeSide, tp, sl }) {
   return results;
 }
 
-// 해당 방향에 TP / SL이 각각 걸려 있는지 확인 → { hasTP, hasSL }
+// 해당 방향에 TP / SL이 각각 걸려 있는지 확인 → { hasTP, hasSL, ok }
 //
 // ⚠ 예전에는 `hasTP || hasSL` 하나로 합쳐서 돌려줬다. 되돌리지 말 것 —
 //   SL만 등록되고 TP가 실패한 상태에서도 "TP/SL 있음"이 되어 reconcile이
 //   TPSL_PLACED로 확정해버리고, 빠진 쪽은 두 번 다시 재시도되지 않았다.
 //   조회 자체가 실패하면 { hasTP: false, hasSL: false } — "없다"로 보고 재시도하는 쪽이 안전하다
+//
+// ⚠ **`ok`는 "물어보는 데 성공했나"다 — `hasSL:false`와 뜻이 다르다** (2026-08-22).
+//   두 조회 중 **하나만 실패해도** false다: `Promise.allSettled`라 openAlgoOrders만
+//   깨지면 algo가 빈 배열이 되어 **아무 에러 없이 조용히** `hasSL:false`가 나온다.
+//   재등록 재시도 경로는 지금처럼 "없다"로 보고 다시 걸면 그만이지만(멱등),
+//   **경보 경로는 그러면 안 된다** — 통신이 한 번 튄 것을 "SL이 없다"고 알리게 된다.
+//   → 경보를 내는 쪽(orderWatcher의 안전망)은 `ok === false`면 침묵할 것
 async function checkExistingTPSL(positionSide) {
   try {
     const [regularRes, algoRes] = await Promise.allSettled([
@@ -164,6 +171,14 @@ async function checkExistingTPSL(positionSide) {
     const regular = regularRes.status === "fulfilled" ? regularRes.value.data : [];
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
     const algo    = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
+    const ok      = regularRes.status === "fulfilled" && algoRes.status === "fulfilled";
+    if (!ok) {
+      const why = [
+        regularRes.status === "rejected" && `openOrders: ${regularRes.reason?.response?.data?.msg || regularRes.reason?.message}`,
+        algoRes.status    === "rejected" && `openAlgoOrders: ${algoRes.reason?.response?.data?.msg || algoRes.reason?.message}`,
+      ].filter(Boolean).join(" / ");
+      console.warn(`[TPSL조회] 일부 실패 → 결과 신뢰 불가 (${positionSide || "전체"}): ${why}`);
+    }
 
     // 헤지 모드: positionSide 지정 시 해당 방향 주문만 확인
     const closeSide = positionSide === "LONG" ? "SELL" : positionSide === "SHORT" ? "BUY" : null;
@@ -176,8 +191,11 @@ async function checkExistingTPSL(positionSide) {
                   algo.filter(matchAlgo).some(o => o.orderType === "TAKE_PROFIT_MARKET");
     const hasSL = regular.filter(matchReg).some(o => o.type === "STOP_MARKET") ||
                   algo.filter(matchAlgo).some(o => o.orderType === "STOP_MARKET");
-    return { hasTP, hasSL };
-  } catch { return { hasTP: false, hasSL: false }; }
+    return { hasTP, hasSL, ok };
+  } catch (e) {
+    console.warn("[TPSL조회] 실패 → 결과 신뢰 불가:", e.response?.data?.msg || e.message);
+    return { hasTP: false, hasSL: false, ok: false };
+  }
 }
 
 module.exports = { binance, roundPrice, cancelOrder, placeTPSL, checkExistingTPSL, syncServerTime };

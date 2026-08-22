@@ -24,7 +24,8 @@ export function useRealtimeData() {
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
-          const { _refetchPos, _refetchBal, _refetchTpsl, pushCriticalAlert } = useStore.getState();
+          const { _refetchPos, _refetchBal, _refetchTpsl,
+                  pushCriticalAlert, dismissCriticalAlert } = useStore.getState();
 
           if (msg.type === "update") {
             const targets = msg.targets || [];
@@ -49,6 +50,12 @@ export function useRealtimeData() {
             // 어느 쪽 계좌 얘기인지 구분이 안 된다 (알림 자체는 실거래로 돌아오면 다시 뜬다)
             if (!useStore.getState().replayOn) pushCriticalAlert(msg.msg);
           }
+
+          // 백엔드가 "그 경보는 해소됐다"고 알려오면 배너를 거둔다 (2026-08-22)
+          // ⚠ **리플레이 중에도 지운다** — 뜨는 것만 억누르고 거두는 걸 억누르면,
+          //   연습에 들어간 사이에 해소된 경보가 나올 때까지 화면에 남는다
+          // ⚠ 문구가 키다 — 백엔드(`nakedMsg`)와 글자 하나라도 어긋나면 안 닫힌다
+          if (msg.type === "alert-clear") dismissCriticalAlert(msg.msg);
         } catch {}
       };
 
