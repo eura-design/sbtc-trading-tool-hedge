@@ -119,6 +119,8 @@ async function placeTPSL({ closeSide, tp, sl }) {
   }
 
   const positionSide = closeToPosition(closeSide);
+  // ⚠ 이 호출이 **사전 등록분(preset)도 함께 지운다** — 같은 사이드의 알고 TP/SL을
+  //   전부 취소하기 때문이다. 그래서 체결 경로에서는 preset을 따로 지울 필요가 없다
   await cancelExistingAlgoTPSL(positionSide);
 
   // 1) SL 먼저 등록 — 손절 안전판이 최우선

@@ -318,6 +318,29 @@ async function reconcileWithBinance() {
     prevHasLong  = hasLong;
     prevHasShort = hasShort;
 
+    // ── 주인 없는 사전 TP/SL 정리 (2026-08-23, ETH 실측으로 발견) ─────────
+    //
+    // ⚠ **조건부 트리거 주문은 포지션이 0이 돼도 자동 취소되지 않는다.**
+    //   분할 TP(LIMIT reduceOnly)는 바이낸스가 알아서 지우지만 트리거는 남는다
+    //   (실측: 손절이 발동해 포지션이 0이 된 뒤에도 익절이 status=NEW로 생존).
+    //   → 백엔드가 꺼진 사이에 체결·청산까지 일어나면 **사전 익절만 유령으로 남고**,
+    //     나중에 같은 사이드에 새 포지션을 열면 **엉뚱한 가격에 발동한다**
+    //
+    // ⚠ **우리가 만든 id만 건드린다.** 포지션 없는 사이드의 알고 주문을 싹 지우면
+    //   사용자가 바이낸스에서 직접 걸어 둔 예약 주문까지 날아간다
+    // ⚠ **미체결 진입 주문이 살아 있으면 손대지 않는다** — 주인이 있는 정상 상태다
+    for (const [orderId, info] of [...store.entries()]) {
+      if (!info.presetTpsl) continue;
+      if (openIds.has(String(orderId))) continue;             // 진입 주문이 아직 살아 있다
+      const posSide = closeToPosition(info.closeSide);
+      if (posSide === "LONG" ? hasLong : hasShort) continue;   // 포지션이 있으면 유효한 TP/SL이다
+      console.warn("[RECONCILE] 주인 없는 사전 TP/SL → 취소 orderId=" + orderId);
+      await cancelPresetTPSL(info.presetTpsl)
+        .catch(e => console.warn("[RECONCILE] 사전 TPSL 취소 실패:", e.message));
+      store.set(orderId, { ...info, presetTpsl: null });
+      push.pushUpdate(["tpsl"]);
+    }
+
     // ── TPSL_PARTIAL / FILLED(TP/SL 미등록) → 포지션 있으면 재시도 ──────────
     const retryable = [...store.entries()].filter(
       ([, o]) => (o.status === "TPSL_PARTIAL" || o.status === "FILLED") && o.tp && o.sl
