@@ -222,11 +222,10 @@ export function PositionCard({
         theme={theme}
         posColor={posColor}
       >
-        {tpsl?.tp && (
-          <div style={{ fontSize:"10px", color:"#f0b90b", marginBottom:"6px" }}>
-            등록 시 단일 TP 취소됨
-          </div>
-        )}
+        {/* ⚠ **`등록 시 단일 TP 취소됨` 문구는 2026-08-23 제거됐다.**
+            그날 단일 TP ↔ 분할 TP 배타 규칙을 없애 **둘이 공존한다** — 틀린 말이 된다.
+            ⚠ **여기와 `SplitTPCard`에 같은 문구가 두 벌 있었다** (embedded일 때는 이쪽,
+              아닐 때는 저쪽). 한쪽만 지우면 화면에 그대로 남는다 — 실제로 그랬다 */}
         <SplitTPCard
           embedded
           posData={posData}
