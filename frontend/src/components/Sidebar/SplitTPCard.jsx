@@ -70,10 +70,19 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
               — 부분 청산 후 초과분은 바이낸스에서 자동 취소됩니다
             </div>
           )}
+          {/* ⚠ **경고가 아니라 정보다** (2026-08-23 사용자 요청). 예전엔
+                 `⚠ N BTC 미커버 — 추매 등으로 포지션이 늘었다면…`이라고 노란 배경으로
+                 띄웠는데 **틀린 말이었다**: 미커버는 추매가 아니어도 생긴다(처음부터
+                 100%를 안 채우면 그만큼 남는다). "모자라는 건 두는 게 맞다"가 이 앱의
+                 원칙인데(backend/utils/splitTp.js) 그 정상 상태를 ⚠로 경고하고 있었다.
+                 게다가 2026-08-23부터 단일 TP와 공존하므로, 단일 TP를 하나 걸어두면
+                 `closePosition`이 남은 전부를 덮어 미커버 자체가 문제가 아니다.
+              ⚠ **지우지는 말 것** — 슬라이더 우측이 `고른 %`로 바뀌면서
+                 (같은 날) 여기가 **잔여를 보여주는 유일한 자리**가 됐다 */}
           {remaining > 0.0001 && allocQty > 0.0001 && (
-            <div style={{ fontSize: "10px", color: PALETTE.warn, marginBottom: "4px",
-              padding: "4px 6px", background: `${PALETTE.warn}18`, borderRadius: "3px" }}>
-              ⚠ {remaining.toFixed(3)} BTC 미커버 — 추매 등으로 포지션이 늘었다면 분할 TP를 추가 등록하세요
+            <div style={{ fontSize: "10px", color: theme.textFaint, marginBottom: "4px",
+              padding: "2px 2px" }}>
+              잔여 {remaining.toFixed(3)} BTC (분할 TP 미커버)
             </div>
           )}
         </div>
