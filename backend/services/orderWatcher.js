@@ -271,7 +271,19 @@ async function pollForFills() {
 }
 
 // 바이낸스 실제 미체결 주문과 store를 주기적으로 검증/교정
+// ⚠ **같은 시각에 두 번 돌지 않게 막는다** (2026-08-23). 예전엔 60초 타이머 하나만
+//   불렀으므로 겹칠 일이 없었는데, 이제 `watchAccount`도 부른다(포지션이 사라진 순간).
+//   reconcile은 보기만 하는 게 아니라 **주문을 취소하고 TP/SL을 새로 건다** —
+//   겹치면 같은 주문에 취소를 두 번 날리게 된다
+let reconcileRunning = false;
 async function reconcileWithBinance() {
+  if (reconcileRunning) return;
+  reconcileRunning = true;
+  try { await runReconcile(); }
+  finally { reconcileRunning = false; }
+}
+
+async function runReconcile() {
   const relevant = [...store.entries()].filter(
     ([, o]) => o.status === "WATCHING" || o.status === "SCALE_IN" || o.status === "SPLIT_TP"
   );
@@ -520,6 +532,7 @@ async function reconcileWithBinance() {
 const ACCOUNT_WATCH_MS = 3000;
 let accountWatchTimer  = null;
 let lastAccountSig     = null;
+let lastSides          = null;   // { long, short } — 직전 관측. 포지션 사라짐 감지용
 const acct = { polls: 0, changes: 0, lastChangeAt: null };
 
 function accountSignature(positions, orders, algos) {
@@ -548,8 +561,10 @@ async function watchAccount() {
     const algoRaw = algoR.value.data;
     const algos = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
     const sig = accountSignature(posR.value.data, ordR.value.data, algos);
+    const hasLong  = posR.value.data.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0);
+    const hasShort = posR.value.data.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0);
 
-    if (lastAccountSig === null) { lastAccountSig = sig; return; }  // 첫 관측은 기준선만
+    if (lastAccountSig === null) { lastAccountSig = sig; lastSides = { long: hasLong, short: hasShort }; return; }  // 첫 관측은 기준선만
     if (sig === lastAccountSig) return;
     lastAccountSig = sig;
     acct.changes++; acct.lastChangeAt = Date.now();
@@ -558,6 +573,25 @@ async function watchAccount() {
     // 우리 주문이 체결됐을 수도 있다 — TP/SL 등록 경로를 바로 태운다
     // (UDS가 죽어 있으면 이게 아니면 reconcile 60초까지 기다린다)
     pollForFills().catch(e => console.warn("[ACCOUNT] pollForFills 실패:", e.message));
+
+    // ── 포지션이 사라졌으면 **즉시** 뒷정리 (2026-08-23) ────────────────────
+    //
+    // 남은 추가 진입 주문을 치우는 건 reconcile인데 타이머가 60초라 그동안 살아 있었다.
+    // 그 사이 가격이 그 자리에 닿으면 **손절 없는 새 포지션이 혼자 열린다**
+    // (기타/주의사항.txt의 "최악" 항목).
+    //
+    // 이 감시는 3초마다 돌면서 **보기만** 하므로, 여기서 사라짐을 발견해 정리를 부르면
+    // 60초 → 약 3초가 된다. **평소에는 부르지 않는다** — 포지션이 사라지는 건 하루
+    // 몇 번뿐이라 60초 타이머보다 오히려 덜 돈다 (겹칠 위험이 늘지 않는 이유)
+    //
+    // ⚠ 60초 타이머는 **그대로 둔다.** 이건 빠르게 하는 장치지 대체재가 아니다 —
+    //   조회가 실패해 lastSides를 못 갱신한 사이에 닫히면 이 경로가 놓친다
+    if (lastSides && ((lastSides.long && !hasLong) || (lastSides.short && !hasShort))) {
+      const gone = [lastSides.long && !hasLong && "LONG", lastSides.short && !hasShort && "SHORT"].filter(Boolean).join("+");
+      console.log(`[ACCOUNT] ${gone} 포지션 사라짐 → 뒷정리 즉시 실행`);
+      reconcileWithBinance().catch(e => console.warn("[ACCOUNT] reconcile 실패:", e.message));
+    }
+    lastSides = { long: hasLong, short: hasShort };
   } catch (e) {
     console.warn("[ACCOUNT] 감시 실패:", e.response?.data?.msg || e.message);
   }
