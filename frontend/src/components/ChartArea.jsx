@@ -92,7 +92,7 @@ export function ChartArea({
     selectedBox, setSelectedBox,
     opacityPopup, setOpacityPopup,
     closeConfirm, setCloseConfirm,
-    cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition,
+    cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition, deleteBox,
   } = useStore(useShallow(s => ({
     drawings: s.drawings, setDrawing: s.setDrawing,
     drawMode: s.drawMode, setDrawMode: s.setDrawMode,
@@ -105,6 +105,7 @@ export function ChartArea({
     closeConfirm: s.closeConfirm, setCloseConfirm: s.setCloseConfirm,
     cancelTpsl: s.cancelTpsl, cancelScaleIn: s.cancelScaleIn,
     cancelSplitTp: s.cancelSplitTp, closePosition: s.closePosition,
+    deleteBox: s.deleteBox,
   })));
 
   // 마커 옆 × 버튼 클릭 — 무엇을 지우는지는 kind가 정한다 (hitDetection.markerCloseButtons)
@@ -117,11 +118,14 @@ export function ChartArea({
     if (b.kind === "tp" || b.kind === "sl") { setCloseConfirm(null); cancelTpsl(b.side, b.kind); return; }
     if (b.kind === "scale_in")              { setCloseConfirm(null); cancelScaleIn(b.orderId);   return; }
     if (b.kind === "split_tp")              { setCloseConfirm(null); cancelSplitTp(b.orderId);   return; }
+    // 미체결 진입 주문 취소 — 주문일 뿐이라 한 번에 지운다 (진입 라벨의 ×만 2회 확인).
+    // deleteBox가 그 사이드의 pending을 orderId로 취소하고 박스가 있으면 같이 정리한다
+    if (b.kind === "pending")                { setCloseConfirm(null); deleteBox(b.side);          return; }
     if (b.kind === "entry") {
       if (closeConfirm === b.side) { setCloseConfirm(null); closePosition(b.side, b.size, false); }
       else setCloseConfirm(b.side); // 1회차 — ✓ 로 바뀌며 확인 대기
     }
-  }, [closeConfirm, setCloseConfirm, cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition]);
+  }, [closeConfirm, setCloseConfirm, cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition, deleteBox]);
 
   // 헷지모드: 양쪽 모두 점유(포지션 or pending)됐을 때만 신규 박스 드로잉 차단
   const { hasLong, hasShort, hasPos, drawLocked } = derivePositionFlags(position);

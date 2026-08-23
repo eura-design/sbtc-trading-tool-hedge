@@ -116,30 +116,10 @@ export function PlanCard({ drawing, posCalc, leverage, riskPct, position, hasPen
   );
 }
 
-export function OrphanPendingCard({ pending, onCancel }) {
-  const { theme } = useTheme();
-  const isExternal = pending?.source === "external";
-  return (
-    <div>
-      <div style={{ padding:"10px", background:theme.bgCardAlt, border:"1px solid #f0b90b44",
-        borderLeft:"2px solid #f0b90b", borderRadius:"5px", marginBottom:"12px" }}>
-        <div style={{ fontSize:"13px", color:"#f0b90b", fontWeight:"700", marginBottom:"6px" }}>
-          {isExternal ? "⏳ 외부 미체결 주문 감지" : "⏳ 미체결 주문 감지됨"}
-        </div>
-        <div style={{ fontSize:"12px", color:theme.textMuted, lineHeight:"1.7" }}>
-          {isExternal
-            ? <>바이낸스에서 직접 넣은<br/>미체결 주문이 있습니다.</>
-            : <>새로고침 전 주문이 아직<br/>체결되지 않았습니다.</>}
-        </div>
-      </div>
-      <button onClick={onCancel} style={{
-        width:"100%", padding:"10px 0", borderRadius:"5px", fontSize:"14px",
-        cursor:"pointer", fontFamily:"inherit", fontWeight:"700",
-        background:"transparent", border:`1px solid #f6465d66`, color:"#f6465d",
-        transition:"all 0.15s",
-      }}>
-        주문 취소
-      </button>
-    </div>
-  );
-}
+// ⚠ **OrphanPendingCard는 2026-08-23 사용자 요청으로 제거됐다.**
+//   박스 없는 미체결 주문(밖에서 낸 것 포함)은 이제 **차트의 대기선**이 보여준다 —
+//   점선 + 좌측 `대기` 버튼 + 수량 배지 + `×`(취소).
+//   카드는 가격을 글자로만 알려줬는데, 미체결 주문에서 정작 궁금한 건 "지금 가격에서
+//   얼마나 떨어져 있나"라 차트에 선으로 있는 편이 낫다. 취소도 그 선에서 된다.
+//   되살리려면 `hitDetection.pendingEntryLines`와 PositionLines의 대기선을 **같이** 지울 것 —
+//   둘 다 두면 같은 주문을 두 군데서 취소하게 된다

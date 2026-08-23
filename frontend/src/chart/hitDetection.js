@@ -208,7 +208,33 @@ const seen = (y, IH) => y >= -20 && y <= IH + 20; // PositionLines의 inView와 
  * 지금 화면에 있는 모든 × 버튼. kind로 무엇을 지우는지 구분한다.
  *  tp/sl → 알고 주문 취소 / scale_in·split_tp → 그 주문 취소 / entry → **포지션 청산**
  */
-export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, yScale, IW, IH }) {
+// 미체결 **진입** 주문의 대기선 (2026-08-23 사용자 요청).
+//
+// ⚠ **박스가 있는 사이드는 제외한다** — 우리가 낸 주문은 플랜 박스가 이미 그 가격을
+//   보여준다. 둘 다 그리면 같은 선이 두 번 겹친다.
+//   그래서 실제로 뜨는 건 **밖에서 낸 주문**(바이낸스 앱·웹)이 거의 전부다
+// ⚠ 렌더(PositionLines)와 히트 판정(markerCloseButtons)이 **이 함수 하나**를 본다.
+//   각자 계산하면 보이는 자리와 눌리는 자리가 어긋난다
+// ※ 드래그로 가격을 옮길 수는 없다 — 옮기려면 취소 후 재등록이라 주문번호가 바뀌고,
+//   외부 주문은 우리가 수량·TP/SL을 정할 근거가 없다. `×`로 취소만 된다
+export function pendingEntryLines({ position, drawings, yScale, IH }) {
+  if (!yScale || !position?.pending) return [];
+  const out = [];
+  for (const [sideKey, side] of [["long", "LONG"], ["short", "SHORT"]]) {
+    const p = position.pending[sideKey];
+    if (!p?.price) continue;
+    if (drawings?.[sideKey]) continue;          // 박스가 대신 보여준다
+    const y = yScale(p.price);
+    if (!seen(y, IH)) continue;
+    out.push({
+      side, sideKey, orderId: p.orderId, price: p.price, qty: p.qty, y,
+      close: closeBtnRect(y),
+    });
+  }
+  return out;
+}
+
+export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, drawings, yScale, IW, IH }) {
   if (!yScale) return [];
   const out = [];
   const push = (kind, price, extra) => {
@@ -224,6 +250,9 @@ export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, yS
   }
   for (const o of scaleInOrders ?? []) push("scale_in", o.price, { orderId: o.orderId });
   for (const o of splitTps      ?? []) push("split_tp", o.price, { orderId: o.orderId });
+  // 진입 대기선의 × — 주문 취소일 뿐이라 한 번에 지운다 (진입 라벨의 ×만 2회 확인)
+  for (const p of pendingEntryLines({ position, drawings, yScale, IH }))
+    out.push({ kind: "pending", side: p.side, orderId: p.orderId, ...p.close });
   // 진입 라벨의 ×는 우측 행에서 가져온다 — **밀린 행이면 밀린 자리**여야 클릭이 맞는다.
   // 맨 뒤에 두는 이유: 겹칠 일은 없지만(가로 위치가 반대편) 파괴적인 항목을 마지막에
   for (const r of posEntryRows(position, tpsl, yScale, IW, IH)) {
@@ -680,9 +709,11 @@ export function buildHitChain(ctx) {
     // ⚠ 아래 드래그 단계들보다 **먼저** 와야 한다. ×는 왼쪽 60px 안에 있어서
     //   순서를 뒤집으면 누를 때마다 드래그가 먼저 잡혀 영영 눌리지 않는다
     {
-      when: !!onMarkerClose && (hasPos || !!scaleInOrders?.length || !!splitTps?.length),
+      // 진입 대기선의 ×는 **포지션이 없을 때도** 떠 있다 — hasPos만 보면 안 눌린다
+      when: !!onMarkerClose && (hasPos || !!scaleInOrders?.length || !!splitTps?.length
+            || !!position?.pending?.long || !!position?.pending?.short),
       handle() {
-        const btns = markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, yScale, IW, IH });
+        const btns = markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, drawings, yScale, IW, IH });
         const b = btns.find(v => pos.x >= v.x && pos.x <= v.x + v.w && pos.y >= v.y && pos.y <= v.y + v.h);
         if (!b) return false;
         onMarkerClose(b);

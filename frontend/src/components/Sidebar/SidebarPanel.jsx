@@ -16,7 +16,7 @@ import { StatusAlert }                from "../StatusAlert";
 import { BalanceCard }                from "./BalanceCard";
 import { MarketInfoCard }            from "./MarketInfoCard";
 import { PositionCard }  from "./PositionCard";
-import { PlanCard, OrphanPendingCard } from "./PlanCard";
+import { PlanCard } from "./PlanCard";
 import { StatsCard }    from "./StatsCard";
 import { ReplayStatsCard } from "./ReplayStatsCard";
 import { computePaperDailyLoss } from "../../replay/dailyLoss";
@@ -385,19 +385,13 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
             onCancel={() => onCancelOrder(isLongToPosition(isLong))}
           />
         ))}
-        {/* 헷지모드: 각 사이드 orphan pending을 별도 카드로 표시 (그 사이드 박스가 있으면 PlanCard가 대체) */}
-        {longPendingExists && !drawings.long && (
-          <OrphanPendingCard
-            pending={position.pending.long}
-            onCancel={() => onCancelOrder("LONG")}
-          />
-        )}
-        {shortPendingExists && !drawings.short && (
-          <OrphanPendingCard
-            pending={position.pending.short}
-            onCancel={() => onCancelOrder("SHORT")}
-          />
-        )}
+        {/* ⚠ **박스 없는 미체결 주문 카드(OrphanPendingCard)는 제거됐다** (2026-08-23 사용자 요청).
+            그 자리를 **차트의 대기선**이 대신한다 — 점선 + 좌측 `대기` 버튼 + 수량 + `×`
+            (PositionLines / hitDetection.pendingEntryLines).
+            사이드바 카드는 **가격을 글자로만** 알려줬는데, 미체결 주문에서 정작 궁금한 건
+            "지금 가격에서 얼마나 떨어져 있나"라 차트에 선으로 있는 편이 낫다.
+            취소도 그 선의 `×`로 되므로 카드가 하던 일이 전부 옮겨갔다.
+            되살리려면 대기선을 같이 지울 것 — 둘 다 두면 같은 주문이 두 군데서 취소된다 */}
 
 
       </div>

@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
 import { PALETTE } from "../../constants";
-import { posEntryRows, TPSL_BTN, closeBtnRect, qtyBadgeRect, pctBadgeRect }
+import { posEntryRows, TPSL_BTN, closeBtnRect, qtyBadgeRect, pctBadgeRect, pendingEntryLines }
   from "../../chart/hitDetection";
 import { tsToIdx } from "../../chart/scales";
 import { entryPathSegments } from "../../chart/entryPath";
@@ -21,9 +21,9 @@ const BTN_REST_OPACITY = 0.7;
 //   여기만 리터럴로 바꾸면 같은 줄에 크기가 다른 버튼 두 개가 생긴다.
 // ※ 예전엔 삼각형(▶) + 옆 글자였다. 사용자 요청으로 버튼으로 통일했다 —
 //   되돌리려면 아래 네 종류(TP/SL/추가대기/분할TP)를 **같이** 바꿀 것
-function MarkerButton({ x, y, color, text, opacity, onEnter, onLeave, children }) {
+function MarkerButton({ x, y, color, text, opacity, onEnter, onLeave, draggable = true, children }) {
   return (
-    <g style={{ cursor: "ns-resize" }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+    <g style={{ cursor: draggable ? "ns-resize" : "default" }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
       {children}
       <rect x={x} y={y} width={TPSL_BTN.w} height={TPSL_BTN.h} rx={3}
         fill="#0b1120" stroke={color} strokeWidth={1} opacity={opacity} />
@@ -108,20 +108,26 @@ function PriceLineMarker({
   handleChar,
   isActive, isDragging,
   showHandle = true,
+  // 대기선 전용 — 항상 보이는 점선. 나머지 마커는 호버할 때만 가로선이 뜬다
+  // (버튼이 이미 가격을 짚어주므로). 대기선은 그 사이드에 다른 표시가 없어서 선이 곧 표시다
+  dashed = false, draggable = true,
   qtyText, pctText,
   dragCenterText, dragCenterWidth = 40,
   onHandleEnter, onHandleLeave,
   closeHovered, onCloseEnter, onCloseLeave,
 }) {
   if (!inView(yPx, IH)) return null;
-  const lineOpacity  = isActive ? (isDragging ? 1 : 0.8) : 0;
+  // ⚠ 점선(=미체결)은 **쉬는 중에도 보인다**(0.35). 이 앱에서 점선은 "아직 확정 아님"의
+  //   뜻이고 미체결 주문이 정확히 그것이다 (진입선의 세로 단차·알림 ON 도형과 같은 규칙)
+  const lineOpacity  = isActive ? (isDragging ? 1 : 0.8) : (dashed ? 0.35 : 0);
   return (
     <g>
       {/* ⚠ 굵기는 **항상 1**이다 (2026-08-15 사용자 요청). 예전엔 호버·드래그 때 2였는데
           바로 옆 진입선(EntryLine)이 1이라 유독 굵어 보였다.
           "지금 이 선을 만지고 있다"는 표시는 **투명도**가 한다 (0 → 0.8 → 드래그 1) */}
       <line x1={0} x2={IW} y1={yPx} y2={yPx}
-        stroke={color} strokeWidth={1} opacity={lineOpacity} />
+        stroke={color} strokeWidth={1} opacity={lineOpacity}
+        strokeDasharray={dashed ? "4,3" : undefined} />
       {showHandle && (
         // 버튼은 보이는 표시일 뿐 — 잡히는 범위는 예전 그대로 **왼쪽 60px 전체**다
         // (hitDetection의 `pos.x >= 0 && pos.x <= 60`와 같은 값). 버튼 크기로 좁히면
@@ -131,8 +137,11 @@ function PriceLineMarker({
           color={color} text={handleChar}
           opacity={isActive ? 1 : BTN_REST_OPACITY}
           onEnter={onHandleEnter} onLeave={onHandleLeave}
+          draggable={draggable}
         >
-          <rect x={0} y={yPx-10} width={60} height={20} fill="transparent" />
+          {/* 끌 수 없는 마커(대기선)엔 이 판정 사각형을 두지 않는다 —
+              깔아 두면 잡히지도 않는 자리에서 커서만 ns-resize로 바뀐다 */}
+          {draggable && <rect x={0} y={yPx-10} width={60} height={20} fill="transparent" />}
         </MarkerButton>
       )}
       {/* ⚠ 끄는 중에는 × 를 감춘다. 클릭 판정(markerCloseButtons)은 **저장된 가격** 기준이라
@@ -224,7 +233,7 @@ function EntryLine({ yPx, color, label, row, qtyText, IH, path, confirm, closeHo
   );
 }
 
-export const PositionLines = memo(function PositionLines({ position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, closeConfirm, scales, candles, IW, IH }) {
+export const PositionLines = memo(function PositionLines({ position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, closeConfirm, drawings, scales, candles, IW, IH }) {
   if (!position || !scales) return null;
   const { yScale, xScale } = scales;
 
@@ -232,6 +241,7 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
   const [hoveredSlSide, setHoveredSlSide]   = useState(null);
   const [hoveredScaleIn, setHoveredScaleIn] = useState(null);
   const [hoveredSplitTp, setHoveredSplitTp] = useState(null);
+  const [hoveredPending, setHoveredPending] = useState(null);
   const [hoveredAddBtn, setHoveredAddBtn]   = useState(null);
   // × 버튼 호버는 한 곳에 모은다 — 화면에 한 번에 하나만 호버되므로 키 하나면 충분하다
   const [hoveredClose, setHoveredClose]     = useState(null);
@@ -352,6 +362,26 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
           />
         );
       })}
+
+      {/* 미체결 진입 주문 대기선 (2026-08-23 사용자 요청).
+          ⚠ **박스가 없는 사이드만** 뜬다 — 우리가 낸 주문은 플랜 박스가 그 가격을 이미
+            보여준다. 그래서 실제로 보이는 건 밖에서 낸 주문이 거의 전부다.
+            대상 판정과 좌표는 hitDetection.pendingEntryLines 하나가 정한다
+          ⚠ 끌 수 없다(draggable=false) — 옮기려면 취소 후 재등록이라 주문번호가 바뀌고,
+            외부 주문은 수량·TP/SL을 우리가 정할 근거가 없다. 우측 ×로 취소만 된다 */}
+      {pendingEntryLines({ position, drawings, yScale, IH }).map(p => (
+        <PriceLineMarker
+          key={`pending-${p.orderId}`}
+          yPx={p.y} color={p.side === "LONG" ? CL : CS} IW={IW} IH={IH}
+          handleChar="대기"
+          dashed draggable={false}
+          isActive={hoveredPending === p.orderId} isDragging={false}
+          qtyText={fmtQty(p.qty)}
+          onHandleEnter={() => setHoveredPending(p.orderId)}
+          onHandleLeave={() => setHoveredPending(null)}
+          {...closeProps(`pending-${p.orderId}`)}
+        />
+      ))}
 
       {/* 분할 TP */}
       {splitTpList.map(o => {

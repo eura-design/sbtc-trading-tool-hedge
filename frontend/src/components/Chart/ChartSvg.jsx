@@ -71,12 +71,15 @@ export function ChartSvg({
         <TrendLines lines={lines} selectedLineId={selectedLineId}
           lineStart={lineStart} linePreview={linePreview}
           scales={scales} IW={IW} IH={IH} isLog={isLog} candles={candles} />
-        {hasPos && (
+        {/* ⚠ hasPos만 보면 안 된다 — **포지션이 없어도 미체결 진입 주문의 대기선**을
+            그려야 한다 (2026-08-23). 이 컴포넌트가 그리는 것 중 유일하게
+            포지션과 무관한 항목이다 */}
+        {(hasPos || position?.pending?.long || position?.pending?.short) && (
           <PositionLines
             position={position} tpsl={tpsl} dragTpsl={dragTpsl}
             tpslSaving={tpslSaving} scaleInOrders={scaleInOrders} dragScaleIn={dragScaleIn}
             splitTps={splitTps} dragSplitTp={dragSplitTp}
-            closeConfirm={closeConfirm}
+            closeConfirm={closeConfirm} drawings={drawings}
             scales={scales} candles={candles} IW={IW} IH={IH}
           />
         )}
