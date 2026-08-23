@@ -29,13 +29,13 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   const online = useHealth();
 
   const {
-    balance, balError, _refetchBal,
+    balance, balError,
     position, tpsl, tpslSaving,
     riskPctLong, riskPctShort, setRiskPct, leverage, setLeverage,
     drawMode, drawings, orderStatus, setOrderStatus,
     liveClose, executeOrder, replayOn, paperBroker, replayNowMs,
   } = useStore(useShallow(s => ({
-    balance: s.balance, balError: s.balError, _refetchBal: s._refetchBal,
+    balance: s.balance, balError: s.balError,
     position: s.position, tpsl: s.tpsl, tpslSaving: s.tpslSaving,
     riskPctLong: s.riskPctLong, riskPctShort: s.riskPctShort, setRiskPct: s.setRiskPct,
     leverage: s.leverage, setLeverage: s.setLeverage,
@@ -177,7 +177,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       {/* 잔고 헤더 — 스크롤 고정 */}
       <div style={{ padding:"12px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
         <BalanceCard balance={balance} position={position} lastPrice={effectiveLastPrice}
-                     error={balError} onRefetch={_refetchBal} online={online} />
+                     error={balError} online={online} />
       </div>
 
       {/* 시장 정보 — 펀딩비 + 공포탐욕지수 */}

@@ -21,20 +21,20 @@ html, body, #root {
    ⚠ 색은 인라인 `color`로 준다 — 여기서는 `currentColor`만 쓰므로 초록·빨강 어느
      쪽이든 글로우가 저절로 따라온다. 색을 이 파일에 박지 말 것 */
 .health-dot {
-  width: 6px; height: 6px; border-radius: 50%;
+  width: 10px; height: 10px; border-radius: 50%;
   display: inline-block; flex: none;
   background: currentColor;
   animation: heartbeat 1.8s ease-in-out infinite;
 }
 /* 죽었을 땐 더 급하게 뛴다 — 색만으로는 곁눈에 안 잡힌다 */
 .health-dot.off { animation-duration: 1s; }
+/* ⚠ **한 번만 뛴다** (2026-08-23 사용자 요청). 처음엔 쿵-쿵 두 번(lub-dub)이었는데
+   한 박자로 줄였다 — 두 번 뛰면 시선을 더 오래 붙든다. 되돌리지 말 것 */
 @keyframes heartbeat {
-  0%   { transform: scale(1);    box-shadow: 0 0 3px currentColor; }
-  10%  { transform: scale(1.4);  box-shadow: 0 0 8px currentColor; }   /* 쿵 */
-  17%  { transform: scale(1);    box-shadow: 0 0 3px currentColor; }
-  24%  { transform: scale(1.28); box-shadow: 0 0 6px currentColor; }   /* 쿵 */
-  32%  { transform: scale(1);    box-shadow: 0 0 3px currentColor; }
-  100% { transform: scale(1);    box-shadow: 0 0 3px currentColor; }   /* 쉼 */
+  0%   { transform: scale(1);    box-shadow: 0 0 3px  currentColor; }
+  12%  { transform: scale(1.35); box-shadow: 0 0 10px currentColor; }   /* 쿵 */
+  26%  { transform: scale(1);    box-shadow: 0 0 3px  currentColor; }
+  100% { transform: scale(1);    box-shadow: 0 0 3px  currentColor; }   /* 쉼 */
 }
 /* 움직임을 줄여 달라고 설정한 사용자에게는 안 뛴다 (색으로만 알린다) */
 @media (prefers-reduced-motion: reduce) {
