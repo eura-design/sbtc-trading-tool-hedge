@@ -314,7 +314,19 @@ async function runReconcile() {
       const posUpdateTime = posData.find(p => parseFloat(p.positionAmt) !== 0)?.updateTime;
       currentEntryFilledAt = storeEntry?.[1]?.filledAt
         || (posUpdateTime ? parseInt(posUpdateTime) : Date.now() - 24 * 60 * 60 * 1000);
-      console.log(`[RECONCILE] 포지션 진입 감지, filledAt=${currentEntryFilledAt}`);
+      // ⚠ **서버 시작 직후와 진짜 새 진입을 구분해서 찍는다** (2026-08-23).
+      //   prevHasLong/Short는 시작 시 null이라 이 분기는 **켤 때마다 한 번은 반드시**
+      //   지나간다. 예전엔 둘 다 "포지션 진입 감지"로 찍혀서, 매매를 안 했는데도
+      //   방금 진입한 것처럼 보였다 (사용자 신고)
+      //
+      // ⚠ 시각은 참고용이다. store에 filledAt이 없으면 positionRisk의 updateTime으로
+      //   떨어지는데, 그건 **펀딩비를 뗄 때도 갱신된다**(한국시간 9/17/1시 정각).
+      //   실제로 매매를 안 한 날 "오후 5시 00분 00초"가 찍혀 오해를 샀다.
+      //   차트 진입선이 이 값을 쓰지 않는 이유와 같다 (services/entryTime.js 참고)
+      const firstObservation = prevHasLong === null && prevHasShort === null;
+      console.log(firstObservation
+        ? `[RECONCILE] 시작 시점 포지션 확인 (새 진입 아님) — 기준시각 ${new Date(currentEntryFilledAt).toLocaleString("ko-KR")}`
+        : `[RECONCILE] 포지션 진입 감지, filledAt=${currentEntryFilledAt}`);
     }
 
     // ── 포지션 클로즈 → stats 캐시 무효화 신호 (한쪽만 닫혀도 즉시 갱신) ──
