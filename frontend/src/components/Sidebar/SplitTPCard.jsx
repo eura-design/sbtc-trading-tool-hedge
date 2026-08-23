@@ -44,14 +44,11 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
   const valid      = priceNum > 0 && addQty >= 0.001 && directionOk;
   const full       = remaining < 0.001;   // 분할 TP가 포지션을 다 덮은 상태
 
-  const extraTitle = !embedded && tpsl?.tp && (
-    <span style={{ fontSize: "10px", color: PALETTE.warn, marginLeft: "6px" }}>
-      (등록 시 단일 TP 취소됨)
-    </span>
-  );
-
+  // ⚠ **`(등록 시 단일 TP 취소됨)` 경고는 2026-08-23 제거됐다** — 이제 단일 TP와
+  //   분할 TP는 **공존한다**(그날 배타 규칙을 없앴다). 되살리지 말 것:
+  //   틀린 말이 되고, 사용자가 "일부 익절 + 나머지 전량 익절"을 못 하는 줄 알게 된다
   return (
-    <CardWrapper embedded={embedded} title="분할 TP" extra={extraTitle}>
+    <CardWrapper embedded={embedded} title="분할 TP">
       {splitTps.map(o => (
         <div key={o.orderId} style={{ display: "flex", justifyContent: "space-between",
           alignItems: "center", padding: "5px 8px", marginBottom: "4px",
@@ -90,9 +87,13 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
           : null}
       />
 
-      {/* ⚠ 슬라이더 우측은 **고른 값이 아니라 `잔여`**다 (2026-08-22 사용자 요청).
-          원래 목록 아래에 따로 있던 줄을 여기로 옮기고 `NN% (x.xxx BTC)`는 지웠다 —
-          슬라이더가 곧 잔여 대비 비율이라 기준값이 손잡이 옆에 있어야 읽힌다 */}
+      {/* ⚠ **슬라이더 우측은 추가 진입 카드와 같은 형식이다** — `고른 % (수량 BTC)`
+             (2026-08-23 사용자 요청). 2026-08-22에는 여기에 `잔여`를 띄웠는데,
+             **끌면서 지금 몇 %인지 볼 수가 없었다** — 슬라이더를 움직여도 우측 숫자가
+             안 변해서 손잡이 위치로만 짐작해야 했다.
+             성격이 같은 두 슬라이더는 같은 것을 보여준다 — 형식을 갈라 놓지 말 것
+          ⚠ 다만 **기준이 다르다**: 추가 진입은 포지션 대비, 여기는 **잔여 대비**다.
+             옆의 BTC 수량이 그 차이를 메운다 (그래서 % 만 띄우면 안 된다) */}
       {full ? (
         <div style={{ fontSize: "11px", color: theme.textFaint, textAlign: "center",
           padding: "8px 6px", marginBottom: "6px",
@@ -102,15 +103,7 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
       ) : (
         <PercentSlider
           pct={pct} onChange={setPct} color={color}
-          label="수량"
-          secondaryText={
-            /* ⚠ 스타일은 목록 아래에 있던 그 줄 그대로다 — `secondaryText` 슬롯의
-               기본(12px·포지션색·600)을 안쪽 span으로 덮는다. 자리만 옮긴 것이지
-               강조하려고 옮긴 게 아니다 (추가진입 카드의 우측 값과는 성격이 다르다) */
-            <span style={{ fontSize: "11px", color: theme.textFaint, fontWeight: "400" }}>
-              잔여: {remaining.toFixed(3)} BTC ({((remaining / posData.size) * 100).toFixed(0)}%)
-            </span>
-          }
+          label="수량" secondaryText={`${pct}% (${addQty} BTC)`}
         />
       )}
 
