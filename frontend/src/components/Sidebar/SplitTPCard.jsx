@@ -78,11 +78,15 @@ export function SplitTPCard({ posData, side, tpsl, lastPrice, onAddSplitTp, onCa
                  게다가 2026-08-23부터 단일 TP와 공존하므로, 단일 TP를 하나 걸어두면
                  `closePosition`이 남은 전부를 덮어 미커버 자체가 문제가 아니다.
               ⚠ **지우지는 말 것** — 슬라이더 우측이 `고른 %`로 바뀌면서
-                 (같은 날) 여기가 **잔여를 보여주는 유일한 자리**가 됐다 */}
+                 (같은 날) 여기가 **잔여를 보여주는 유일한 자리**가 됐다.
+              ⚠ `(분할 TP 미커버)` 괄호도 같은 날 뗐다 — `잔여`라는 말이 이미 같은 뜻이고,
+                 단일 TP와 공존하는 지금은 **틀린 인상까지 준다**(단일 TP가 있으면
+                 `closePosition`이 그 잔여를 전부 덮으므로 실제로는 익절이 걸려 있다).
+                 이 줄의 역할은 "슬라이더로 아직 나눠줄 수 있는 양"이다 */}
           {remaining > 0.0001 && allocQty > 0.0001 && (
             <div style={{ fontSize: "10px", color: theme.textFaint, marginBottom: "4px",
               padding: "2px 2px" }}>
-              잔여 {remaining.toFixed(3)} BTC (분할 TP 미커버)
+              잔여 {remaining.toFixed(3)} BTC
             </div>
           )}
         </div>
