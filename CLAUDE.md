@@ -756,6 +756,10 @@ SCALE_IN  (추가 진입 지정가 — 체결/취소 시 store에서 제거)
 SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제거)
 ```
 - 포지션 종료 시: SCALE_IN은 수동 청산 시 즉시 취소, TP/SL 자연 체결 시 reconcile(60초) 내 취소
+  - ⚠ reconcile의 그 정리는 **사이드별로 판정한다** (2026-08-23). 예전엔 롱·숏이 **둘 다**
+    비었을 때만 돌아서, **숏을 들고 있으면 롱 쪽 추가 진입이 그대로 남았다** —
+    나중에 그 가격에 닿으면 손절 없는 새 포지션이 혼자 열린다. 헷지모드로 바꿀 때
+    이 줄만 원웨이 시절 그대로였다. 사이드는 주문의 `positionSide`로 정한다
 - 포지션 종료 시: SPLIT_TP는 Binance가 reduceOnly 주문 자동 취소 → UDS CANCELED 수신 시 제거
 - store 파일은 load() 시 7일 초과 항목 자동 정리
 

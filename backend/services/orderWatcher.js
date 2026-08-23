@@ -4,7 +4,7 @@ const store          = require("../store/pendingOrders");
 const push           = require("./pushService");
 const tradeLog       = require("../store/tradeLog");
 const statsCache     = require("./statsCache");
-const { closeToPosition } = require("../utils/side");
+const { closeToPosition, sideToPosition } = require("../utils/side");
 const { checkDailyLoss } = require("../routes/dailyloss");
 
 // 포지션 상태 추적 (reconcile 간 상태 유지) — 헷지모드: LONG/SHORT 각각 독립 추적
@@ -430,20 +430,37 @@ async function reconcileWithBinance() {
 
     if (!relevant.length) return;
 
-    // 포지션이 없는데 SCALE_IN 주문이 남아 있으면 전부 취소
-    if (!hasPos) {
-      const scaleIns = relevant.filter(([, o]) => o.status === "SCALE_IN");
-      for (const [orderId] of scaleIns) {
-        try {
-          await cancelOrder({ orderId });
-        } catch (e) {
-          console.warn(`[RECONCILE] SCALE_IN 취소 실패 orderId=${orderId}:`, e.response?.data?.msg);
-        }
-        store.delete(orderId);
-        console.log(`[RECONCILE] 포지션 없음 → SCALE_IN 주문 취소 orderId=${orderId}`);
-      }
-      if (scaleIns.length) push.pushUpdate(["position"]);
+    // ── 포지션이 사라진 사이드의 SCALE_IN 주문 취소 ────────────────────────
+    //
+    // ⚠ **사이드별로 판정한다** (2026-08-23). 예전엔 `if (!hasPos)` — 롱·숏이 **둘 다**
+    //   비었을 때만 돌아서, **숏을 하나라도 들고 있으면 롱 쪽 뒷정리를 통째로
+    //   건너뛰었다.** 롱을 청산해도 롱 추가 진입 주문이 남고, 나중에 그 가격에 닿으면
+    //   **손절 없는 새 포지션이 혼자 열린다** (기타/주의사항.txt의 "최악" 항목).
+    //   헷지모드로 바꿀 때 이 줄만 원웨이 시절 그대로 남아 있었다
+    //
+    // ⚠ 사이드는 **거래소가 정한다** — 살아 있는 주문의 `positionSide`를 먼저 본다
+    //   ("주문의 정체는 바이낸스가 정한다" 절). openOrders에 없으면 store의 `side`로
+    //   떨어지고, 그것도 없으면 **옛 동작**(양쪽 다 비었을 때만)으로 남긴다 —
+    //   근거가 없을 때는 취소하지 않는 쪽이 안전하다
+    const liveById = new Map(openOrders.map(o => [String(o.orderId), o]));
+    const scaleIns = [];
+    for (const [orderId, o] of relevant) {
+      if (o.status !== "SCALE_IN") continue;
+      const posSide = liveById.get(String(orderId))?.positionSide
+        || (o.side ? sideToPosition(o.side) : null);
+      const orphan = posSide ? (posSide === "LONG" ? !hasLong : !hasShort) : !hasPos;
+      if (orphan) scaleIns.push([orderId, posSide || "?"]);
     }
+    for (const [orderId, posSide] of scaleIns) {
+      try {
+        await cancelOrder({ orderId });
+      } catch (e) {
+        console.warn(`[RECONCILE] SCALE_IN 취소 실패 orderId=${orderId}:`, e.response?.data?.msg);
+      }
+      store.delete(orderId);
+      console.log(`[RECONCILE] ${posSide} 포지션 없음 → SCALE_IN 주문 취소 orderId=${orderId}`);
+    }
+    if (scaleIns.length) push.pushUpdate(["position"]);
 
     const toCheck = relevant.filter(([orderId]) => !openIds.has(String(orderId)));
     if (toCheck.length > 0) {
