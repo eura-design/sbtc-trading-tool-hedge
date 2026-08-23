@@ -31,6 +31,8 @@ async function recoverPendingOrders() {
           price:  parseFloat(o.price),
           qty:    parseFloat(o.origQty),
           side:   o.side,
+          // 어느 쪽 포지션의 분할 TP인지 — 진단·복구용 메타 (판정은 utils/orderKind.js)
+          positionSide: o.positionSide ?? closeToPosition(o.side),
           pct:    saved?.pct ?? null,
           createdAt: saved?.createdAt ?? Date.now(),
         });

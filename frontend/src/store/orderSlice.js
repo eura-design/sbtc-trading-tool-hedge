@@ -181,7 +181,9 @@ export const createOrderSlice = (set, get) => ({
     setDrawing(isLong, prev => prev ? { ...prev, orderId: undefined } : prev);
     const cancelSide = isLongToPosition(drawing.isLong);
     try {
-      await api("DELETE", "/api/orders", { side: cancelSide });
+      // ⚠ 내 박스에 연결된 주문 **하나만** 취소한다 (2026-08-23). 사이드로만 지우면
+      //   같은 사이드에 밖에서 낸 주문이 있을 때 그것까지 취소된다 (deleteBox와 같은 이유)
+      await api("DELETE", "/api/orders", { side: cancelSide, orderId: drawing.orderId });
       const data = await api("POST", "/api/order", {
         side:      isLongToSide(drawing.isLong),
         orderType: "LIMIT",
@@ -329,7 +331,9 @@ export const createOrderSlice = (set, get) => ({
         return;
       }
       try {
-        await api("DELETE", "/api/orders", { side });
+        // ⚠ **orderId를 실어 보낸다** (2026-08-23). 사이드로만 지우면 그 사이드의 진입
+        //   주문이 싹 취소된다 — 밖에서 낸 주문이 같은 사이드에 있으면 그것까지 같이 날아간다
+        await api("DELETE", "/api/orders", { side, orderId: position.pending[sideKey].orderId });
         setOrderStatus({ type: "success", msg: "미체결 주문 취소 완료" });
       } catch (e) {
         setOrderStatus({ type: "error", msg: `취소 실패: ${e.message}` }); return;

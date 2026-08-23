@@ -463,7 +463,18 @@ function connectUserDataStream(listenKey) {
       const msg = JSON.parse(raw);
       if (msg.e !== "ORDER_TRADE_UPDATE") return;
       const o = msg.o;
-      if (!store.has(o.i)) return;
+      // ⚠ **store에 없는 주문(= 바이낸스 앱·웹에서 낸 것)도 화면 갱신은 시킨다**
+      //   (2026-08-23). 예전엔 여기서 그냥 return이라, 밖에서 낸 주문이 체결·취소돼도
+      //   화면은 다음 폴링(30초)까지 옛 상태였다. 이제 정체 판정이 store와 무관하므로
+      //   (`utils/orderKind.js`) 다시 조회하기만 하면 맞게 그려진다.
+      //   store 항목이 필요한 뒷처리(TP/SL 등록 등)는 아래 분기가 그대로 맡는다
+      if (!store.has(o.i)) {
+        if (o.X === "FILLED" || o.X === "CANCELED" || o.X === "EXPIRED") {
+          console.log(`[UDS] 외부 주문 ${o.i} ${o.X} → 화면 갱신`);
+          push.pushUpdate(["position", "balance", "tpsl"]);
+        }
+        return;
+      }
 
       if (o.X === "FILLED" && o.o === "LIMIT") {
         const info = store.get(o.i);

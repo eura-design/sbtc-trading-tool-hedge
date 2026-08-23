@@ -3,6 +3,7 @@ const { binance } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { resolveOrphans } = require("../services/orderWatcher");
 const { resolveEntryInfo } = require("../services/entryTime");
+const { isLiveLimit, limitKind } = require("../utils/orderKind");
 const router  = express.Router();
 
 router.get("/", async (req, res) => {
@@ -27,13 +28,19 @@ router.get("/", async (req, res) => {
       entrySteps:       null,   // 〃
     };
 
-    // 바이낸스 미체결 LIMIT 진입 주문 (TP/SL, SCALE_IN 제외)
-    const entryOrders = openOrders.filter(o => {
-      if (o.type !== "LIMIT") return false;
-      if (o.status !== "NEW" && o.status !== "PARTIALLY_FILLED") return false;
-      const stored = store.get(String(o.orderId));
-      return stored?.status !== "SCALE_IN" && stored?.status !== "SPLIT_TP";
-    });
+    // ⚠ **미체결 LIMIT의 정체는 store가 아니라 `utils/orderKind.js`가 정한다**
+    //   (2026-08-23). 예전엔 store 기록(SCALE_IN/SPLIT_TP)으로만 갈랐다 — 그래서
+    //   **바이낸스 앱·웹에서 직접 낸 주문은 화면에 제대로 나타나지 않았다**:
+    //   외부 분할 익절·추가 진입은 아예 안 보이고, 외부 진입 주문만 "외부 미체결 주문"
+    //   카드로 떴다. 기록이 유실된 우리 주문도 같은 증상이었다 (사용자 신고).
+    //   → 판정 근거를 주문 자체(방향)와 포지션 유무로 옮겨서, **store가 통째로 없어도
+    //     화면이 맞게 나온다.** store는 이제 우리만 아는 부가정보(플랜 박스·예약 TP/SL·
+    //     등록 당시 비율)만 담는다
+    const hasPosFor  = { LONG: !!longPos, SHORT: !!shortPos };
+    const liveLimits = openOrders.filter(isLiveLimit);
+    const kindOf      = o => limitKind(o, hasPosFor, store.get(String(o.orderId)));
+    const entryOrders = liveLimits.filter(o => kindOf(o) === "ENTRY");
+    const scaleIns    = liveLimits.filter(o => kindOf(o) === "SCALE_IN");
 
     // 헷지모드: LONG/SHORT 각각 독립 pending 추적
     let longPending  = null;
@@ -79,9 +86,8 @@ router.get("/", async (req, res) => {
     // fire-and-forget — 폴링 응답을 주문 조회만큼 늦추지 않는다
     if (orphans.length) resolveOrphans(orphans).catch(e => console.warn("[POSITION] 고아 주문 처리 실패:", e.message));
 
-    // 바이낸스에 살아있는 SCALE_IN 주문 목록
-    const scaleInOrders = openOrders
-      .filter(o => store.get(String(o.orderId))?.status === "SCALE_IN")
+    // 추가 진입 목록 — 위에서 판정한 것을 그대로 쓴다 (외부 주문도 여기 들어온다)
+    const scaleInOrders = scaleIns
       .map(o => ({
         orderId: String(o.orderId),
         price:   parseFloat(o.price),

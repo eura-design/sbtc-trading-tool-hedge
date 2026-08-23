@@ -2,7 +2,12 @@ const express = require("express");
 const { binance, roundPrice, cancelOrder } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
+const { isLiveLimit, isCloseDir } = require("../utils/orderKind");
 const router  = express.Router();
+
+// SPLIT_TP를 store에서 지우기 전 두는 유예 — 등록 직후 낡은 openOrders 스냅샷에
+// 안 잡히는 창을 덮는다 (position.js의 GRACE_PERIOD와 같은 값·같은 이유)
+const SPLIT_TP_GRACE_MS = 30_000;
 
 router.get("/", async (req, res) => {
   try {
@@ -14,12 +19,21 @@ router.get("/", async (req, res) => {
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
     const algo    = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
 
+    // ⚠ **지정가형(`STOP`/`TAKE_PROFIT`)도 같이 찾는다** (2026-08-23).
+    //   우리가 거는 건 늘 `_MARKET`이지만, **바이낸스 웹·앱에서 주문에 붙여 건 TP/SL은
+    //   지정가형일 수 있다.** 그것만 보면 화면에 TP/SL이 없는 것처럼 보이고,
+    //   더 나쁘게는 reconcile이 "SL 없는 포지션"으로 오인해 경보를 띄운다
+    const TYPES = {
+      TAKE_PROFIT_MARKET: ["TAKE_PROFIT_MARKET", "TAKE_PROFIT"],
+      STOP_MARKET:        ["STOP_MARKET",        "STOP"],
+    };
     const findOrder = (type, positionSide) => {
-      const r = regular.find(o => o.type === type && o.positionSide === positionSide);
+      const types = TYPES[type] ?? [type];
+      const r = regular.find(o => types.includes(o.type) && o.positionSide === positionSide);
       if (r) return { orderId: r.orderId, price: parseFloat(r.stopPrice), isAlgo: false };
       const closeSide = positionToClose(positionSide);
       // positionSide 필드 없는 algo 주문은 side(closeSide)로 폴백
-      const a = algo.find(o => o.orderType === type &&
+      const a = algo.find(o => types.includes(o.orderType) &&
         (o.positionSide === positionSide || (!o.positionSide && o.side === closeSide)));
       if (a) return { orderId: a.algoId, price: parseFloat(a.triggerPrice), isAlgo: true };
       return null;
@@ -30,8 +44,16 @@ router.get("/", async (req, res) => {
     // 살아있는 SPLIT_TP가 지워져 position.js에서 external 주문으로 오인됨
     if (regularRes.status === "fulfilled") {
       const openIds = new Set(regular.map(o => String(o.orderId)));
+      const now = Date.now();
       for (const [orderId, info] of store.entries()) {
         if (info.status === "SPLIT_TP" && !openIds.has(String(orderId))) {
+          // ⚠ **갓 등록한 항목은 건너뛴다** (2026-08-23, SPLIT_TP_GRACE_MS).
+          //   openOrders 스냅샷은 이 요청이 **시작될 때** 찍힌다. POST /split과 겹치면
+          //   방금 건 분할 TP가 목록에 없는 것처럼 보여 **살아있는 주문의 store 기록을
+          //   지운다.** 그러면 position.js가 그걸 external 진입 주문으로 오인한다 —
+          //   분할 TP 목록에서 사라지고 "외부 미체결 주문" 카드가 대신 떴다 (실제 신고).
+          //   position.js의 고아 판정이 GRACE_PERIOD를 두는 것과 같은 이유다
+          if (info.createdAt && now - info.createdAt < SPLIT_TP_GRACE_MS) continue;
           console.log(`[TPSL] SPLIT_TP ${orderId}이 바이낸스에 없음 → 제거`);
           store.delete(orderId);
         }
@@ -41,8 +63,11 @@ router.get("/", async (req, res) => {
         regularRes.reason?.response?.data?.msg || regularRes.reason?.message);
     }
 
+    // ⚠ **분할 TP도 store가 아니라 주문 방향으로 가른다** (2026-08-23, position.js와 같은 이유).
+    //   청산 방향 LIMIT(SELL/LONG, BUY/SHORT)은 분할 TP 말고 다른 것일 수 없다.
+    //   store 기록은 `pct`(등록 당시 비율)에만 쓴다 — 외부 주문은 그게 없어 null이다
     const splitTps = regular
-      .filter(o => store.get(String(o.orderId))?.status === "SPLIT_TP")
+      .filter(o => isLiveLimit(o) && isCloseDir(o))
       .map(o => ({
         orderId: String(o.orderId),
         price:   parseFloat(o.price),

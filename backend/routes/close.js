@@ -4,6 +4,7 @@ const store   = require("../store/pendingOrders");
 const push    = require("../services/pushService");
 const { positionToClose } = require("../utils/side");
 const { rescaleSplitTps } = require("../utils/splitTp");
+const { isLiveLimit, isEntryDir, isCloseDir } = require("../utils/orderKind");
 const router  = express.Router();
 
 // 사이드별 처리 중 락 — 부분 청산의 분할TP 사전취소~재등록 윈도우와
@@ -38,8 +39,9 @@ router.post("/", async (req, res) => {
         binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }),
       ]);
       // 해당 사이드의 분할 TP만 취소 (반대쪽 SPLIT_TP는 건드리지 않음)
+      // 외부에서 건 분할 TP도 포함해야 잔여 비율 재계산이 맞는다 (2026-08-23)
       splitTpOrders = openOrders.filter(o =>
-        store.get(String(o.orderId))?.status === "SPLIT_TP" && o.side === closeSide
+        isLiveLimit(o) && isCloseDir(o) && o.positionSide === side
       );
       // ⚠ **가격 내림차순으로 정렬한다** (2026-08-19). 바이낸스 openOrders는 순서를
       //   보장하지 않는데, 재계산이 반올림 초과분을 뒤에서부터 깎으므로 순서가 결과를
@@ -83,9 +85,12 @@ router.post("/", async (req, res) => {
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
     const algo    = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
 
-    // SCALE_IN: positionSide로 해당 사이드만 취소
+    // ⚠ **추가 진입 판정을 store가 아니라 주문 방향으로 한다** (2026-08-23).
+    //   지금 이 사이드는 청산 중이라 포지션이 있는 상태 → 진입 방향 지정가는
+    //   전부 추가 진입이다. store로 걸렀을 땐 **밖에서 낸 추가 진입이 안 잡혀서,
+    //   청산 뒤에도 살아남아 나중에 손절 없는 새 포지션을 열 수 있었다**
     const scaleInToCancel = regular.filter(o =>
-      store.get(String(o.orderId))?.status === "SCALE_IN" && o.positionSide === side
+      isLiveLimit(o) && isEntryDir(o) && o.positionSide === side
     );
 
     await Promise.allSettled([
@@ -138,6 +143,9 @@ router.post("/", async (req, res) => {
             qty,
             pct,
             side:   o.side,
+            // 어느 쪽 포지션의 분할 TP인지 (2026-08-23). 지금 이 값을 읽는 경로는 없다 —
+            // 판정은 utils/orderKind.js가 주문 방향으로 한다. 진단·복구용으로 남긴다
+            positionSide: side,
           });
           console.log(`[close] 분할 TP 재등록: ${o.price} × ${qty} BTC`);
         } catch (e) {
@@ -175,6 +183,7 @@ router.post("/", async (req, res) => {
             qty:    parseFloat(o.origQty),
             pct:    store.get(String(o.orderId))?.pct ?? null,
             side:   o.side,
+            positionSide: side,   // 재등록과 같은 이유 (진단·복구용 메타)
           });
           console.log(`[close] 분할 TP 롤백 완료: ${o.price} × ${o.origQty} BTC`);
         } catch (re) {
