@@ -277,7 +277,15 @@ frontend/src/
 │   │                               **저장이 한 번도 일어나지 않는다.** 진행 위치는
 │   │                               `broker.lastTime`으로만 저장되므로(session.js), 안 흘리면
 │   │                               TF를 바꾼 순간 **재생 시작 전 지점으로 되감긴다**
-│   └── useHealth.js           ← 서버 헬스 체크
+│   └── useHealth.js           ← 서버 헬스 체크 (10초 폴링) → BalanceCard의 초록/빨강 점
+│                                 ⚠ **fetch에 시간 제한(3초)이 반드시 필요하다** (2026-08-23).
+│                                   없으면 **얼어붙은 백엔드를 못 잡는다** — 포트는 열려 있어
+│                                   연결은 되는데 응답이 영영 안 와서 fetch가 끝나지 않고
+│                                   점이 **초록인 채로 남는다**. 실제로 92분간 멈춰 있었는데도
+│                                   초록이었다 (콘솔 창 클릭 → 빠른 편집 모드가 stdout을 막음).
+│                                   **꺼진 것**은 연결 거부라 catch로 잡히지만 **얼어붙은 것**은 이것 없인 못 잡는다
+│                                 ※ 안전은 이 점이 아니라 `server.js`의 멈춤 감지가 책임진다 —
+│                                   여기는 사용자가 **알아차리게** 하는 용도다
 ├── chart/
 │   ├── candleRenderer.js      ← renderCandles() (캔들+축+오버레이 호출)
 │   │                             renderVolumeCanvas/renderRSICanvas는 각 파일에서 re-export
