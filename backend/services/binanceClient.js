@@ -149,6 +149,67 @@ async function placeTPSL({ closeSide, tp, sl }) {
   return results;
 }
 
+// ── 지정가 진입 주문과 **함께** 거는 TP/SL (2026-08-23 사용자 요청) ──────────
+//
+// 목적: **백엔드가 꺼진 사이에 지정가가 체결돼도 손절이 걸려 있게** 한다.
+//   예전엔 체결을 감지한 뒤에야 등록해서, 그 순간 서버가 꺼져 있으면 다시 켤 때까지
+//   무방비였다 (recoveryService가 뒤늦게 채우지만 24시간 이내 주문만).
+//
+// ⚠ **`closePosition:true`를 쓸 수 없다 — 포지션이 없으면 바이낸스가 거절한다:**
+//     `Time in Force (TIF) GTE can only be used with open positions`
+//   (2026-08-23 실측. ETHUSDT 포지션 0인 상태에서 closePosition ❌ / quantity ✅.
+//    BTCUSDT로 먼저 해본 테스트는 그때 SHORT 0.001이 열려 있어 **무효였다** —
+//    "포지션 없음"을 검증할 땐 그 사이드에 정말 아무것도 없는지 먼저 확인할 것)
+//   → 그래서 **수량을 직접 적는다**. 진입 수량과 같은 값이다
+//
+// ⚠ 수량 고정의 단점(추가 진입 시 미커버)은 **체결 후 저절로 사라진다** —
+//   `onFilled` → `placeTPSL`이 기존 알고 TP/SL을 취소하고 `closePosition` 방식으로
+//   다시 걸기 때문이다. 즉 **꺼져 있으면 거래소가, 켜져 있으면 앱이** 맡는다
+//
+// ⚠ **재시도하지 않는다**(placeTPSL은 5회 31초). 여긴 아직 체결 전이라 급하지 않고,
+//   주문 응답을 30초씩 붙들면 화면이 멈춘 것처럼 보인다. 실패해도 진입 주문은 살린다
+async function preplaceTPSL({ closeSide, tp, sl, qty }) {
+  const positionSide = closeToPosition(closeSide);
+  const quantity     = parseFloat(qty).toFixed(3);
+  const out = { tp: null, sl: null, failed: [] };
+
+  const place = async (label, type, price) => {
+    try {
+      const r = await binance("POST", "/fapi/v1/algoOrder", {
+        algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
+        type, triggerPrice: roundPrice(price), quantity, workingType: "CONTRACT_PRICE",
+      });
+      return { orderId: r.data.algoId, status: r.data.algoStatus };
+    } catch (e) {
+      const msg = e.response?.data?.msg || e.message;
+      console.error(`[사전 TPSL] ${label} 등록 실패: ${msg}`);
+      out.failed.push({ type: label, error: msg });
+      return null;
+    }
+  };
+
+  // SL 먼저 — 손절이 존재 이유다. TP가 실패해도 SL은 남긴다
+  out.sl = await place("SL", "STOP_MARKET", sl);
+  // ⚠ TP는 **자주 거절된다**: 진입가가 현재가보다 아래면(롱) TP가 이미 지나온 자리일 수
+  //   있고, 그러면 "즉시 발동할 주문"이라며 -2021로 막힌다. 그때도 SL은 그대로 둔다
+  out.tp = await place("TP", "TAKE_PROFIT_MARKET", tp);
+  return out;
+}
+
+// 사전 등록해 둔 TP/SL 취소 — 진입 주문이 취소·소멸될 때 같이 내린다.
+//
+// ⚠ **`cancelExistingAlgoTPSL`을 쓰면 안 된다.** 그건 그 사이드의 알고 TP/SL을 전부
+//   지우므로, 같은 사이드에 (외부에서 생긴) 포지션의 TP/SL이 있으면 그것까지 날아간다.
+//   사전 등록분은 우리가 id를 알고 있으니 **그것만** 지운다
+async function cancelPresetTPSL(preset) {
+  const ids = [preset?.sl?.orderId, preset?.tp?.orderId].filter(Boolean);
+  if (!ids.length) return 0;
+  const r = await Promise.allSettled(ids.map(id => cancelOrder({ algoId: id, isAlgo: true })));
+  const ok = r.filter(x => x.status === "fulfilled").length;
+  console.log(`[사전 TPSL] 취소 ${ok}/${ids.length}건`);
+  return ok;
+}
+
 // 해당 방향에 TP / SL이 각각 걸려 있는지 확인 → { hasTP, hasSL, ok }
 //
 // ⚠ 예전에는 `hasTP || hasSL` 하나로 합쳐서 돌려줬다. 되돌리지 말 것 —
@@ -198,4 +259,5 @@ async function checkExistingTPSL(positionSide) {
   }
 }
 
-module.exports = { binance, roundPrice, cancelOrder, placeTPSL, checkExistingTPSL, syncServerTime };
+module.exports = { binance, roundPrice, cancelOrder, placeTPSL, preplaceTPSL, cancelPresetTPSL,
+  checkExistingTPSL, syncServerTime };

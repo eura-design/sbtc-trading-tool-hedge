@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, roundPrice, placeTPSL } = require("../services/binanceClient");
+const { binance, roundPrice, placeTPSL, preplaceTPSL, cancelPresetTPSL } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { validateOrder } = require("../middleware/validate");
 const { checkDailyLoss } = require("./dailyloss");
@@ -92,8 +92,33 @@ router.post("/", validateOrder, async (req, res) => {
         message: hasFailure ? "시장가 체결 완료, TP/SL 재시도 중" : "시장가 체결 → TP/SL 등록 완료",
       });
     } else {
-      // LIMIT: User Data Stream이 체결을 감지하므로 store에만 등록
+      // LIMIT: **진입 주문과 함께 TP/SL도 지금 건다** (2026-08-23 사용자 요청).
+      //
+      // ⚠ 예전엔 진입 주문만 보내고 TP/SL 가격은 store(우리 파일)에만 적어 뒀다가
+      //   체결을 감지한 시점에 등록했다. 그러면 **체결되는 순간 백엔드가 켜져 있어야만**
+      //   손절이 걸린다 — 꺼둔 사이에 지정가가 체결되면 다시 켤 때까지 무방비다.
+      //   이제 세 주문이 처음부터 거래소에 올라가 있으므로 그 뒤론 거래소가 알아서 한다
+      //
+      // ⚠ **체결 시 등록 경로(onFilled)를 없애지 말 것 — 이중으로 둔다.**
+      //   ① 사전 등록은 **수량 고정**이라 추가 진입분을 못 덮는다 → 체결 후 onFilled가
+      //     `closePosition` 방식으로 덮어써서 그 약점을 지운다
+      //   ② 진입 전에 가격이 **TP 선을 먼저 스치면** 그 TP는 포지션 없이 발동해 사라진다
+      //     (브레이크아웃 진입에서 실제로 가능하다). 그때 백엔드가 켜져 있으면 채워준다
+      //   ※ SL은 순서상 안전하다 — 롱이면 손절이 진입가보다 아래라, 손절에 닿으려면
+      //     반드시 진입가를 지나면서 지정가가 먼저 체결된다
+      const preset = await preplaceTPSL({ closeSide, tp, sl, qty: quantity });
+      orderInfo.presetTpsl = preset;
       store.set(orderId, orderInfo);
+
+      const presetFailed = preset.failed.map(f => f.type).join(", ");
+      if (presetFailed) {
+        tradeLog.append({
+          event: "TPSL_PRESET_FAILED", orderId, failed: presetFailed,
+          errors: preset.failed.map(f => `${f.type}: ${f.error}`), side, tp, sl,
+        });
+      } else {
+        tradeLog.append({ event: "TPSL_PRESET", orderId, tp, sl });
+      }
 
       // 지정가가 호가를 먹어 즉시 체결된 경우(박스를 현재가 너머로 올린 경우)
       // → UDS FILLED가 위 store.set보다 **먼저** 도착해 `!store.has`에 걸려 버려진다
@@ -105,7 +130,16 @@ router.post("/", validateOrder, async (req, res) => {
       res.json({
         success: true, type: "LIMIT",
         entry: { orderId, status: entryOrder.status },
-        message: "지정가 주문 등록 완료 — 체결 시 TP/SL 자동 등록 (User Data Stream 감시중)",
+        // ⚠ SL이 안 걸렸으면 **반드시 알린다** — 그 상태로 체결되면 백엔드가 꺼져 있을 때
+        //   무방비다. TP만 실패한 건 돈을 잃는 문제가 아니라 경고 문구만 다르다
+        warning: preset.failed.some(f => f.type === "SL")
+          ? `⚠ 손절 사전 등록 실패 (${preset.failed.find(f => f.type === "SL").error}) — 체결 시 재시도되지만 그 전에 서버가 꺼지면 무방비입니다`
+          : preset.failed.length
+            ? "익절 사전 등록 실패 — 체결 시 다시 등록됩니다"
+            : null,
+        message: presetFailed
+          ? `지정가 주문 등록 완료 — ${presetFailed} 사전 등록 실패`
+          : "지정가 주문 + TP/SL 등록 완료 (서버가 꺼져도 유지됩니다)",
       });
 
     }
@@ -118,8 +152,13 @@ router.post("/", validateOrder, async (req, res) => {
   }
 });
 
-// PATCH /api/order — 미체결 지정가 주문의 TP/SL을 store에서만 업데이트
-// (지정가 주문 자체는 바이낸스에 그대로 유지, 체결 시 새 tp/sl 값으로 TP/SL 등록)
+// PATCH /api/order — 미체결 지정가 주문의 TP/SL 변경 (박스 가로선 드래그)
+//
+// ⚠ **store만 고치고 끝내지 말 것** (2026-08-23). 지정가 주문은 TP/SL을 미리 걸어 두므로
+//   (위 POST) **거래소에 이미 옛 가격으로 주문이 올라가 있다.** 파일만 고치면 화면과
+//   거래소가 갈라진다 — 박스는 새 가격을 보여주는데 실제로 발동하는 건 옛 가격이다
+//
+// ※ 지정가 주문 자체는 건드리지 않는다 (진입가는 replacePendingOrder가 따로 다시 건다)
 router.patch("/", async (req, res) => {
   try {
     const { orderId, tp, sl } = req.body;
@@ -132,8 +171,25 @@ router.patch("/", async (req, res) => {
       sl:  sl  ?? existing.sl,
       drawing: existing.drawing ? { ...existing.drawing, tp: tp ?? existing.drawing.tp, sl: sl ?? existing.drawing.sl } : null,
     };
+
+    // 사전 등록분 교체 — **먼저 내리고 다시 건다.** 여기선 순서를 뒤집을 수 없다:
+    // 같은 사이드에 `STOP_MARKET`이 둘이 되는 순간이 생기면 -4130으로 거절될 수 있다.
+    // 아직 체결 전이라 그 사이에 지킬 포지션도 없어 위험 창이 없다
+    let preset = existing.presetTpsl ?? null;
+    if (existing.status === "WATCHING" && preset) {
+      await cancelPresetTPSL(preset).catch(e => console.warn("[PATCH] 사전 TPSL 취소 실패:", e.message));
+      preset = await preplaceTPSL({
+        closeSide: existing.closeSide, tp: updated.tp, sl: updated.sl, qty: existing.qty,
+      });
+      updated.presetTpsl = preset;
+    }
     store.set(String(orderId), updated);
-    res.json({ success: true });
+    res.json({
+      success: true,
+      warning: preset?.failed?.length
+        ? `${preset.failed.map(f => f.type).join(", ")} 재등록 실패 — 체결 시 다시 시도합니다`
+        : null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

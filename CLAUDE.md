@@ -41,7 +41,11 @@ backend/
 │   │                               전에는 옛 이름이 그대로 날아온다. 그때 undefined가 되면
 │   │                               **총자산이 미실현 금액만으로 찍힌다**(실측). 컴포넌트는 새 이름만 안다
 │   ├── position.js            ← GET /api/position → { long, short, pending, scaleInOrders, funding }
-│   ├── order.js               ← POST /api/order (진입주문 + TP/SL 자동등록, 일일 손실 가드) / PATCH /api/order (미체결 TP/SL 수정)
+│   ├── order.js               ← POST /api/order (진입주문 + TP/SL 등록, 일일 손실 가드) / PATCH /api/order (미체결 TP/SL 수정)
+│   │                             ⚠ **LIMIT은 TP/SL을 체결 전에 미리 건다** (2026-08-23) —
+│   │                               `preplaceTPSL`. 백엔드가 꺼진 사이 체결돼도 손절이 있게.
+│   │                               PATCH도 사전 등록분을 다시 건다 → "지정가 진입은 TP/SL을
+│   │                               함께 거래소에 올린다" 절
 │   ├── orders.js              ← DELETE /api/orders (전체 미체결 취소)
 │   ├── close.js               ← POST /api/close (전량: TP/SL+SCALE_IN 취소 후 시장가 / 부분: 분할TP 비율 재등록)
 │   │                             ⚠ 부분 청산의 수량 계산은 `utils/splitTp.js`가 전부 한다 — 여기서 다시 계산하지 말 것
@@ -1709,6 +1713,53 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - 페이퍼 브로커는 봉의 고가/저가로 판정하므로 `CONTRACT_PRICE`와 일치한다
   - ※ 다만 단일 TP를 **메이커 수수료 + 지정가에 정확히 체결**로 계산한다 — 실거래는
     테이커 + 슬리피지다. "모르면 불리하게" 원칙과 어긋나는 유일한 지점 (미수정)
+
+### ⚠ 지정가 진입은 **TP/SL을 함께 거래소에 올린다** (2026-08-23 사용자 요청)
+
+목적은 하나다 — **백엔드가 꺼진 사이에 지정가가 체결돼도 손절이 걸려 있게** 한다.
+예전엔 체결을 감지한 뒤에야 등록해서, 그 순간 서버가 꺼져 있으면 다시 켤 때까지 무방비였다
+(`recoveryService`가 뒤늦게 채우지만 24시간 이내 주문만).
+
+- `POST /api/order`의 LIMIT 분기가 `preplaceTPSL`을 부른다 (`services/binanceClient.js`)
+- ⚠ **`closePosition:true`를 쓸 수 없다** — 포지션이 없으면 바이낸스가 거절한다:
+  `Time in Force (TIF) GTE can only be used with open positions`
+  → **수량을 직접 적는다**(진입 수량과 같은 값). 실측 2026-08-23, ETHUSDT 포지션 0에서
+  `closePosition` ❌ / `quantity` ✅
+  - ⚠ **"포지션 없음"을 검증할 땐 그 사이드가 정말 비었는지 먼저 볼 것.** BTCUSDT로 한
+    첫 테스트는 그때 SHORT 0.001이 열려 있어 **둘 다 통과해서 무효였다**
+- ⚠ **체결 시 등록 경로(`onFilled`)를 없애지 말 것 — 이중으로 둔다**
+  - ① 사전 등록은 **수량 고정**이라 추가 진입분을 못 덮는다 → 체결 후 `placeTPSL`이
+    `closePosition` 방식으로 덮어써서 그 약점을 지운다 (**꺼져 있으면 거래소가,
+    켜져 있으면 앱이** 맡는다)
+  - ② 진입 전에 가격이 **TP 선을 먼저 스치면** 그 TP는 포지션 없이 발동해 사라진다.
+    그때 백엔드가 켜져 있으면 채워준다
+  - ※ **SL은 순서상 안전하다** — 롱이면 손절이 진입가보다 아래라, 손절에 닿으려면
+    반드시 진입가를 지나면서 지정가가 먼저 체결된다
+- ⚠ **TP는 자주 거절된다**(`-2021`): TP가 **진입가와 현재가 사이**에 있으면 "즉시 발동할
+  주문"이라 막힌다 (되돌림을 기다렸다 목표를 짧게 잡으면 흔하다). **그때도 SL은 걸린다** —
+  그래서 `preplaceTPSL`은 SL 실패로 TP를 건너뛰지 않는다 (`placeTPSL`과 다른 점)
+- ⚠ **재시도하지 않는다**(`placeTPSL`은 5회 31초). 아직 체결 전이라 급하지 않고,
+  주문 응답을 30초씩 붙들면 화면이 멈춘 것처럼 보인다. 실패해도 진입 주문은 살린다
+  - SL이 실패하면 응답 `warning`으로 **경고를 띄운다** — 그대로 체결되고 서버가
+    꺼져 있으면 무방비다
+- ⚠ **화면에는 체결 전까지 안 보인다** (2026-08-23 사용자 선택 B). `GET /api/tpsl`이
+  store의 `presetTpsl` id를 모아 걸러낸다. 그 가격은 **플랜 박스가 이미 보여주므로**
+  같이 그리면 같은 값이 두 번 뜬다. 체결되면 status가 WATCHING을 벗어 정상적으로 보인다
+- ⚠ **진입 주문이 사라지면 사전 등록분도 내린다** — 안 내리면 트리거 주문만 거래소에
+  남아 나중에 그 사이드에 포지션이 생겼을 때 엉뚱한 가격에 발동한다.
+  경로 다섯: `DELETE /api/orders` · `DELETE /api/scale-in` · UDS CANCELED ·
+  reconcile · resolveOrphans (뒤 셋은 `orderWatcher.dropPreset`)
+  - ⚠ `cancelExistingAlgoTPSL`을 쓰지 말 것 — 그건 그 사이드 알고 TP/SL을 **전부** 지운다.
+    같은 사이드에 (외부에서 생긴) 포지션의 TP/SL이 있으면 그것까지 날아간다.
+    사전 등록분은 id를 알고 있으니 `cancelPresetTPSL`이 **그것만** 지운다
+- ⚠ `PATCH /api/order`(박스 가로선 드래그)는 **사전 등록분도 다시 건다.** store만 고치면
+  화면과 거래소가 갈라진다 — 박스는 새 가격인데 발동은 옛 가격이다.
+  여기선 **먼저 내리고 다시 건다**(PUT과 반대) — 같은 사이드에 `STOP_MARKET`이 둘이 되면
+  `-4130`으로 거절될 수 있고, 아직 체결 전이라 그 사이에 지킬 포지션도 없다
+- **실측 검증** (2026-08-23, 실계좌): 진입 −15%/손절/익절을 `POST /api/order`로 등록 →
+  `LIMIT BUY/LONG @64,760 x0.001` + `STOP_MARKET trig=63,240 qty=0.001 closePos=false` +
+  `TAKE_PROFIT_MARKET trig=80,000 qty=0.001 closePos=false` 셋이 올라갔고,
+  `GET /api/tpsl`은 **주문 전과 완전히 동일**(사전 등록분이 감춰짐). 셋 다 취소로 정리됨
 
 ### 체결 감지
 - **LIMIT 주문**: User Data Stream WebSocket (`orderWatcher.js`)으로 즉시 감지

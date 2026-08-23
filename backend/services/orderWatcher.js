@@ -1,5 +1,5 @@
 const WebSocket    = require("ws");
-const { binance, cancelOrder, placeTPSL, checkExistingTPSL } = require("./binanceClient");
+const { binance, cancelOrder, placeTPSL, checkExistingTPSL, cancelPresetTPSL } = require("./binanceClient");
 const store          = require("../store/pendingOrders");
 const push           = require("./pushService");
 const tradeLog       = require("../store/tradeLog");
@@ -92,6 +92,17 @@ async function verifyImmediateFill(orderId, entryOrder) {
 //   체결된 주문의 항목이 없어져 onFilled / pollForFills / reconcile이 **전부**
 //   대상을 잃고 TP/SL이 영구 미등록으로 남는다 (실제로 그렇게 됐다).
 //   지우는 건 바이낸스가 CANCELED/EXPIRED/REJECTED라고 답했을 때뿐이다.
+// 진입 주문이 사라졌으면 **함께 걸어 둔 TP/SL도 내린다** (2026-08-23).
+// 안 내리면 트리거 주문만 거래소에 남아, 나중에 그 사이드에 포지션이 생겼을 때
+// 엉뚱한 가격에 발동한다. 체결(FILLED)일 때는 부르지 않는다 —
+// 그쪽은 onFilled → placeTPSL이 cancelExistingAlgoTPSL로 갈아끼운다
+async function dropPreset(orderId) {
+  const info = store.get(String(orderId));
+  if (!info?.presetTpsl) return;
+  await cancelPresetTPSL(info.presetTpsl)
+    .catch(e => console.warn(`[사전 TPSL] 취소 실패 orderId=${orderId}:`, e.message));
+}
+
 async function resolveOrphans(entries) {
   for (const [orderId] of entries) {
     const key = String(orderId);
@@ -104,6 +115,7 @@ async function resolveOrphans(entries) {
         if (store.get(orderId)?.status === "WATCHING") await onFilled(orderId, data);
       } else if (data.status === "CANCELED" || data.status === "EXPIRED" || data.status === "REJECTED") {
         console.log(`[고아] 주문 ${orderId} ${data.status} → store 제거`);
+        await dropPreset(orderId);
         store.delete(orderId);
         push.pushUpdate(["position"]);
       } else {
@@ -421,6 +433,7 @@ async function reconcileWithBinance() {
           }
         } else if (data.status === "CANCELED" || data.status === "EXPIRED" || data.status === "REJECTED") {
           console.log(`[RECONCILE] 주문 ${orderId} 상태: ${data.status} → store 제거`);
+          await dropPreset(orderId);
           store.delete(orderId);
           push.pushUpdate(["position"]);
         } else {
@@ -491,6 +504,7 @@ function connectUserDataStream(listenKey) {
         }
       } else if (o.X === "CANCELED" || o.X === "EXPIRED") {
         console.log(`[UDS] 주문 ${o.i} ${o.X} → store 제거`);
+        await dropPreset(o.i);
         store.delete(o.i);
         push.pushUpdate(["position"]);
       }

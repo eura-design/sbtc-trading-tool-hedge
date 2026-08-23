@@ -19,6 +19,20 @@ router.get("/", async (req, res) => {
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
     const algo    = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
 
+    // ⚠ **아직 체결되지 않은 진입 주문에 미리 걸어 둔 TP/SL은 감춘다**
+    //   (2026-08-23 사용자 선택 B). 거래소엔 실제로 올라가 있지만, 그 가격은
+    //   **플랜 박스가 이미 보여주고 있다** — 같이 그리면 같은 값이 두 번 뜬다.
+    //   체결되면 `onFilled`가 `closePosition` 방식으로 갈아끼우고 store status도
+    //   WATCHING을 벗으므로, 그때부터는 정상적으로 보인다
+    const presetIds = new Set();
+    for (const [, info] of store.entries()) {
+      if (info.status !== "WATCHING" || !info.presetTpsl) continue;
+      for (const k of ["tp", "sl"]) {
+        const id = info.presetTpsl[k]?.orderId;
+        if (id) presetIds.add(String(id));
+      }
+    }
+
     // ⚠ **지정가형(`STOP`/`TAKE_PROFIT`)도 같이 찾는다** (2026-08-23).
     //   우리가 거는 건 늘 `_MARKET`이지만, **바이낸스 웹·앱에서 주문에 붙여 건 TP/SL은
     //   지정가형일 수 있다.** 그것만 보면 화면에 TP/SL이 없는 것처럼 보이고,
@@ -29,11 +43,12 @@ router.get("/", async (req, res) => {
     };
     const findOrder = (type, positionSide) => {
       const types = TYPES[type] ?? [type];
-      const r = regular.find(o => types.includes(o.type) && o.positionSide === positionSide);
+      const r = regular.find(o => types.includes(o.type) && o.positionSide === positionSide
+        && !presetIds.has(String(o.orderId)));
       if (r) return { orderId: r.orderId, price: parseFloat(r.stopPrice), isAlgo: false };
       const closeSide = positionToClose(positionSide);
       // positionSide 필드 없는 algo 주문은 side(closeSide)로 폴백
-      const a = algo.find(o => types.includes(o.orderType) &&
+      const a = algo.find(o => types.includes(o.orderType) && !presetIds.has(String(o.algoId)) &&
         (o.positionSide === positionSide || (!o.positionSide && o.side === closeSide)));
       if (a) return { orderId: a.algoId, price: parseFloat(a.triggerPrice), isAlgo: true };
       return null;

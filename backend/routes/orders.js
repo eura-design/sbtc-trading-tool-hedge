@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, cancelOrder } = require("../services/binanceClient");
+const { binance, cancelOrder, cancelPresetTPSL } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { isLiveLimit, limitKind } = require("../utils/orderKind");
 const router  = express.Router();
@@ -59,6 +59,14 @@ router.delete("/", async (req, res) => {
     for (const o of entryOrders) {
       await cancelOrder({ orderId: o.orderId })
         .catch(e => console.warn(`주문 취소 실패 (orderId=${o.orderId}):`, e.response?.data?.msg));
+      // ⚠ **사전 등록해 둔 TP/SL도 같이 내린다** (2026-08-23). 안 내리면 진입 주문만
+      //   사라지고 트리거 주문이 거래소에 남는다 — 나중에 그 사이드에 포지션이 생기면
+      //   엉뚱한 가격에 발동한다 (수량 지정이라 그만큼 잘려 나간다)
+      const info = store.get(String(o.orderId));
+      if (info?.presetTpsl) {
+        await cancelPresetTPSL(info.presetTpsl)
+          .catch(e => console.warn(`사전 TPSL 취소 실패 (orderId=${o.orderId}):`, e.message));
+      }
       store.delete(String(o.orderId));
     }
 
