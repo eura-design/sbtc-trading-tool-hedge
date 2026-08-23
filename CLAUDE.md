@@ -1761,6 +1761,16 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
   `TAKE_PROFIT_MARKET trig=80,000 qty=0.001 closePos=false` 셋이 올라갔고,
   `GET /api/tpsl`은 **주문 전과 완전히 동일**(사전 등록분이 감춰짐). 셋 다 취소로 정리됨
 
+### ⚠ 체결 감지 WebSocket(UDS)이 끊기면 **밖에서 낸 주문은 아무도 못 잡는다** (2026-08-23)
+`pollForFills`는 **store에 있는 주문만** 본다 → 밖에서 낸 주문은 백엔드 폴링으로도 안 걸린다.
+UDS가 한 번 놓치면 프론트의 30초 폴링까지 화면이 옛 상태다
+(**서버를 재시작할 때마다 그 창이 생긴다** — 실제로 "늦게 뜬다"는 보고가 있었다).
+- → `userDataWS`의 `open`에서 **`pushUpdate(["position","balance","tpsl"])`를 한 번 쏜다.**
+  끊겨 있던 동안의 변화가 연결되는 즉시 따라잡힌다. 지우지 말 것
+- → `GET /api/health`가 `uds`를 돌려준다 (`connected`/`connectedAt`/`lastEventAt`/
+  `events`/`reconnects`). "늦다"가 연결 문제인지 앱 문제인지 이걸로 갈린다.
+  프론트는 `ok`만 쓰므로 화면은 그대로다
+
 ### 체결 감지
 - **LIMIT 주문**: User Data Stream WebSocket (`orderWatcher.js`)으로 즉시 감지
   → `store`에 WATCHING 상태 → FILLED 이벤트 수신 시 `placeTPSL()` 실행

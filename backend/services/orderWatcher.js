@@ -130,6 +130,23 @@ async function resolveOrphans(entries) {
   }
 }
 
+// ── UDS 진단 (2026-08-23) ────────────────────────────────────────────────────
+// "바이낸스에서 직접 낸 주문이 늦게 뜬다"는 보고의 원인을 가리기 위한 계측.
+// UDS가 살아 있으면 체결이 즉시 반영되고, 끊겨 있으면 프론트 30초 폴링까지 기다린다
+// (`pollForFills`는 store에 있는 주문만 봐서 **외부 주문은 폴링으로도 안 잡힌다**).
+// 둘을 구분하지 못하면 "늦다"의 원인이 앱인지 연결인지 알 수 없다
+const uds = { connectedAt: null, lastEventAt: null, lastEvent: null, events: 0, reconnects: 0 };
+function udsStatus() {
+  return {
+    connected:   !!(userDataWS && userDataWS.readyState === 1),
+    connectedAt: uds.connectedAt,
+    lastEventAt: uds.lastEventAt,
+    lastEvent:   uds.lastEvent,
+    events:      uds.events,
+    reconnects:  uds.reconnects,
+  };
+}
+
 let listenKeyTimer    = null;
 let userDataWS        = null;
 let pollTimer         = null;
@@ -468,12 +485,22 @@ function connectUserDataStream(listenKey) {
   userDataWS.on("open", () => {
     stopPolling();
     reconnectDelay = 5000;
+    uds.connectedAt = Date.now();
     console.log("[UDS] User Data Stream 연결됨");
+    // ⚠ **연결된 순간 화면을 한 번 갱신시킨다** (2026-08-23).
+    //   UDS가 끊겨 있던 동안의 체결은 **아무도 안 잡는다** — `pollForFills`는 store에
+    //   있는 주문만 보므로 **밖에서 낸 주문은 백엔드 폴링으로도 안 걸린다.**
+    //   그 사이 바이낸스에서 직접 매매하면 프론트 30초 폴링까지 화면이 옛 상태다
+    //   (서버를 재시작할 때마다 그 창이 생긴다 — 실제로 "늦게 뜬다"는 보고가 있었다)
+    push.pushUpdate(["position", "balance", "tpsl"]);
   });
 
   userDataWS.on("message", async (raw) => {
     try {
       const msg = JSON.parse(raw);
+      uds.events++;
+      uds.lastEventAt = Date.now();
+      uds.lastEvent   = msg.e;
       if (msg.e !== "ORDER_TRADE_UPDATE") return;
       const o = msg.o;
       // ⚠ **store에 없는 주문(= 바이낸스 앱·웹에서 낸 것)도 화면 갱신은 시킨다**
@@ -514,6 +541,7 @@ function connectUserDataStream(listenKey) {
   });
 
   userDataWS.on("close", () => {
+    uds.reconnects++;
     console.warn(`[UDS] 연결 끊김, ${reconnectDelay / 1000}초 후 재연결...`);
     startPolling();
     if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -548,4 +576,4 @@ function stop() {
   stopPolling();
 }
 
-module.exports = { startUserDataStream, stop, onFilled, verifyImmediateFill, resolveOrphans };
+module.exports = { startUserDataStream, stop, onFilled, verifyImmediateFill, resolveOrphans, udsStatus };
