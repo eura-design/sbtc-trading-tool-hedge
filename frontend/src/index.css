@@ -15,6 +15,32 @@ html, body, #root {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── 백엔드 상태 점 (사이드바 잔고 카드, ⟳ 왼쪽) ──────────────────────────────
+   2026-08-23 사용자 요청. **심장박동 리듬** — 쿵-쿵 두 번 뛰고 나머지 시간은 쉰다.
+   쉬는 구간이 대부분이라 곁눈에 거슬리지 않는다 (계속 뛰면 시선을 뺏는다).
+   ⚠ 색은 인라인 `color`로 준다 — 여기서는 `currentColor`만 쓰므로 초록·빨강 어느
+     쪽이든 글로우가 저절로 따라온다. 색을 이 파일에 박지 말 것 */
+.health-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block; flex: none;
+  background: currentColor;
+  animation: heartbeat 1.8s ease-in-out infinite;
+}
+/* 죽었을 땐 더 급하게 뛴다 — 색만으로는 곁눈에 안 잡힌다 */
+.health-dot.off { animation-duration: 1s; }
+@keyframes heartbeat {
+  0%   { transform: scale(1);    box-shadow: 0 0 3px currentColor; }
+  10%  { transform: scale(1.4);  box-shadow: 0 0 8px currentColor; }   /* 쿵 */
+  17%  { transform: scale(1);    box-shadow: 0 0 3px currentColor; }
+  24%  { transform: scale(1.28); box-shadow: 0 0 6px currentColor; }   /* 쿵 */
+  32%  { transform: scale(1);    box-shadow: 0 0 3px currentColor; }
+  100% { transform: scale(1);    box-shadow: 0 0 3px currentColor; }   /* 쉼 */
+}
+/* 움직임을 줄여 달라고 설정한 사용자에게는 안 뛴다 (색으로만 알린다) */
+@media (prefers-reduced-motion: reduce) {
+  .health-dot { animation: none; }
+}
+
 /* ── 얇은 슬라이더 (리스크 / 레버리지) ────────────────────────────────────────
    2026-08-14 사용자 요청: 손잡이 동그라미가 너무 크다 → 기본 16px에서 9px로.
 

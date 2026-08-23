@@ -24,7 +24,7 @@ function Amount({ value, fmt, size }) {
 }
 
 // ⚠ 자릿수가 늘면 **글자를 줄여서** 한 줄을 지킨다 (사이드바 폭은 고정이다).
-//   안 줄이면 `$1,001,083 / $990,000`에서 `USDT`·접속 점·⟳ 버튼이 밖으로 밀려
+//   안 줄이면 `$1,001,083 / $990,000`에서 `USDT`·⟳ 버튼이 밖으로 밀려
 //   **새로고침을 누를 수 없게 된다**(실측). 잔고가 클수록 못 쓰는 건 말이 안 된다
 //   ※ 두 숫자는 **항상 같은 크기**다 — 긴 쪽에 맞춰 둘 다 줄인다.
 //     한쪽만 줄이면 그쪽이 부차적인 값처럼 읽힌다
@@ -44,6 +44,20 @@ export function BalanceCard({ balance, position, lastPrice, error, onRefetch, on
     <button onClick={onRefetch} style={iconBtn(theme.textFaint)}
       onMouseEnter={e => e.target.style.color="#f0b90b"}
       onMouseLeave={e => e.target.style.color=theme.textFaint}>⟳</button>
+  );
+
+  // 백엔드 상태 점 — **⟳ 왼쪽**에 둔다 (2026-08-23 사용자 요청).
+  //   ⚠ 예전엔 숫자 바로 뒤에 붙어 있었다. 거기 두면 `amountSize()`가 글자를 줄여도
+  //     자릿수가 커질 때 숫자와 함께 밀려서, 잔고가 클수록 점이 ⟳ 쪽으로 파고들었다.
+  //     ⟳와 한 덩어리로 묶으면 오른쪽 끝에 고정되어 자릿수와 무관해진다
+  //   ⚠ 크기·박동은 `index.css`의 `.health-dot`이 갖는다 — **색만 여기서 준다**
+  //     (css는 `currentColor`만 쓰므로 글로우가 저절로 따라온다)
+  //   ⚠ 이 점은 **알림일 뿐 안전장치가 아니다.** 주문을 막지 않는다 —
+  //     쌓인 요청을 실제로 막는 건 backend/server.js의 멈춤 감지다
+  const healthDot = online === undefined ? null : (
+    <span className={`health-dot${online ? "" : " off"}`}
+      title={online ? "백엔드 정상" : "백엔드 응답 없음 — 재시작이 필요합니다"}
+      style={{ color: online ? "#0ecb81" : "#f6465d" }} />
   );
 
   if (error) return (
@@ -75,16 +89,11 @@ export function BalanceCard({ balance, position, lastPrice, error, onRefetch, on
             흐린 색으로 두어 숫자보다 뒤로 물러나게 한다 */}
         <span style={{ fontSize:"15px", color:theme.textFaint }}>/</span>
         <Amount value={balance.availableBalance} fmt={fmt} size={size} />
-        {online !== undefined && (
-          <span style={{
-            width:"5px", height:"5px", borderRadius:"50%",
-            display:"inline-block", marginLeft:"2px", flex:"none",
-            background: online ? "#0ecb81" : "#f6465d",
-            boxShadow: online ? "0 0 4px #0ecb81" : "0 0 4px #f6465d",
-          }} />
-        )}
       </div>
-      {refetchBtn}
+      <div style={{ display:"flex", alignItems:"center", gap:"6px", flex:"none", alignSelf:"center" }}>
+        {healthDot}
+        {refetchBtn}
+      </div>
     </div>
   );
 }
