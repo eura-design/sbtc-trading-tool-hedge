@@ -47,4 +47,12 @@ const limitKind = (o, hasPosFor, stored) => {
   return "ENTRY";
 };
 
-module.exports = { isLiveLimit, isCloseDir, isEntryDir, limitKind };
+// TP/SL로 취급하는 주문 종류.
+//
+// ⚠ **우리는 늘 `_MARKET`으로 걸지만 바이낸스 웹·앱이 붙여 건 것은 지정가형일 수 있다**
+//   (2026-08-23 실측: 지정가형도 `openAlgoOrders`에 `triggerPrice`로 나온다).
+//   조회(`GET /api/tpsl`)·교체(`cancelExistingAlgoTPSL`)·청산(`routes/close.js`)이
+//   **같은 목록을 봐야 한다.** 한 곳만 빠지면 그쪽에서 유령 주문이 남는다
+const TPSL_TYPES = ["TAKE_PROFIT_MARKET", "STOP_MARKET", "TAKE_PROFIT", "STOP"];
+
+module.exports = { isLiveLimit, isCloseDir, isEntryDir, limitKind, TPSL_TYPES };

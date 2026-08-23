@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, roundPrice, cancelOrder, cancelPresetTPSL } = require("../services/binanceClient");
+const { binance, roundPrice, cancelOrder, cancelPresetTPSL, assertCancelKind } = require("../services/binanceClient");
 const store = require("../store/pendingOrders");
 const { sideToPosition } = require("../utils/side");
 const router = express.Router();
@@ -39,6 +39,7 @@ router.delete("/", async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
+    await assertCancelKind(orderId, "SCALE_IN");   // 엉뚱한 주문 취소 방지
     await cancelOrder({ orderId });
     // ⚠ 보통 추가 진입에는 사전 TP/SL이 없다. 다만 **그 사이드에 이미 포지션이 있는 채로
     //   진입 주문이 들어오면**(플랜 박스로는 막혀 있지만 외부·API 경로가 남아 있다)

@@ -4,7 +4,7 @@ const store   = require("../store/pendingOrders");
 const push    = require("../services/pushService");
 const { positionToClose } = require("../utils/side");
 const { rescaleSplitTps } = require("../utils/splitTp");
-const { isLiveLimit, isEntryDir, isCloseDir } = require("../utils/orderKind");
+const { isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES } = require("../utils/orderKind");
 const router  = express.Router();
 
 // 사이드별 처리 중 락 — 부분 청산의 분할TP 사전취소~재등록 윈도우와
@@ -95,11 +95,15 @@ router.post("/", async (req, res) => {
 
     await Promise.allSettled([
       // TP/SL: positionSide로 해당 사이드만 취소 (반대쪽 TP/SL은 보존)
+      // ⚠ **지정가형(`STOP`/`TAKE_PROFIT`)도 지운다** (2026-08-23 감사에서 누락 발견).
+      //   `GET /api/tpsl`은 지정가형도 TP/SL로 읽는데 청산이 그걸 안 지우면,
+      //   포지션이 사라진 뒤에도 트리거 주문이 거래소에 남는다
+      //   (조건부 주문은 포지션이 0이 돼도 자동 취소되지 않는다 — 같은 날 실측)
       ...regular
-        .filter(o => ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.type) && o.positionSide === side)
+        .filter(o => TPSL_TYPES.includes(o.type) && o.positionSide === side)
         .map(o => cancelOrder({ orderId: o.orderId })),
       ...algo
-        .filter(o => ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.orderType) && o.positionSide === side)
+        .filter(o => TPSL_TYPES.includes(o.orderType) && o.positionSide === side)
         .map(o => cancelOrder({ algoId: o.algoId, isAlgo: true })),
       ...scaleInToCancel
         .map(o => cancelOrder({ orderId: o.orderId })),

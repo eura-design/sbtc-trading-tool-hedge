@@ -86,8 +86,13 @@ async function cancelExistingAlgoTPSL(positionSide) {
   try {
     const { data: algoRaw } = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" });
     const algo = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
+    // ⚠ **지정가형(`STOP`/`TAKE_PROFIT`)도 대상이다** (2026-08-23 감사).
+    //   `GET /api/tpsl`은 지정가형도 TP/SL로 읽는데 여기서만 빼면, 바이낸스 웹에서
+    //   지정가형으로 걸어 둔 TP/SL 위에 우리가 새 TP/SL을 얹어 **둘이 공존**하게 된다.
+    //   화면엔 하나만 보이고 나머지는 유령이 된다
     const toCancel = algo.filter(o =>
-      ["TAKE_PROFIT_MARKET", "STOP_MARKET"].includes(o.orderType) && o.positionSide === positionSide
+      ["TAKE_PROFIT_MARKET", "STOP_MARKET", "TAKE_PROFIT", "STOP"].includes(o.orderType) &&
+      o.positionSide === positionSide
     );
     await Promise.allSettled(toCancel.map(o => cancelOrder({ algoId: o.algoId, isAlgo: true })));
     if (toCancel.length > 0) console.log(`[TPSL] 기존 알고리즘 TP/SL ${toCancel.length}건 취소 완료 (${positionSide})`);
@@ -212,6 +217,49 @@ async function cancelPresetTPSL(preset) {
   return ok;
 }
 
+// 취소하기 전에 **그 주문이 정말 그 종류인지** 확인한다 (2026-08-23 감사).
+//
+// ⚠ `DELETE /api/tpsl` · `/api/tpsl/split` · `/api/scale-in`은 부르는 쪽이 준 orderId를
+//   **그대로** 취소했다. 프론트는 우리 API 응답의 id만 쓰므로 실사용 위험은 낮지만,
+//   id 하나가 어긋나면 **엉뚱한 주문이 조용히 사라진다** — 특히 `/api/tpsl`은 종류를
+//   전혀 안 봐서 분할 TP든 진입 주문이든 다 지울 수 있었다.
+//
+// kind: "TPSL" | "SPLIT_TP" | "SCALE_IN"
+// ※ 목록에서 못 찾으면 **막지 않는다** — 이미 체결·취소된 주문일 수 있고,
+//   그때는 취소 요청이 바이낸스에서 -2011로 떨어지므로 결과가 같다.
+//   조회가 실패했을 때도 마찬가지다 (통신 문제로 정상 취소를 막으면 더 나쁘다)
+async function assertCancelKind(orderId, kind) {
+  const [regR, algoR] = await Promise.allSettled([
+    binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
+    binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
+  ]);
+  if (regR.status !== "fulfilled" || algoR.status !== "fulfilled") return;
+  const algoRaw = algoR.value.data;
+  const algo = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
+  const id = String(orderId);
+
+  const reg = regR.value.data.find(o => String(o.orderId) === id);
+  const alg = algo.find(o => String(o.algoId) === id);
+  if (!reg && !alg) return;                       // 못 찾음 → 판단하지 않는다
+
+  const type   = reg ? reg.type : alg.orderType;
+  const side   = reg ? reg.side : alg.side;
+  const posSide= reg ? reg.positionSide : alg.positionSide;
+  const closing = (side === "SELL" && posSide === "LONG") || (side === "BUY" && posSide === "SHORT");
+
+  const ok =
+    kind === "TPSL"     ? ["TAKE_PROFIT_MARKET","STOP_MARKET","TAKE_PROFIT","STOP"].includes(type)
+  : kind === "SPLIT_TP" ? (type === "LIMIT" &&  closing)
+  : kind === "SCALE_IN" ? (type === "LIMIT" && !closing)
+  : true;
+
+  if (!ok) {
+    const e = new Error(`취소 거부: orderId=${id}는 ${kind}가 아니다 (실제 ${type} ${side}/${posSide})`);
+    e.status = 409;
+    throw e;
+  }
+}
+
 // 해당 방향에 TP / SL이 각각 걸려 있는지 확인 → { hasTP, hasSL, ok }
 //
 // ⚠ 예전에는 `hasTP || hasSL` 하나로 합쳐서 돌려줬다. 되돌리지 말 것 —
@@ -262,4 +310,4 @@ async function checkExistingTPSL(positionSide) {
 }
 
 module.exports = { binance, roundPrice, cancelOrder, placeTPSL, preplaceTPSL, cancelPresetTPSL,
-  checkExistingTPSL, syncServerTime };
+  assertCancelKind, checkExistingTPSL, syncServerTime };

@@ -1778,6 +1778,29 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
   `TAKE_PROFIT_MARKET trig=80,000 qty=0.001 closePos=false` 셋이 올라갔고,
   `GET /api/tpsl`은 **주문 전과 완전히 동일**(사전 등록분이 감춰짐). 셋 다 취소로 정리됨
 
+### ⚠ 계정 변화 감시 — **UDS를 믿지 않는다** (2026-08-23, 실측)
+
+`services/orderWatcher.js`의 `watchAccount()`가 **3초마다** 포지션·미체결·알고 주문의
+지문을 떠서 **달라졌을 때만** `pushUpdate(["position","balance","tpsl"])`를 쏜다.
+UDS 연결 여부와 **무관하게 항상 돈다**.
+
+- **왜 필요한가 (실측)**: 이 환경에서 계정 스트림은 **연결은 되는데 이벤트가 한 건도
+  오지 않는다.** `/ws/<listenKey>` · `/market/ws/<listenKey>` · `/stream?streams=` ·
+  `/market/stream?streams=` **네 경로 전부** 0건 (주문을 내고 취소해도 무반응).
+  listenKey는 정상(64자)이고 소켓도 살아 있다(`LIST_SUBSCRIPTIONS` 응답 옴).
+  ※ **시세 스트림은 `/market/ws/...`로 정상 수신된다** — 프론트가 그 경로를 쓴다.
+    `/ws/...`는 시세도 0건이다. 백엔드 UDS만 `/ws`를 쓰고 있었다
+- **왜 폴백이 안 돌았나**: `startPolling`은 WS가 **닫힐 때만** 켜진다. 우리 UDS는
+  "연결됐는데 조용한" 상태라 영영 안 켜졌다 → 밖에서 낸 매매가 프론트 30초 폴링까지
+  화면에 안 떴다 (사용자 신고 "바이낸스에서 진입하면 늦게 뜬다"). **실측으로 5초 내 감지 확인**
+- ⚠ 조회 셋 중 **하나라도 실패하면 비교하지 않는다** — 빈 값을 "사라졌다"로 오해하면
+  통신이 튈 때마다 가짜 변화가 잡혀 화면이 계속 갱신된다
+- ⚠ 첫 관측은 **기준선만** 잡는다 (서버 시작 직후 전체를 변화로 보고 쏘지 않게)
+- 변화가 잡히면 `pollForFills()`도 같이 부른다 — 우리 주문이 체결됐을 수 있고,
+  UDS가 죽어 있으면 그게 아니면 reconcile 60초까지 기다린다
+- 가중치 약 11/폴 × 20회/분 = 220 (한도 2400의 10% 이하)
+- `GET /api/health`의 `account`로 상태를 본다 (`polls`/`changes`/`lastChangeAt`)
+
 ### ⚠ 체결 감지 WebSocket(UDS)이 끊기면 **밖에서 낸 주문은 아무도 못 잡는다** (2026-08-23)
 `pollForFills`는 **store에 있는 주문만** 본다 → 밖에서 낸 주문은 백엔드 폴링으로도 안 걸린다.
 UDS가 한 번 놓치면 프론트의 30초 폴링까지 화면이 옛 상태다
@@ -1787,6 +1810,26 @@ UDS가 한 번 놓치면 프론트의 30초 폴링까지 화면이 옛 상태다
 - → `GET /api/health`가 `uds`를 돌려준다 (`connected`/`connectedAt`/`lastEventAt`/
   `events`/`reconnects`). "늦다"가 연결 문제인지 앱 문제인지 이걸로 갈린다.
   프론트는 `ok`만 쓰므로 화면은 그대로다
+
+### ⚠ 취소는 **대상을 확인하고 지운다** (2026-08-23 전수 감사)
+
+주문을 취소하는 지점이 18곳이다. "엉뚱한 걸 지우지 않는가"를 전부 확인한 결과:
+
+| 방식 | 어디 | 안전한 이유 |
+|---|---|---|
+| **id로 콕 집어** | `cancelPresetTPSL` · `dropPreset` · PATCH · `DELETE /api/orders` | 우리가 만든 id만 |
+| **종류+사이드로** | `close.js`(전량·부분) · reconcile SCALE_IN · `orders.js` | `utils/orderKind.js` 판정 |
+| **사이드 전체** | `cancelExistingAlgoTPSL` | 교체가 목적이라 의도된 것 |
+
+감사에서 **실제로 세 가지가 나왔고 전부 고쳤다**:
+- ⚠ `close.js` 전량 청산이 **지정가형 TP/SL(`STOP`/`TAKE_PROFIT`)을 안 지웠다** →
+  포지션이 사라진 뒤에도 트리거가 남는다(조건부 주문은 자동 취소가 안 된다).
+  목록은 이제 `utils/orderKind.js`의 **`TPSL_TYPES` 하나**를 조회·교체·청산이 공유한다
+- ⚠ `pollForFills`가 취소된 주문의 **사전 TP/SL을 안 내렸다** (다른 4경로는 내렸다)
+- ⚠ `DELETE /api/tpsl` · `/split` · `/api/scale-in`이 **넘겨받은 orderId를 그대로 취소**했다.
+  종류를 안 봐서 id 하나가 어긋나면 엉뚱한 주문이 조용히 사라진다
+  → `assertCancelKind(orderId, kind)`로 막는다. **못 찾거나 조회가 실패하면 막지 않는다**
+    (이미 체결·취소된 주문일 수 있고, 통신 문제로 정상 취소를 막으면 더 나쁘다)
 
 ### 체결 감지
 - **LIMIT 주문**: User Data Stream WebSocket (`orderWatcher.js`)으로 즉시 감지

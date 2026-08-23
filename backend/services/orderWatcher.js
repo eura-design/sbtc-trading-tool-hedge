@@ -260,6 +260,7 @@ async function pollForFills() {
       if (data.status === "FILLED")                                     await onFilled(orderId, data);
       else if (data.status === "CANCELED" || data.status === "EXPIRED") {
         console.log(`[POLL] 주문 ${orderId} 상태: ${data.status} → store 제거`);
+        await dropPreset(orderId);   // 다른 취소 경로와 같은 처리 (2026-08-23 감사에서 누락 발견)
         store.delete(orderId);
         push.pushUpdate(["position"]);
       }
@@ -487,6 +488,66 @@ async function reconcileWithBinance() {
   }
 }
 
+// ── 계정 변화 감시 (2026-08-23) ─────────────────────────────────────────────
+//
+// ⚠ **UDS만 믿으면 안 된다.** 이 환경에서 실측한 결과, 계정 스트림은
+//   `wss://fstream.binance.com/ws/<listenKey>`로 **연결은 되지만 이벤트가 한 건도
+//   오지 않는다**(4개 경로 전부 확인. 시세는 `/market/ws/...`로 정상 수신).
+//   그런데 `startPolling`은 WS가 **닫힐 때만** 켜지므로, "연결됐는데 조용한" 상태에서는
+//   폴백이 영영 안 돈다 → 밖에서 낸 매매가 프론트 30초 폴링까지 화면에 안 뜬다
+//   (사용자 신고: "바이낸스에서 진입하면 늦게 뜬다").
+//
+// → 그래서 **UDS와 무관하게 항상 도는** 감시를 둔다. 포지션·미체결·알고 주문의
+//   지문(signature)을 만들어 **달라졌을 때만** 푸시한다.
+//   가중치는 폴당 약 11(=5+1+5), 3초 간격이면 분당 220 — 한도(2400)의 10% 이하다
+const ACCOUNT_WATCH_MS = 3000;
+let accountWatchTimer  = null;
+let lastAccountSig     = null;
+const acct = { polls: 0, changes: 0, lastChangeAt: null };
+
+function accountSignature(positions, orders, algos) {
+  const p = positions.filter(x => parseFloat(x.positionAmt) !== 0)
+    .map(x => x.positionSide + ":" + x.positionAmt + ":" + x.entryPrice).sort().join("|");
+  const o = orders
+    .map(x => x.orderId + ":" + x.type + ":" + x.price + ":" + x.stopPrice + ":" + x.origQty + ":" + x.executedQty + ":" + x.status)
+    .sort().join("|");
+  const a = algos
+    .map(x => x.algoId + ":" + x.orderType + ":" + x.triggerPrice + ":" + x.quantity + ":" + x.algoStatus)
+    .sort().join("|");
+  return p + " # " + o + " # " + a;
+}
+
+async function watchAccount() {
+  acct.polls++;
+  try {
+    const [posR, ordR, algoR] = await Promise.allSettled([
+      binance("GET", "/fapi/v2/positionRisk",   { symbol: "BTCUSDT" }),
+      binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
+      binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
+    ]);
+    // ⚠ 하나라도 실패하면 **비교하지 않는다** — 빈 값을 "사라졌다"로 오해하면
+    //   통신이 튈 때마다 가짜 변화가 잡혀 화면이 계속 갱신된다
+    if (posR.status !== "fulfilled" || ordR.status !== "fulfilled" || algoR.status !== "fulfilled") return;
+    const algoRaw = algoR.value.data;
+    const algos = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
+    const sig = accountSignature(posR.value.data, ordR.value.data, algos);
+
+    if (lastAccountSig === null) { lastAccountSig = sig; return; }  // 첫 관측은 기준선만
+    if (sig === lastAccountSig) return;
+    lastAccountSig = sig;
+    acct.changes++; acct.lastChangeAt = Date.now();
+    console.log("[ACCOUNT] 변화 감지 → 화면 갱신 + 체결 확인");
+    push.pushUpdate(["position", "balance", "tpsl"]);
+    // 우리 주문이 체결됐을 수도 있다 — TP/SL 등록 경로를 바로 태운다
+    // (UDS가 죽어 있으면 이게 아니면 reconcile 60초까지 기다린다)
+    pollForFills().catch(e => console.warn("[ACCOUNT] pollForFills 실패:", e.message));
+  } catch (e) {
+    console.warn("[ACCOUNT] 감시 실패:", e.response?.data?.msg || e.message);
+  }
+}
+
+function accountStatus() { return { ...acct, intervalMs: ACCOUNT_WATCH_MS }; }
+
 function startPolling() {
   if (pollTimer) return;
   console.warn("[UDS] 폴링 모드 시작 (30초 간격)");
@@ -589,6 +650,11 @@ async function startUserDataStream() {
 
   if (reconcileTimer) clearInterval(reconcileTimer);
   reconcileTimer = setInterval(reconcileWithBinance, RECONCILE_INTERVAL);
+
+  // ⚠ UDS 성공 여부와 **무관하게** 켠다 — "연결됐는데 조용한" 경우가 실제로 있다
+  if (accountWatchTimer) clearInterval(accountWatchTimer);
+  accountWatchTimer = setInterval(watchAccount, ACCOUNT_WATCH_MS);
+  watchAccount();
 }
 
 function stop() {
@@ -599,4 +665,4 @@ function stop() {
   stopPolling();
 }
 
-module.exports = { startUserDataStream, stop, onFilled, verifyImmediateFill, resolveOrphans, udsStatus };
+module.exports = { startUserDataStream, stop, onFilled, verifyImmediateFill, resolveOrphans, udsStatus, accountStatus };

@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, roundPrice, cancelOrder } = require("../services/binanceClient");
+const { binance, roundPrice, cancelOrder, assertCancelKind } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
 const { isLiveLimit, isCloseDir } = require("../utils/orderKind");
@@ -183,6 +183,7 @@ router.delete("/", async (req, res) => {
   const { orderId, isAlgo } = req.body ?? {};
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
+    await assertCancelKind(orderId, "TPSL");   // 엉뚱한 주문 취소 방지 (2026-08-23 감사)
     await cancelOrder({ orderId, algoId: orderId, isAlgo });
     res.json({ success: true });
   } catch (err) {
@@ -222,6 +223,7 @@ router.delete("/split", async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
+    await assertCancelKind(orderId, "SPLIT_TP");   // 엉뚱한 주문 취소 방지
     await cancelOrder({ orderId });
     store.delete(String(orderId));
     res.json({ success: true });
