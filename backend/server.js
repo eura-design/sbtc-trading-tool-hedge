@@ -36,6 +36,49 @@ app.use("/api/tracker", trackerCors, express.json({ limit: "1mb" }), require("./
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "10mb" }));
 
+// ── 멈춤 감지 — 얼어 있던 사이 쌓인 요청을 거절한다 (2026-08-23) ──────────────
+//
+// ⚠ **실제로 당한 사고다.** 콘솔 창을 클릭하면 윈도우가 출력을 멈추는데
+//   (빠른 편집 모드), 그러면 stdout에 쓰려던 이 프로세스가 통째로 얼어붙는다.
+//   그 상태에서 낸 숏 주문 여러 건이 큐에 쌓여 있다가, 얼음이 풀리는 순간
+//   **한꺼번에 거래소로 나갔다** — 포지션 하나와 추가 진입 여러 건이 동시에 걸렸다
+//
+// 원리: TICK_MS마다 시각을 찍고 **찍은 간격**을 본다. 이벤트 루프가 막히면
+//   타이머도 같이 막히므로 그 간격이 곧 멈춰 있던 시간이다. 깨어난 직후 처리되는
+//   요청 = 그동안 쌓여 있던 것들 → 상태를 바꾸는 요청은 거절한다.
+//   한 틱 뒤 간격이 정상으로 돌아오므로 저절로 풀린다 (영구히 막히지 않는다)
+//
+// ⚠ **`Date.now() - lastTick`으로 판정하면 안 된다** — 깨어날 때 타이머 콜백이
+//   대기 중인 소켓 데이터보다 **먼저** 돌아서(타이머 단계 → poll 단계) 그 값이
+//   이미 리셋돼 있다. 반드시 **간격을 따로 기록**해서 봐야 한다 (실측 확인)
+//
+// ⚠ **TICK_MS는 FREEZE_MS보다 충분히 작아야 한다.** 정상 간격이 곧 TICK_MS라,
+//   둘이 가까우면 **평소 주문까지 전부 거절된다**. 지금은 0.2초 : 1초
+//
+// ⚠ GET은 막지 않는다 — 잔고·포지션 조회까지 끊기면 화면이 통째로 죽는다.
+//   위험한 건 주문·취소·청산처럼 **상태를 바꾸는 요청**뿐이다
+//
+// ※ 5초 넘게 멈추면 Node가 keep-alive 연결을 스스로 끊어서 요청이 도달조차
+//   못 한다(실측). 이 가드는 그보다 짧은 멈춤을 맡는다 — 두 겹이다
+const TICK_MS   = 200;
+const FREEZE_MS = 1000;
+let lastTick = Date.now();
+let lastGap  = 0;
+setInterval(() => {
+  const now = Date.now();
+  lastGap  = now - lastTick;
+  lastTick = now;
+  if (lastGap > FREEZE_MS) {
+    console.warn(`[멈춤감지] 백엔드가 ${(lastGap / 1000).toFixed(1)}초간 멈춰 있었습니다 — 그 사이 쌓인 요청은 거절됩니다`);
+  }
+}, TICK_MS).unref();
+
+app.use((req, res, next) => {
+  if (req.method === "GET" || lastGap <= FREEZE_MS) return next();
+  console.warn(`[멈춤감지] ${req.method} ${req.originalUrl} 거절 (${(lastGap / 1000).toFixed(1)}초간 멈춰 있었음)`);
+  res.status(503).json({ error: "백엔드가 잠시 멈춰서 주문이 취소됐습니다 — 다시 시도하세요" });
+});
+
 // ── 라우트 ────────────────────────────────────────────────────────────────────
 app.use("/api/health",   require("./routes/health"));
 app.use("/api/balance",  require("./routes/balance"));
