@@ -85,19 +85,14 @@ export class PaperBroker {
   }
 
   /** 포지션의 TP/SL 수정 (둘 중 준 것만 바꾼다) */
+  // ⚠ **단일 TP와 분할 TP는 공존한다** (2026-08-23) — 실거래와 같은 규칙.
+  //   예전엔 여기서 `t.splitTps = []`로 내렸다. 한쪽만 고치면 연습이 실거래와
+  //   다르게 체결된다 (backend/routes/tpsl.js PUT의 주석에 근거와 실측)
   setTpsl(positionSide, { tp, sl }) {
     const t = this.tpsl[positionSide];
-    let splitCanceled = 0;
-    if (tp) {
-      // 실거래와 동일: 단일 TP를 걸면 그 사이드 분할 TP를 전부 내린다 (수량이 겹친다).
-      // 반대 방향은 addSplitTp가 t.tp = null로 처리한다 — **양방향 배타**다.
-      // 한쪽만 고치면 연습이 실거래와 다르게 체결된다 (backend/routes/tpsl.js PUT)
-      splitCanceled = t.splitTps.length;
-      t.splitTps = [];
-      t.tp = { orderId: this.nextId(), price: tp, isAlgo: false };
-    }
+    if (tp) t.tp = { orderId: this.nextId(), price: tp, isAlgo: false };
     if (sl) t.sl = { orderId: this.nextId(), price: sl, isAlgo: false };
-    return { tp: t.tp, sl: t.sl, splitCanceled };
+    return { tp: t.tp, sl: t.sl };
   }
 
   addScaleIn({ positionSide, orderType, price, qty }) {
@@ -124,8 +119,7 @@ export class PaperBroker {
     const t = this.tpsl[positionSide];
     t.splitTps.push({ orderId: this.nextId(), price, qty, pct: pct ?? null, side: CLOSE_SIDE[positionSide] });
     t.splitTps.sort((a, b) => b.price - a.price);
-    // 실거래와 동일: 분할 TP를 걸면 전량 TP는 내린다 (수량이 겹친다)
-    t.tp = null;
+    // ⚠ 단일 TP를 내리지 않는다 — 공존한다 (setTpsl의 주석 참고)
   }
 
   cancelSplitTp(orderId) {
@@ -260,23 +254,32 @@ export class PaperBroker {
         continue;
       }
 
-      if (t.tp && reached(bar, t.tp.price, tpDir)) {
-        this._closePosition(side, p.size, t.tp.price, MAKER_FEE, "TP 체결");
-        this.tpsl[side] = blankTpsl();
-        this.events.push({ type: "tp", side, price: t.tp.price });
-        continue;
-      }
+      // ⚠ **단일 TP와 분할 TP는 공존할 수 있다** (2026-08-23) → 한 봉 안에 여러 개가
+      //   닿았을 때 **가격이 실제로 닿는 순서**로 처리해야 한다: 롱은 낮은 값부터,
+      //   숏은 높은 값부터. 예전엔 단일 TP를 먼저 보고 `continue`했는데, 그러면
+      //   롱에서 **더 유리한(높은) 가격이 먼저 체결돼** 연습 성적이 부풀려진다
+      //   ("모르면 불리하게" 원칙 위반). 단일 TP는 closePosition이라 잔여 전부를 정리한다
+      const exits = [
+        ...(t.tp ? [{ kind: "tp", price: t.tp.price }] : []),
+        ...t.splitTps.map(sp => ({ kind: "split", price: sp.price, sp })),
+      ].sort((a, b) => side === "LONG" ? a.price - b.price : b.price - a.price);
 
-      const remain = [];
-      for (const sp of t.splitTps) {
+      const remain = new Set(t.splitTps);
+      for (const e of exits) {
         const cur = this.pos[side];
-        if (cur && reached(bar, sp.price, tpDir)) {
-          const amount = Math.min(sp.qty, cur.size);
-          this._closePosition(side, amount, sp.price, MAKER_FEE, "분할 TP 체결");
-          this.events.push({ type: "split_tp", side, price: sp.price });
-        } else remain.push(sp);
+        if (!cur) break;
+        if (!reached(bar, e.price, tpDir)) continue;
+        if (e.kind === "tp") {
+          this._closePosition(side, cur.size, e.price, MAKER_FEE, "TP 체결");
+          t.tp = null;
+          this.events.push({ type: "tp", side, price: e.price });
+        } else {
+          this._closePosition(side, Math.min(e.sp.qty, cur.size), e.price, MAKER_FEE, "분할 TP 체결");
+          remain.delete(e.sp);
+          this.events.push({ type: "split_tp", side, price: e.price });
+        }
       }
-      t.splitTps = remain;
+      t.splitTps = t.splitTps.filter(sp => remain.has(sp));
       // 포지션이 다 닫혔으면 남은 종료 주문도 사라진다 (reduceOnly는 자동 취소된다)
       if (!this.pos[side]) this.tpsl[side] = blankTpsl();
     }

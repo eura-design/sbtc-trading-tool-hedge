@@ -93,28 +93,19 @@ export const createOrderSlice = (set, get) => ({
     setTpslSaving(true); setOrderStatus(null);
     try {
       const data = await api("PUT", "/api/tpsl", body);
-      // ⚠ **TP를 걸면 그 사이드 분할 TP는 백엔드가 전부 취소한다** — 로컬 상태도 같이 비운다.
-      //   안 비우면 다음 폴링(60초)까지 이미 사라진 분할 TP 선이 차트에 남는다.
-      //   단 **취소가 실패한 게 있으면 비우지 않는다**(`splitFailed`) — 거래소에 살아 있는
-      //   주문을 화면에서 지우면 아래 에러 배너("공존 중")와 화면이 서로 다른 말을 한다
-      const clearSplit = newTp && !data.splitFailed;
+      // ⚠ **분할 TP는 건드리지 않는다 — 단일 TP와 공존한다** (2026-08-23 사용자 확정).
+      //   예전엔 여기서 `splitTps: []`로 비웠다 (백엔드가 취소했으므로). 되돌리지 말 것 —
+      //   이유와 실측은 backend/routes/tpsl.js PUT의 주석
       setTpsl(prev => ({
         ...prev,
         [sideKey]: {
           ...prev[sideKey],
           tp: newTp ? data.tp : prev[sideKey]?.tp,
           sl: newSl ? data.sl : prev[sideKey]?.sl,
-          splitTps: clearSplit ? [] : (prev[sideKey]?.splitTps ?? []),
         },
       }));
       if (data.noSl) {
         setOrderStatus({ type: "error", msg: "⚠ SL 등록 실패 — 포지션에 SL이 없습니다! 즉시 수동 설정 필요" });
-      } else if (data.splitFailed) {
-        // 못 지운 분할 TP가 남았다 = 단일 TP와 공존 중이다. 조용히 넘기면 안 된다
-        setOrderStatus({ type: "error",
-          msg: `⚠ 분할 TP ${data.splitFailed}개 취소 실패 — 단일 TP와 공존 중입니다. 수동 취소 필요` });
-      } else if (data.splitCanceled) {
-        setOrderStatus({ type: "success", msg: `TP 등록 완료 — 분할 TP ${data.splitCanceled}개 취소됨` });
       } else {
         setOrderStatus({ type: "success", msg: "TP/SL 수정 완료" });
       }
@@ -252,15 +243,13 @@ export const createOrderSlice = (set, get) => ({
 
   addSplitTp: async (side, price, qty, pct) => {
     if (get().replayOn) return paperActions.addSplitTp(get, side, price, qty, pct);
-    const { tpsl, setTpsl, setOrderStatus, _refetchTpsl } = get();
+    const { setOrderStatus, _refetchTpsl } = get();
     setOrderStatus(null);
     try {
-      const sideKey   = side === "LONG" ? "long" : "short";
-      const tpOrderId = tpsl[sideKey]?.tp?.orderId ?? null;
-      const tpIsAlgo  = tpsl[sideKey]?.tp?.isAlgo  ?? false;
-      await api("POST", "/api/tpsl/split", { side, price, qty, pct, tpOrderId, tpIsAlgo });
-      if (tpOrderId) setTpsl(prev => ({ ...prev, [sideKey]: { ...prev[sideKey], tp: null } }));
-      setOrderStatus({ type: "success", msg: `분할 TP 등록 완료 ($${price?.toLocaleString()})` });
+      // ⚠ **기존 단일 TP를 내리지 않는다 — 둘은 공존한다** (2026-08-23 사용자 확정).
+      //   예전엔 `tpOrderId`를 실어 보내 취소하게 하고 로컬 tp도 비웠다. 되돌리지 말 것
+      await api("POST", "/api/tpsl/split", { side, price, qty, pct });
+      setOrderStatus({ type: "success", msg: `분할 TP 등록 완료 (${price?.toLocaleString()})` });
       setTimeout(() => { _refetchTpsl(); }, 500);
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 TP 실패: ${e.message}` });

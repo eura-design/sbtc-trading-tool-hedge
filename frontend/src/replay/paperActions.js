@@ -71,10 +71,8 @@ export const paperActions = {
     if (!paperBroker) return;
     const positionSide = dragSide ?? (position?.long ? "LONG" : "SHORT");
     try {
-      const r = paperBroker.setTpsl(positionSide, { tp: newTp, sl: newSl });
-      ok(get, r.splitCanceled
-        ? `TP 등록 완료 — 분할 TP ${r.splitCanceled}개 취소됨`
-        : "TP/SL 수정 완료");
+      paperBroker.setTpsl(positionSide, { tp: newTp, sl: newSl });
+      ok(get, "TP/SL 수정 완료");
     } catch (e) { err(get, e); }
     finally { setDragTpsl(null); }
   },
