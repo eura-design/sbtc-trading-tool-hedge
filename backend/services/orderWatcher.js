@@ -454,7 +454,11 @@ async function runReconcile() {
       if (first.hasSL) { resolveNaked(side, "sl", { price: first.slPrice }); continue; }
       // 위 retryable이 이번 사이클에 고칠 예정이면 중복 경보를 내지 않는다
       const willRetry = retryable.some(([, o]) => closeToPosition(o.closeSide) === side);
-      if (willRetry || nakedWarned.has(side)) continue;
+      // ⚠ **3초 감시가 이 사이드를 이미 세고 있으면 양보한다** (2026-08-24).
+      //   안 그러면 유예(15초)를 두는 의미가 없다 — 이 60초 점검이 도중에 끼어들어
+      //   자기 규칙(5초 재확인)대로 먼저 배너를 띄운다.
+      //   감시가 죽어 있으면 `nakedStrikes`가 안 늘어나므로 여기가 예전처럼 맡는다
+      if (willRetry || nakedWarned.has(side) || nakedStrikes.has(side)) continue;
 
       // ── 재확인 (NAKED_RECHECK_MS 주석 참고) ────────────────────────────
       //   5초 뒤 **포지션과 SL을 같이** 다시 본다. 포지션까지 보는 이유는 그새 청산될
@@ -664,7 +668,14 @@ async function watchAccount() {
 //   reconcile 쪽의 5초 재확인과 목적이 같다
 //
 // ⚠ **해제는 재확인 없이 즉시** 한다 — 좋은 소식이라 빨라서 손해 볼 게 없다
-const NAKED_STRIKES = 2;
+// ⚠ **수리 시도와 경보를 나눈다** (2026-08-24 사용자 요청).
+//   예전엔 6초에 배너를 띄우고 동시에 수리를 시작해서, 수리가 성공하면 **3초 만에
+//   배너가 사라졌다** — 배너는 클릭해야 닫히는 것이라 깜빡임으로 보였고, 보고 있지
+//   않으면 무슨 일이 있었는지도 모른다.
+//   지금은 **조용히 먼저 고쳐 보고, 그래도 안 되면 그때 알린다.**
+//   해결되면 배너도 토스트도 안 뜬다 (`resolveNaked`는 배너가 떴을 때만 토스트를 낸다)
+const NAKED_STRIKES       = 2;   // ~6초  — 여기서 조용히 수리를 시도한다
+const NAKED_ALARM_STRIKES = 5;   // ~15초 — 그래도 안 덮였으면 배너
 // side -> { n, since } — n은 연속으로 "안 덮임"을 본 횟수, since는 **처음 본 시각**.
 // ⚠ 경보의 시작 시각으로 `since`를 쓴다 (경보를 띄운 시각이 아니라). 그래야 해제될 때
 //   찍는 `없던 시간`이 실제와 맞는다 — 안 그러면 2회 확인에 걸린 3초가 통째로 빠진다
@@ -711,8 +722,21 @@ function checkNakedFast(positions, regular, algos) {
     const prev  = nakedStrikes.get(side);
     const since = prev?.since ?? Date.now();
     const n     = (prev?.n ?? 0) + 1;
-    nakedStrikes.set(side, { n, since });
-    if (n < NAKED_STRIKES) continue;                                 // 한 번 더 보고 정한다
+    let repaired = prev?.repaired ?? false;
+
+    // ① 확인되면 **조용히** 수리부터 시도한다 (알림 없음)
+    //    흔한 원인은 체결 후 `placeTPSL` 실패고, 그걸 다시 거는 건 reconcile의
+    //    retryable 경로다. 한 무방비 구간에 **한 번만** 부른다 — 3초마다 부르지 않는다
+    if (n >= NAKED_STRIKES && !repaired) {
+      repaired = true;
+      console.log(`[안전망] ${side} 손절이 포지션을 안 덮는다 → 조용히 수리 시도`);
+      reconcileWithBinance().catch(e => console.warn("[안전망] reconcile 실패:", e.message));
+    }
+    nakedStrikes.set(side, { n, since, repaired });
+
+    // ② 수리로 해결되면 이 줄에 도달하지 않는다 (덮이는 순간 위에서 continue).
+    //    끝까지 안 되면 그때 알린다
+    if (n < NAKED_ALARM_STRIKES) continue;
 
     const partialQty = stops.filter(o => !isFullClose(o))
       .reduce((sum, o) => sum + orderQtyOf(o), 0);
@@ -721,20 +745,6 @@ function checkNakedFast(positions, regular, algos) {
     console.error(`[안전망/즉시] ${msg}`);
     tradeLog.append({ event: "NAKED_POSITION", side, slPartialQty: partialQty, posAmt: amt, fast: true });
     push.pushAlert("critical", msg);
-
-    // ── 알리는 데서 끝내지 않고 **수리도 즉시 시작한다** (2026-08-24 사용자 요청) ──
-    //
-    // 무방비의 흔한 원인은 체결 후 `placeTPSL` 실패다. 그걸 다시 거는 건 reconcile의
-    // retryable 경로인데 타이머가 60초라, 경보만 6초 만에 뜨고 **수리는 최대 60초를
-    // 기다렸다**. 알림만 빨라지고 고치는 건 그대로인 셈이다.
-    //
-    // 포지션이 사라졌을 때 뒷정리를 즉시 부르는 것과 **같은 방식**이다.
-    // ⚠ 사이드당 래치(`nakedWarned`)가 있어 무방비 한 번에 **한 번만** 부른다 —
-    //   3초마다 부르지 않는다. 그래서 평소 부하가 늘지 않는다
-    //   (reconcile 주기를 30초로 줄이는 대신 이 방식을 택한 이유)
-    // ⚠ reconcile에는 중복 실행 방지가 이미 있다 (`reconcileRunning`)
-    console.log(`[안전망/즉시] ${side} 수리 시도 → reconcile 즉시 실행`);
-    reconcileWithBinance().catch(e => console.warn("[안전망/즉시] reconcile 실패:", e.message));
   }
 }
 
