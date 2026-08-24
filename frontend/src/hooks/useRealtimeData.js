@@ -9,13 +9,9 @@ const WS_URL = API_BASE.replace(/^http/, "ws");
  * 콜백은 useStore.getState()로 항상 최신 참조 사용 → deps 불필요.
  * 연결 끊김 시 5초 후 자동 재연결.
  */
-export function useRealtimeData(onNotice) {
+export function useRealtimeData() {
   const wsRef    = useRef(null);
   const timerRef = useRef(null);
-  // 연결 이펙트는 deps가 비어 있어 클로저가 첫 렌더 값을 붙든다 → ref로 최신 것을 본다
-  // (파일 상단 주석의 "항상 최신 참조" 원칙과 같은 이유)
-  const noticeRef = useRef(onNotice);
-  noticeRef.current = onNotice;
 
   useEffect(() => {
     let alive = true;
@@ -60,15 +56,6 @@ export function useRealtimeData(onNotice) {
           //   연습에 들어간 사이에 해소된 경보가 나올 때까지 화면에 남는다
           // ⚠ 문구가 키다 — 백엔드(`nakedMsg`)와 글자 하나라도 어긋나면 안 닫힌다
           if (msg.type === "alert-clear") dismissCriticalAlert(msg.msg);
-
-          // 지나가는 알림 — 금색 토스트 (2026-08-24)
-          // 무방비 경보가 **왜 사라졌는지**를 알려준다. 배너가 소리 없이 없어지면
-          // 봤던 사람은 해결된 것인지 오작동이었는지 알 수 없다
-          // ⚠ 경보와 같은 이유로 리플레이 중에는 억누른다 — 실계좌 얘기라
-          //   연습 화면 위에 뜨면 어느 쪽 계좌인지 구분이 안 된다
-          if (msg.type === "notice") {
-            if (!useStore.getState().replayOn) noticeRef.current?.(msg.msg);
-          }
         } catch {}
       };
 

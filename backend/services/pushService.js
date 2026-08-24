@@ -47,17 +47,6 @@ function pushAlert(level, msg) {
 }
 
 /**
- * 지나가는 알림 (금색 토스트, 30초 뒤 자동으로 사라짐) — 2026-08-24.
- *
- * `pushAlert`와 나눈 이유: 무방비 경보가 **해소됐을 때** 무슨 일이 있었는지 알려주려는데,
- * 그건 좋은 소식이라 빨간 배너 + 확인 버튼이 어울리지 않는다. 배너를 거두는
- * `pushAlertClear`는 조용히 지우기만 해서, 사용자는 배너가 왜 사라졌는지 알 수 없었다.
- */
-function pushNotice(msg) {
-  broadcast("notice", { msg });
-}
-
-/**
  * 이미 띄운 경보를 거두는 신호 (2026-08-22).
  *
  * ⚠ **`msg`는 `pushAlert`로 보낸 문구와 글자 그대로 같아야 한다** — 프론트는
@@ -72,4 +61,4 @@ function pushAlertClear(msg) {
   broadcast("alert-clear", { msg });
 }
 
-module.exports = { pushNotice, init, pushUpdate, pushAlert, pushAlertClear };
+module.exports = { init, pushUpdate, pushAlert, pushAlertClear };

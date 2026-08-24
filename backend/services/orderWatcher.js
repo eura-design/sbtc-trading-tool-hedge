@@ -70,10 +70,16 @@ const nakedMsg = (side, partialQty = 0, posAmt = null) =>
 // 경보 해소 — 래치를 풀고, 이미 띄운 배너가 있으면 거둔다
 // (안 거두면 20ms 만에 해결된 경보가 몇 시간씩 화면에 남는다 — 그게 08-22 신고였다)
 //
-// ⚠ **거두는 것으로 끝내지 않고 무슨 일이 있었는지 남긴다** (2026-08-24 사용자 요청).
-//   예전엔 배너가 소리 없이 사라져서, 봤던 사람은 그게 **해결된 것인지 오작동이었는지**
-//   알 수 없었다. 금색 토스트(30초 자동 닫힘)로 알린다 — 좋은 소식이라 빨간 배너로 띄우면
-//   확인 버튼을 눌러야 사라져 성가시다
+// ⚠ **해제될 때 화면에는 아무것도 띄우지 않는다** (2026-08-24 사용자 확정).
+//   한때 금색 토스트로 `✅ 손절 복구됨`을 알렸다. 그걸 넣은 이유는 "배너가 소리 없이
+//   사라져서 해결된 건지 오작동이었는지 알 수 없다"였는데, 같은 날 배너를 **15초 유예
+//   뒤에만** 띄우도록 바꾸면서 그 상황 자체가 없어졌다 — 이제 배너는 진짜 문제일 때만
+//   뜨고, 사라졌다는 건 해결됐다는 뜻이다. 알림을 둘로 두면 그 뜻이 흐려진다.
+//   되살리려면 `pushService.pushNotice`와 프론트 `useRealtimeData`의 `notice` 처리가
+//   함께 필요하다 (같이 지웠다)
+//
+// ⚠ 대신 **`trade_log.json`에는 남긴다** — 화면에 안 띄우는 것과 기록을 안 남기는 것은
+//   다르다. "그때 몇 초나 없었나"는 나중에 돌아볼 값이다
 //
 // ⚠ **없어진 원인은 적지 않는다** (2026-08-24 사용자 확정). 이 환경에서는 계정 스트림이
 //   이벤트를 한 건도 안 보내서(health의 `uds.events: 0`) 누가 취소했는지 알 근거가 없다.
@@ -84,13 +90,11 @@ function resolveNaked(side, reason = "sl", detail = {}) {
   nakedWarned.delete(side);
   push.pushAlertClear(warned.msg);
 
-  const secs = Math.max(0, Math.round((Date.now() - warned.at) / 1000));
-  const dur  = secs >= 60 ? `${Math.floor(secs / 60)}분 ${secs % 60}초` : `${secs}초`;
-  const notice = reason === "closed"
-    ? `✅ ${side} 포지션 종료 — SL 경보 해제`
-    : `✅ ${side} 손절 복구됨${detail.price ? ` — ${detail.price.toLocaleString()}` : ""} (없던 시간 ${dur})`;
-  push.pushNotice(notice);
-  console.log(`[안전망] ${notice}`);
+  const seconds = Math.max(0, Math.round((Date.now() - warned.at) / 1000));
+  tradeLog.append({ event: "NAKED_RESOLVED", side, reason, seconds,
+    price: detail.price ?? null });
+  console.log(`[안전망] ${side} 경보 해제 (${reason === "closed" ? "포지션 종료" : "손절 복구"}` +
+    `${detail.price ? " @" + detail.price : ""}, 없던 시간 ${seconds}초)`);
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
