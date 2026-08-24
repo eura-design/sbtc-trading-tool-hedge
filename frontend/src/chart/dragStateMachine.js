@@ -266,6 +266,19 @@ export const DRAG_HANDLERS = {
     },
   },
 
+  // 분할 SL — 분할 TP와 같은 구조 (2026-08-24)
+  partial_sl: {
+    onMove({ pos, scales, IH, setters, drag }) {
+      const newPrice = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
+      setters.setDragPartialSl({ orderId: drag.orderId, price: newPrice });
+      setters.setCursor("ns-resize");
+    },
+    onUp({ setters, state }) {
+      if (state.dragPartialSl) setters.movePartialSl(state.dragPartialSl.orderId, state.dragPartialSl.price);
+      setters.setDragPartialSl(null);
+    },
+  },
+
   // ── 채널 드래그 ────────────────────────────────────────────────────────────
   channel_ep: {
     onMove({ pos, drag, scales, candles, IW, IH, setters }) {

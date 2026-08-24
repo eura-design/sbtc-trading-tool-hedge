@@ -234,7 +234,7 @@ export function pendingEntryLines({ position, drawings, yScale, IH }) {
   return out;
 }
 
-export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, drawings, yScale, IW, IH }) {
+export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, partialSls, drawings, yScale, IW, IH }) {
   if (!yScale) return [];
   const out = [];
   const push = (kind, price, extra) => {
@@ -250,6 +250,7 @@ export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, dr
   }
   for (const o of scaleInOrders ?? []) push("scale_in", o.price, { orderId: o.orderId });
   for (const o of splitTps      ?? []) push("split_tp", o.price, { orderId: o.orderId });
+  for (const o of partialSls    ?? []) push("partial_sl", o.price, { orderId: o.orderId });
   // 진입 대기선의 × — 주문 취소일 뿐이라 한 번에 지운다 (진입 라벨의 ×만 2회 확인)
   for (const p of pendingEntryLines({ position, drawings, yScale, IH }))
     out.push({ kind: "pending", side: p.side, orderId: p.orderId, ...p.close });
@@ -482,7 +483,7 @@ export function buildHitChain(ctx) {
     pos, xScale, yScale, candles,
     lineMode, lineStart, setLineStart, addLine,
     selectedLineId, lines, dragRef,
-    hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
+    hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, partialSls,
     position, IH, IW, onMarkerClose,
     drawings, selectedBox, locked, drawMode, setCurrent,
     xDomainRef,
@@ -710,10 +711,10 @@ export function buildHitChain(ctx) {
     //   순서를 뒤집으면 누를 때마다 드래그가 먼저 잡혀 영영 눌리지 않는다
     {
       // 진입 대기선의 ×는 **포지션이 없을 때도** 떠 있다 — hasPos만 보면 안 눌린다
-      when: !!onMarkerClose && (hasPos || !!scaleInOrders?.length || !!splitTps?.length
+      when: !!onMarkerClose && (hasPos || !!scaleInOrders?.length || !!splitTps?.length || !!partialSls?.length
             || !!position?.pending?.long || !!position?.pending?.short),
       handle() {
-        const btns = markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, drawings, yScale, IW, IH });
+        const btns = markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, partialSls, drawings, yScale, IW, IH });
         const b = btns.find(v => pos.x >= v.x && pos.x <= v.x + v.w && pos.y >= v.y && pos.y <= v.y + v.h);
         if (!b) return false;
         onMarkerClose(b);
@@ -788,6 +789,20 @@ export function buildHitChain(ctx) {
           const px = yScale(o.price);
           if (Math.abs(pos.y - px) < HIT) {
             dragRef.current = { type:"split_tp", orderId:o.orderId, startY:pos.y, startPrice:o.price };
+            return true;
+          }
+        }
+        return false;
+      },
+    },
+    // 4.62 분할 SL 핸들 드래그 — 분할 TP와 같은 규칙 (2026-08-24)
+    {
+      when: !!partialSls?.length && pos.x >= 0 && pos.x <= 60,
+      handle() {
+        for (const o of partialSls) {
+          const px = yScale(o.price);
+          if (Math.abs(pos.y - px) < HIT) {
+            dragRef.current = { type:"partial_sl", orderId:o.orderId, startY:pos.y, startPrice:o.price };
             return true;
           }
         }

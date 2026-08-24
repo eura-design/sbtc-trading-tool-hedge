@@ -89,10 +89,11 @@ export function ChartArea({
     dragTpsl, setDragTpsl,
     dragScaleIn, setDragScaleIn,
     dragSplitTp, setDragSplitTp,
+    dragPartialSl, setDragPartialSl,
     selectedBox, setSelectedBox,
     opacityPopup, setOpacityPopup,
     closeConfirm, setCloseConfirm,
-    cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition, deleteBox,
+    cancelTpsl, cancelScaleIn, cancelSplitTp, cancelPartialSl, closePosition, deleteBox,
   } = useStore(useShallow(s => ({
     drawings: s.drawings, setDrawing: s.setDrawing,
     drawMode: s.drawMode, setDrawMode: s.setDrawMode,
@@ -100,11 +101,12 @@ export function ChartArea({
     dragTpsl: s.dragTpsl, setDragTpsl: s.setDragTpsl,
     dragScaleIn: s.dragScaleIn, setDragScaleIn: s.setDragScaleIn,
     dragSplitTp: s.dragSplitTp, setDragSplitTp: s.setDragSplitTp,
+    dragPartialSl: s.dragPartialSl, setDragPartialSl: s.setDragPartialSl,
     selectedBox: s.selectedBox, setSelectedBox: s.setSelectedBox,
     opacityPopup: s.opacityPopup, setOpacityPopup: s.setOpacityPopup,
     closeConfirm: s.closeConfirm, setCloseConfirm: s.setCloseConfirm,
     cancelTpsl: s.cancelTpsl, cancelScaleIn: s.cancelScaleIn,
-    cancelSplitTp: s.cancelSplitTp, closePosition: s.closePosition,
+    cancelSplitTp: s.cancelSplitTp, cancelPartialSl: s.cancelPartialSl, closePosition: s.closePosition,
     deleteBox: s.deleteBox,
   })));
 
@@ -118,6 +120,7 @@ export function ChartArea({
     if (b.kind === "tp" || b.kind === "sl") { setCloseConfirm(null); cancelTpsl(b.side, b.kind); return; }
     if (b.kind === "scale_in")              { setCloseConfirm(null); cancelScaleIn(b.orderId);   return; }
     if (b.kind === "split_tp")              { setCloseConfirm(null); cancelSplitTp(b.orderId);   return; }
+    if (b.kind === "partial_sl")            { setCloseConfirm(null); cancelPartialSl(b.orderId); return; }
     // 미체결 진입 주문 취소 — 주문일 뿐이라 한 번에 지운다 (진입 라벨의 ×만 2회 확인).
     // deleteBox가 그 사이드의 pending을 orderId로 취소하고 박스가 있으면 같이 정리한다
     if (b.kind === "pending")                { setCloseConfirm(null); deleteBox(b.side);          return; }
@@ -125,7 +128,7 @@ export function ChartArea({
       if (closeConfirm === b.side) { setCloseConfirm(null); closePosition(b.side, b.size, false); }
       else setCloseConfirm(b.side); // 1회차 — ✓ 로 바뀌며 확인 대기
     }
-  }, [closeConfirm, setCloseConfirm, cancelTpsl, cancelScaleIn, cancelSplitTp, closePosition, deleteBox]);
+  }, [closeConfirm, setCloseConfirm, cancelTpsl, cancelScaleIn, cancelSplitTp, cancelPartialSl, closePosition, deleteBox]);
 
   // 헷지모드: 양쪽 모두 점유(포지션 or pending)됐을 때만 신규 박스 드로잉 차단
   const { hasLong, hasShort, hasPos, drawLocked } = derivePositionFlags(position);
@@ -259,9 +262,10 @@ export function ChartArea({
   }, [rsiData, showRsi, showRsiZones, effectiveRsiH, indicatorParams.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
-  const { saveTpsl, moveScaleIn, moveSplitTp } = useOrderFlow();
+  const { saveTpsl, moveScaleIn, moveSplitTp, movePartialSl } = useOrderFlow();
 
-  const splitTps = [...(tpsl?.long?.splitTps ?? []), ...(tpsl?.short?.splitTps ?? [])];
+  const splitTps   = [...(tpsl?.long?.splitTps   ?? []), ...(tpsl?.short?.splitTps   ?? [])];
+  const partialSls = [...(tpsl?.long?.partialSls ?? []), ...(tpsl?.short?.partialSls ?? [])];
 
   // ── 크로스헤어 ────────────────────────────────────────────────────────────
   const { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, legRefs,
@@ -279,11 +283,12 @@ export function ChartArea({
       lineMode, lineStart, lines, selectedLineId,
       setLineStart, setLinePreview, setSelectedLineId,
       addLine, updateLineEndpoint, setLinePosition,
-      hasPos, hasLong, hasShort, tpsl, scaleInOrders: position?.scaleInOrders, splitTps,
+      hasPos, hasLong, hasShort, tpsl, scaleInOrders: position?.scaleInOrders, splitTps, partialSls,
       position, onMarkerClose,
       dragTpsl, setDragTpsl, saveTpsl,
       dragScaleIn, setDragScaleIn, moveScaleIn,
       dragSplitTp, setDragSplitTp, moveSplitTp,
+      dragPartialSl, setDragPartialSl, movePartialSl,
       selectedBox, setSelectedBox,
       isLog,
       channelMode, channelStep, setChannelStep,
@@ -361,6 +366,7 @@ export function ChartArea({
         closeConfirm={closeConfirm}
         scaleInOrders={position?.scaleInOrders} dragScaleIn={dragScaleIn}
         splitTps={splitTps} dragSplitTp={dragSplitTp}
+        partialSls={partialSls} dragPartialSl={dragPartialSl}
         lines={lines} selectedLineId={selectedLineId} lineStart={lineStart} linePreview={linePreview} isLog={isLog}
         drawings={drawings} current={current} locked={locked} selectedBox={selectedBox}
         channels={channels} selectedChannelId={selectedChannelId}

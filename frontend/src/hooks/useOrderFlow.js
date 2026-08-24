@@ -18,6 +18,7 @@ export function useOrderFlow() {
     cancelSplitTp: s.cancelSplitTp,
     addPartialSl:   s.addPartialSl,
     cancelPartialSl: s.cancelPartialSl,
+    movePartialSl:   s.movePartialSl,
     moveSplitTp:   s.moveSplitTp,
   })));
 }

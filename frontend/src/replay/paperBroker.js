@@ -131,7 +131,8 @@ export class PaperBroker {
   addPartialSl({ positionSide, price, qty }) {
     const t = this.tpsl[positionSide];
     if (!t.partialSls) t.partialSls = [];
-    t.partialSls.push({ orderId: this.nextId(), price, qty, side: CLOSE_SIDE[positionSide] });
+    t.partialSls.push({ orderId: this.nextId(), price, qty,
+      side: CLOSE_SIDE[positionSide], positionSide });
     t.partialSls.sort((a, b) => positionSide === "LONG" ? b.price - a.price : a.price - b.price);
   }
 

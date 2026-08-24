@@ -19,12 +19,13 @@ export function useChartInteraction({
   lineMode, lineStart, lines, selectedLineId,
   setLineStart, setLinePreview, setSelectedLineId,
   addLine, updateLineEndpoint, setLinePosition,
-  hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
+  hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, partialSls,
   position, // 진입선의 `+TP`/`+SL` 버튼 좌표를 잡는 데 필요 (hitDetection.posTpSlButtons)
   onMarkerClose, // 마커 옆 × 클릭 처리 (ChartArea)
   dragTpsl, setDragTpsl, saveTpsl,
   dragScaleIn, setDragScaleIn, moveScaleIn,
   dragSplitTp, setDragSplitTp, moveSplitTp,
+  dragPartialSl, setDragPartialSl, movePartialSl,
   selectedBox, setSelectedBox,
   isLog = false,
   // 채널
@@ -146,7 +147,7 @@ export function useChartInteraction({
       pos, xScale, yScale, candles,
       lineMode, lineStart, setLineStart, addLine,
       selectedLineId, lines, dragRef,
-      hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps,
+      hasPos, hasLong, hasShort, tpsl, scaleInOrders, splitTps, partialSls,
       position, IH, IW, onMarkerClose,
       drawings, selectedBox, locked, drawMode, setCurrent,
       xDomainRef,
@@ -173,7 +174,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitLiveStructPoint, showZZ]);
+  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, partialSls, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitLiveStructPoint, showZZ]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -351,7 +352,7 @@ export function useChartInteraction({
       if (!drag) {
         if (scales) {
           const { xScale, yScale } = scales;
-          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawings, scaleInOrders, splitTps, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedStructId, structures, structMode, structDraft, structLive: getStructLiveSegment(), isLog });
+          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawings, scaleInOrders, splitTps, partialSls, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedStructId, structures, structMode, structDraft, structLive: getStructLiveSegment(), isLog });
           if (cursor) { setCursor(cursor); return; }
         }
         setCursor((drawMode || lineMode || channelMode || circleMode || fibMode || structMode) ? "crosshair" : "grab"); return;
@@ -364,12 +365,13 @@ export function useChartInteraction({
       const setters = {
         setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef,
         redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp,
+        setDragPartialSl, movePartialSl,
         isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
         updateFibEndpoint, setFibPosition,
         moveStructPoint, normalizeStruct,
       };
-      const state = { drawings, dragTpsl, dragScaleIn, dragSplitTp };
+      const state = { drawings, dragTpsl, dragScaleIn, dragSplitTp, dragPartialSl };
 
       if (drag.type === "pan") {
         const rect2 = svgRef.current?.getBoundingClientRect();
@@ -381,7 +383,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
+  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, dragPartialSl, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, partialSls, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
@@ -398,6 +400,7 @@ export function useChartInteraction({
       setters: {
         setDrawing, setCurrent, setDragTpsl, setCursor, saveTpsl, setDrawMode,
         setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp,
+        setDragPartialSl, movePartialSl,
         setSelectedBox, replacePendingOrder, updatePendingTpsl, redrawChart, setOrderStatus,
         updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
@@ -405,9 +408,9 @@ export function useChartInteraction({
         moveStructPoint, normalizeStruct, clearStructPart,
       },
       // position은 `draw.onUp`이 **같은 사이드 포지션 보유 시 박스 그리기를 막는 데** 쓴다
-      state: { drawings, dragTpsl, dragScaleIn, dragSplitTp, position },
+      state: { drawings, dragTpsl, dragScaleIn, dragSplitTp, dragPartialSl, position },
     });
-  }, [candles, drawings, dragTpsl, dragSplitTp, dragScaleIn, position, saveTpsl, moveSplitTp, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
+  }, [candles, drawings, dragTpsl, dragSplitTp, dragPartialSl, dragScaleIn, position, saveTpsl, moveSplitTp, movePartialSl, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
 
   const onDoubleClick = useCallback(e => {
     const pos    = getSvgPos(e);

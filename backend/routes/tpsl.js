@@ -74,14 +74,14 @@ router.get("/", async (req, res) => {
         if (!types.includes(o.type) || o.positionSide !== positionSide) continue;
         if (isFullClose(o) || presetIds.has(String(o.orderId))) continue;
         out.push({ orderId: String(o.orderId), price: parseFloat(o.stopPrice),
-          qty: orderQtyOf(o), isAlgo: false });
+          qty: orderQtyOf(o), isAlgo: false, positionSide });
       }
       for (const o of algo) {
         if (!types.includes(o.orderType)) continue;
         if (!(o.positionSide === positionSide || (!o.positionSide && o.side === closeSide))) continue;
         if (isFullClose(o) || presetIds.has(String(o.algoId))) continue;
         out.push({ orderId: String(o.algoId), price: parseFloat(o.triggerPrice),
-          qty: orderQtyOf(o), isAlgo: true });
+          qty: orderQtyOf(o), isAlgo: true, positionSide });
       }
       return out.sort((a, b) => b.price - a.price);
     };

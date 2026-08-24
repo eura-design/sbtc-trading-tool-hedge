@@ -288,6 +288,24 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
+  // 가격 이동 = 취소 후 재등록 (주문번호가 바뀐다) — moveSplitTp와 같은 방식
+  movePartialSl: async (orderId, newPrice) => {
+    if (get().replayOn) return paperActions.movePartialSl(get, orderId, newPrice);
+    const { tpsl, setOrderStatus, _refetchTpsl } = get();
+    const all = [...(tpsl.long?.partialSls ?? []), ...(tpsl.short?.partialSls ?? [])];
+    const target = all.find(o => o.orderId === orderId);
+    if (!target) return;
+    const side = target.positionSide;   // 백엔드·페이퍼가 같이 실어 보낸다
+    try {
+      await api("DELETE", "/api/tpsl/partial-sl", { orderId });
+      await api("POST", "/api/tpsl/partial-sl", { side, price: newPrice, qty: target.qty });
+      setOrderStatus({ type: "success", msg: `분할 SL 가격 이동 완료 ($${newPrice?.toLocaleString()})` });
+      setTimeout(() => { _refetchTpsl(); }, 500);
+    } catch (e) {
+      setOrderStatus({ type: "error", msg: `분할 SL 이동 실패: ${e.message}` });
+    }
+  },
+
   cancelSplitTp: async (orderId) => {
     if (get().replayOn) return paperActions.cancelSplitTp(get, orderId);
     const { setOrderStatus, _refetchTpsl } = get();

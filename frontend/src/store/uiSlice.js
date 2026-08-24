@@ -103,6 +103,7 @@ export const createUiSlice = (set, get) => ({
   dragTpsl:    null,
   dragScaleIn: null,
   dragSplitTp: null,
+  dragPartialSl: null,
 
   /**
    * 한 **사이드의** 플랜 박스를 갈아끼운다.
@@ -145,4 +146,5 @@ export const createUiSlice = (set, get) => ({
   setDragTpsl:    (v) => set({ dragTpsl: v }),
   setDragScaleIn: (v) => set({ dragScaleIn: v }),
   setDragSplitTp: (v) => set({ dragSplitTp: v }),
+  setDragPartialSl: (v) => set({ dragPartialSl: v }),
 });

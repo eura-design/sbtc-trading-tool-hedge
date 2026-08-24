@@ -75,9 +75,10 @@ export const CURSOR_RULES = [
     cursor: "ns-resize",
   },
   {
-    test: ({ splitTps, pos, yScale }) => {
-      if (!splitTps?.length || pos.x < 0 || pos.x > 60) return false;
-      return splitTps.some(o => Math.abs(pos.y - yScale(o.price)) < HIT);
+    test: ({ splitTps, partialSls, pos, yScale }) => {
+      if (pos.x < 0 || pos.x > 60) return false;
+      return (splitTps ?? []).some(o => Math.abs(pos.y - yScale(o.price)) < HIT)
+          || (partialSls ?? []).some(o => Math.abs(pos.y - yScale(o.price)) < HIT);
     },
     cursor: "ns-resize",
   },

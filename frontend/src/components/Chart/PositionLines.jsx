@@ -233,7 +233,7 @@ function EntryLine({ yPx, color, label, row, qtyText, IH, path, confirm, closeHo
   );
 }
 
-export const PositionLines = memo(function PositionLines({ position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, closeConfirm, drawings, scales, candles, IW, IH }) {
+export const PositionLines = memo(function PositionLines({ position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, partialSls, dragPartialSl, closeConfirm, drawings, scales, candles, IW, IH }) {
   if (!position || !scales) return null;
   const { yScale, xScale } = scales;
 
@@ -241,6 +241,7 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
   const [hoveredSlSide, setHoveredSlSide]   = useState(null);
   const [hoveredScaleIn, setHoveredScaleIn] = useState(null);
   const [hoveredSplitTp, setHoveredSplitTp] = useState(null);
+  const [hoveredPartialSl, setHoveredPartialSl] = useState(null);
   const [hoveredPending, setHoveredPending] = useState(null);
   const [hoveredAddBtn, setHoveredAddBtn]   = useState(null);
   // × 버튼 호버는 한 곳에 모은다 — 화면에 한 번에 하나만 호버되므로 키 하나면 충분하다
@@ -251,7 +252,8 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
     onCloseLeave: () => setHoveredClose(null),
   });
 
-  const splitTpList = splitTps ?? [];
+  const splitTpList   = splitTps ?? [];
+  const partialSlList = partialSls ?? [];
 
   // 진입 시각 → 그 봉의 **왼쪽 가장자리** x. 봉 한가운데(fractional idx)가 아니라
   // 가장자리로 맞춰야 "이 봉에서 들어갔다"가 캔들과 나란히 읽힌다
@@ -403,6 +405,31 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
             onHandleEnter={() => setHoveredSplitTp(o.orderId)}
             onHandleLeave={() => setHoveredSplitTp(null)}
             {...closeProps(`split_tp-${o.orderId}`)}
+          />
+        );
+      })}
+
+      {/* 분할 SL — 분할 TP와 같은 골격 (2026-08-24 사용자 요청) */}
+      {partialSlList.map(o => {
+        const isDragging = dragPartialSl?.orderId === o.orderId;
+        const price      = isDragging ? dragPartialSl.price : o.price;
+        const isActive   = isDragging || hoveredPartialSl === o.orderId;
+        const isLong     = o.positionSide === "LONG";
+        const color      = isLong ? CL : CS;
+        return (
+          <PriceLineMarker
+            key={o.orderId}
+            yPx={yScale(price)} color={color} IW={IW} IH={IH}
+            // ⚠ 글자가 `분할`이면 분할 TP와 구분이 안 된다 — 롱이면 둘 다 청산 방향이라
+            //   **색까지 같다**(SELL/LONG = 초록). 자리도 같은 좌측 레인이라 글자가 유일한 단서다
+            handleChar="분SL"
+            isActive={isActive} isDragging={isDragging}
+            qtyText={fmtQty(o.qty)}
+            pctText={fmtPct(o.qty, position[isLong ? "long" : "short"]?.size)}
+            dragCenterText="분할SL" dragCenterWidth={60}
+            onHandleEnter={() => setHoveredPartialSl(o.orderId)}
+            onHandleLeave={() => setHoveredPartialSl(null)}
+            {...closeProps(`partial_sl-${o.orderId}`)}
           />
         );
       })}
