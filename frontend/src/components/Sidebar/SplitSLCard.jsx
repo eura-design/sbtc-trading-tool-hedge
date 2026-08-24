@@ -24,10 +24,26 @@ export function SplitSLCard({ posData, side, tpsl, lastPrice, onAddPartialSl, on
   const { theme } = useTheme();
   const isLong = side === "LONG";
   const [pct, setPct] = usePersistedPct("partialSlPct");
-  // 평단가를 기본값으로 — 사용자가 고치면 60초 잠기는 건 다른 카드와 같다
+  // ── 기본 가격 (2026-08-24) ────────────────────────────────────────────────
+  //
+  // **평단가를 쓰되, 그게 유효하지 않으면 현재가에서 3% 떨어뜨린다.**
+  //
+  //   수익 중  -> 평단가        이 카드의 목적이 "본전까지 오면 절반 청산"이다
+  //   손실 중  -> 현재가 ∓3%    평단이 현재가 반대편이라 그대로 두면 즉시 발동으로 거절된다
+  //
+  // ⚠ 손절은 **현재가 반대편**이어야 한다 (롱은 아래·숏은 위). 분할 TP가 유리한 쪽으로
+  //   3% 떨어뜨리는 것과 **방향이 반대다** — 한쪽을 보고 다른 쪽을 맞추지 말 것
+  // ⚠ 손실 중에는 애초에 "본전 청산"이 성립하지 않는다. 그 자리에 걸고 싶으면
+  //   그건 익절이므로 분할 TP 카드다 (가격을 잘못 넣으면 아래 안내가 그렇게 알려준다)
   const [price, setPrice] = useAutoUpdatedPrice(
     posData?.entryPrice || lastPrice || 0,
-    () => posData?.entryPrice ?? null,
+    () => {
+      const entry = posData?.entryPrice;
+      const mark  = lastPrice;
+      if (!mark) return entry ?? null;
+      const entryUsable = entry != null && (isLong ? entry < mark : entry > mark);
+      return entryUsable ? entry : mark * (isLong ? 0.97 : 1.03);
+    },
   );
 
   if (!posData) return null;
@@ -48,7 +64,6 @@ export function SplitSLCard({ posData, side, tpsl, lastPrice, onAddPartialSl, on
   const mark        = lastPrice || 0;
   const directionOk = mark > 0 && (isLong ? priceNum < mark : priceNum > mark);
   const valid       = priceNum > 0 && addQty >= 0.001 && directionOk;
-  const full        = remaining < 0.001;   // 분할 SL이 포지션을 다 덮은 상태
 
   return (
     <CardWrapper embedded={embedded} title="분할 SL">
@@ -79,18 +94,14 @@ export function SplitSLCard({ posData, side, tpsl, lastPrice, onAddPartialSl, on
           : null}
       />
 
-      {full ? (
-        <div style={{ fontSize: "11px", color: theme.textFaint, textAlign: "center",
-          padding: "8px 6px", marginBottom: "6px",
-          background: theme.bgCard, borderRadius: "4px" }}>
-          분할 SL이 포지션 전체를 덮고 있습니다 — 추가하려면 기존 항목을 지우세요
-        </div>
-      ) : (
-        <PercentSlider
-          pct={pct} onChange={setPct} color={color}
-          label="수량" secondaryText={`${pct}% (${addQty} BTC)`}
-        />
-      )}
+      {/* ⚠ 잔여가 0일 때 띄우던 `분할 SL이 포지션 전체를 덮고 있습니다 — 추가하려면
+             기존 항목을 지우세요` 안내는 2026-08-24 사용자 요청으로 제거했다.
+             슬라이더는 그대로 두고 `추가` 버튼만 비활성이 된다 (`valid` 가 addQty 를 본다).
+             ※ 분할 TP 카드에는 같은 안내가 아직 남아 있다 — 여기만 뺀 것이다 */}
+      <PercentSlider
+        pct={pct} onChange={setPct} color={color}
+        label="수량" secondaryText={`${pct}% (${addQty} BTC)`}
+      />
 
       <SubmitButton
         disabled={!valid} color={color}
