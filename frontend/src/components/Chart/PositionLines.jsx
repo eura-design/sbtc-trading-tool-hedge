@@ -395,9 +395,12 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
           <PriceLineMarker
             key={o.orderId}
             yPx={yScale(price)} color={color} IW={IW} IH={IH}
-            // ⚠ 핸들 글자는 `TP`가 아니라 `분할` — 버튼 모양에서는 색까지 같아
-            //   (SELL = 롱 청산 = 초록) 진짜 TP 버튼과 구분이 안 된다
-            handleChar="분할"
+            // ⚠ 핸들 글자는 `TP`가 아니라 `분TP` (2026-08-24 사용자 요청).
+            //   ① 전량 TP 버튼과 색까지 같아(SELL/LONG = 초록) 구분이 안 된다
+            //   ② `분할`이던 것을 `분TP`로 바꿨다 — 같은 날 분할 SL이 생기면서
+            //      `분할`만으로는 익절인지 손절인지 알 수 없게 됐다.
+            //      네 글자가 한 벌이다: `TP` `SL` `분TP` `분SL`
+            handleChar="분TP"
             isActive={isActive} isDragging={isDragging}
             qtyText={fmtQty(o.qty)}
             pctText={fmtPct(o.qty, position[o.side === "SELL" ? "long" : "short"]?.size)}
