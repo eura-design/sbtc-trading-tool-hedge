@@ -168,8 +168,21 @@ export class PaperBroker {
     if (!partial) return;
     const rest = this.pos[positionSide];
     const t = this.tpsl[positionSide];
-    if (!rest || !t.splitTps.length) return;
-    t.splitTps = rescaleSplitTps(t.splitTps, originalSize, amount);
+    if (!rest) return;
+    if (t.splitTps.length) t.splitTps = rescaleSplitTps(t.splitTps, originalSize, amount);
+
+    // ── 분할 SL도 같은 비율로 (2026-08-24) — 실거래 `routes/close.js` 3-2)의 미러 ──
+    //
+    // 안 맞추면 "절반만 빼는 손절"이 슬그머니 **전량 손절로 변한다**
+    // (0.173에 0.087 걸어두고 절반 청산 → 포지션 0.086 < 주문 0.087).
+    //
+    // ⚠ **최소 수량 미만이 되는 항목은 원래 수량을 그대로 둔다** — 지우면 그만큼
+    //   무방비다. 분할 TP는 지워도 손해가 없어 규칙이 다르다 (실거래도 같다)
+    if (t.partialSls?.length) {
+      const scaled = rescaleSplitTps(t.partialSls, originalSize, amount);
+      t.partialSls = t.partialSls.map(ps =>
+        scaled.find(x => x.orderId === ps.orderId) ?? ps);
+    }
   }
 
   // ── 시간 진행 ──────────────────────────────────────────────────────────

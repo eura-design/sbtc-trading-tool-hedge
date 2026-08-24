@@ -431,7 +431,18 @@ async function runReconcile() {
     // ⚠ 알고 주문 조회는 **치울 사이드가 있을 때만** 한다 — 평소엔 호출이 늘지 않는다
     const emptySides = ["LONG", "SHORT"].filter(sd => !(sd === "LONG" ? hasLong : hasShort));
     if (emptySides.length) {
-      const entrySides = new Set(openOrders.filter(o => isLiveLimit(o) && isEntryDir(o))
+      // ⚠ **이번 사이클에 어차피 취소될 물타기 주문은 "진입 대기"로 세지 않는다**
+      //   (2026-08-24). 아래 SCALE_IN 정리 블록이 이 함수 **뒤쪽**에 있어서, 그걸
+      //   진입 대기로 세면 찌꺼기 정리가 **한 사이클(60초) 늦는다.**
+      //   그 조합이 하필 위험하다 — 남은 물타기가 체결되면 새 포지션이 생기고,
+      //   거기에 옛 분할 SL이 **엉뚱한 가격으로 붙는다**
+      //   (블록 순서를 바꾸는 대신 판정만 고쳤다 — reconcile의 실행 순서를 건드리는
+      //    쪽보다 범위가 좁다)
+      // ※ 밖에서 낸 물타기는 store에 없어 여전히 "진입 대기"로 센다 — 그건 우리가
+      //   치우지 못하는 주문이라 근거 없이 손대지 않는 쪽이 맞다 (기타/주의사항.txt 1번)
+      const entrySides = new Set(openOrders
+        .filter(o => isLiveLimit(o) && isEntryDir(o))
+        .filter(o => store.get(String(o.orderId))?.status !== "SCALE_IN")
         .map(o => o.positionSide));
       const targets = emptySides.filter(sd => !entrySides.has(sd));
       if (targets.length) {

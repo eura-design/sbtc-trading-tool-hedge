@@ -4,7 +4,8 @@ const store   = require("../store/pendingOrders");
 const push    = require("../services/pushService");
 const { positionToClose } = require("../utils/side");
 const { rescaleSplitTps } = require("../utils/splitTp");
-const { isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES } = require("../utils/orderKind");
+const { isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES,
+  isFullClose, orderQtyOf } = require("../utils/orderKind");
 const router  = express.Router();
 
 // 사이드별 처리 중 락 — 부분 청산의 분할TP 사전취소~재등록 윈도우와
@@ -31,13 +32,17 @@ router.post("/", async (req, res) => {
   // 부분 청산 시 분할 TP 미리 취소 (race condition 방지)
   // 취소 후 청산 실패 시 롤백을 위해 원본 정보 보존
   let splitTpOrders = [];
+  let partialSlOrders = [];
   let originalSize  = 0;
   if (partial) {
     try {
-      const [{ data: openOrders }, { data: posData }] = await Promise.all([
+      const [{ data: openOrders }, { data: posData }, algoRes] = await Promise.all([
         binance("GET", "/fapi/v1/openOrders",   { symbol: "BTCUSDT" }),
         binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }),
+        binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
       ]);
+      const algoRaw = algoRes.data;
+      const algos = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
       // 해당 사이드의 분할 TP만 취소 (반대쪽 SPLIT_TP는 건드리지 않음)
       // 외부에서 건 분할 TP도 포함해야 잔여 비율 재계산이 맞는다 (2026-08-23)
       splitTpOrders = openOrders.filter(o =>
@@ -51,6 +56,29 @@ router.post("/", async (req, res) => {
       // 해당 사이드의 포지션 크기를 기준으로 비율 계산
       const pos = posData.find(p => p.positionSide === side && parseFloat(p.positionAmt) !== 0);
       originalSize = pos ? Math.abs(parseFloat(pos.positionAmt)) : 0;
+
+      // ── 분할 SL 목록 (2026-08-24) — **여기서 취소하지 않는다.** 아래 3-2) 참고 ──
+      // 사전 등록분(preplaceTPSL)은 뺀다 — 그건 아직 체결 안 된 진입 주문에 딸린
+      // 것이라 이 포지션과 무관하다 (`GET /api/tpsl`이 거르는 것과 같은 이유)
+      const presetIds = new Set();
+      for (const [, info] of store.entries()) {
+        if (info.status !== "WATCHING" || !info.presetTpsl) continue;
+        for (const k of ["tp", "sl"]) {
+          const id = info.presetTpsl[k]?.orderId;
+          if (id) presetIds.add(String(id));
+        }
+      }
+      const mine = o => isCloseDir(o) && o.positionSide === side && !isFullClose(o);
+      partialSlOrders = [
+        ...openOrders.filter(o => TPSL_TYPES.includes(o.type) && mine(o)
+            && !presetIds.has(String(o.orderId)))
+          .map(o => ({ id: String(o.orderId), isAlgo: false,
+                       price: o.stopPrice, origQty: String(orderQtyOf(o)) })),
+        ...algos.filter(o => TPSL_TYPES.includes(o.orderType) && mine(o)
+            && !presetIds.has(String(o.algoId)))
+          .map(o => ({ id: String(o.algoId), isAlgo: true,
+                       price: o.triggerPrice, origQty: String(orderQtyOf(o)) })),
+      ].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
     } catch (e) {
       console.warn("[close] 분할 TP 사전 조회 실패:", e.message);
     }
@@ -163,6 +191,53 @@ router.post("/", async (req, res) => {
         push.pushAlert("error", "분할 TP가 최소 수량 미만이 되어 재등록되지 않았습니다");
       }
 
+      push.pushUpdate(["tpsl"]);
+    }
+
+    // 3-2) 부분 청산 성공 → **분할 SL도 잔여 비율로 맞춘다** (2026-08-24)
+    //
+    // ⚠ 왜 맞춰야 하나: 안 고치면 "절반만 빼는 손절"이 슬그머니 **전량 손절로 변한다.**
+    //   0.173에 0.087을 걸어두고 절반 청산하면 포지션 0.086 < 주문 0.087이 되어,
+    //   그 가격에서 **전부** 나간다 — 시킨 것과 다른 일이다
+    //
+    // ⚠ **분할 TP와 순서가 반대다.** 저쪽은 미리 취소하고 청산 뒤 재등록하는데(롤백 있음),
+    //   손절을 먼저 내리면 청산이 실패했을 때 **보호가 없는 창**이 생긴다. 그래서
+    //     ① 청산이 성공한 뒤에 ② **새 것을 먼저 걸고** ③ 옛 것을 취소한다.
+    //   어느 단계가 실패해도 **보호가 줄어드는 경로가 없다** — 겹치는 동안은 과하게
+    //   덮이는 것이고 그건 `reduceOnly`가 잘라내므로 무해하다
+    //
+    // ⚠ 잔여가 최소 수량 미만이 되어 빠진 항목은 **옛 주문을 그대로 둔다.** 지우면
+    //   그만큼 무방비다 (분할 TP는 지워도 손해가 없어 규칙이 다르다)
+    if (partial && partialSlOrders.length > 0 && originalSize > 0) {
+      const { items } = rescaleSplitTps(partialSlOrders, originalSize, closeQty);
+      let anyFailed = false;
+      for (const { order: o, qty } of items) {
+        try {
+          await binance("POST", "/fapi/v1/algoOrder", {
+            algoType: "CONDITIONAL", symbol: "BTCUSDT",
+            side: closeSide, positionSide: side,
+            type: "STOP_MARKET", triggerPrice: o.price,
+            quantity: qty.toFixed(3), workingType: "CONTRACT_PRICE",
+          });
+          await cancelOrder({ orderId: o.id, algoId: o.id, isAlgo: o.isAlgo })
+            .catch(e => { anyFailed = true;
+              console.warn(`[close] 분할 SL 옛 주문 취소 실패 ${o.id} (겹쳐도 무해):`,
+                e.response?.data?.msg); });
+          console.log(`[close] 분할 SL 재조정: ${o.price} ${o.origQty} → ${qty}`);
+        } catch (e) {
+          anyFailed = true;
+          console.warn(`[close] 분할 SL 재조정 실패 ${o.price} — 기존 주문을 그대로 둔다:`,
+            e.response?.data?.msg);
+        }
+      }
+      const kept = new Set(items.map(x => x.order.id));
+      const dropped = partialSlOrders.filter(o => !kept.has(o.id));
+      if (dropped.length) {
+        console.log(`[close] 분할 SL ${dropped.length}건은 잔여가 최소 수량 미만 → 그대로 둔다`);
+      }
+      if (anyFailed) {
+        push.pushAlert("error", "분할 SL 재조정 일부 실패 — 분할 SL 카드에서 수량을 확인하세요");
+      }
       push.pushUpdate(["tpsl"]);
     }
 
