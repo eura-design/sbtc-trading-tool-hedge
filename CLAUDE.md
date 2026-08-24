@@ -66,7 +66,7 @@ backend/
 │   │                             ⚠ 포지션 크기를 못 읽으면 **취소하지 않고** 청산만 진행 + 경보 (2026-08-19).
 │   │                               예전엔 취소부터 하고 재등록은 `originalSize > 0` 가드에 막혀
 │   │                               건너뛰어서 **분할 TP가 통째로 사라졌다**
-│   ├── tpsl.js                ← GET /api/tpsl → { long: { tp, sl, splitTps }, short: { tp, sl, splitTps } }
+│   ├── tpsl.js                ← GET /api/tpsl → { long: { tp, sl, splitTps, partialSls }, short: { … } }
 │   │                             PUT /api/tpsl + POST/DELETE /api/tpsl/split (분할 TP)
 │   │                             ⚠ `workingType`은 **`CONTRACT_PRICE`**다 — placeTPSL과 같은 값으로 통일
 │   │                               (2026-08-19). 여기만 `MARK_PRICE`여서 **어떻게 걸었느냐로
@@ -105,6 +105,8 @@ backend/
 ├── utils/
 │   ├── side.js                ← 헷지모드 side 매핑 헬퍼 (sideToPosition/positionToSide/closeToPosition/positionToClose)
 │   ├── orderKind.js           ← isLiveLimit/isCloseDir/isEntryDir/**limitKind** — 미체결 LIMIT의 **정체 판정**
+│   │                             + **isFullClose/coversPosition** — 트리거 주문이 **전량이냐 부분이냐**,
+│   │                               그리고 **포지션 전부를 덮느냐** (2026-08-24, 순수 함수 → node 검산)
 │   │                             (순수 함수). "이게 진입인가 추가 진입인가 분할 TP인가"를
 │   │                             **store가 아니라 주문 방향 + 포지션 유무**로 정한다
 │   │                             → 아래 "주문의 정체는 바이낸스가 정한다" 절
@@ -157,7 +159,7 @@ frontend/src/
 │   │                               `replay_riskPct`)로 떨어진다. 옛 키를 지우지 말 것 —
 │   │                               업데이트 직후 첫 실행에 리스크가 조용히 2%로 되돌아간다
 │   │                               (replay/session.js가 구버전 세션을 계속 읽는 것과 같은 이유)
-│   ├── uiSlice.js             ← UI/드로잉/드래그 상태: drawings/drawMode/orderStatus/criticalAlerts/selectedBox/opacityPopup/dragTpsl/dragScaleIn/dragSplitTp
+│   ├── uiSlice.js             ← UI/드로잉/드래그 상태: drawings/drawMode/orderStatus/criticalAlerts/selectedBox/opacityPopup/dragTpsl/dragScaleIn/dragSplitTp/dragPartialSl
 │   │                             ⚠ **플랜 박스는 `{ long, short }` — 사이드당 하나, 최대 두 개**
 │   │                               (2026-08-19 사용자 요청). 예전엔 `drawing` 객체 하나라
 │   │                               두 번째를 그리면 첫 번째가 **조용히 덮여 사라졌다** —
@@ -343,7 +345,7 @@ frontend/src/
 │   │                             timestamp 좌표 도형이 화면 밖 수만 px로 뻗는 걸 자른다
 │   │                             (5m 렉의 원인 — 점선이 선 길이만큼 조각으로 펼쳐진다)
 │   └── dragStateMachine.js    ← DRAG_HANDLERS 테이블
-│                                 박스: draw/pan/entry/tp/sl/pos_tp/pos_sl/scale_in/split_tp
+│                                 박스: draw/pan/entry/tp/sl/pos_tp/pos_sl/scale_in/split_tp/partial_sl
 │                                 트렌드라인: line_ep/line_move
 │                                 채널: channel_ep/channel_move/channel_mid_offset/channel_mirror_ep
 │                                 원: circle_move/circle_radius
@@ -519,7 +521,12 @@ frontend/src/
 │   │   │                             좌측 핸들은 **전부 버튼 모양**(`MarkerButton`, 2026-08-15) —
 │   │   │                               삼각형 ▶ + 옆 글자를 사용자 요청으로 바꿨다.
 │   │   │                               크기·가로 위치를 `TPSL_BTN`에서 가져와 `+TP`와 같은 레인에 정렬한다
-│   │   │                               글자: `TP`/`SL` / `추가`(추가대기) / `분할`(분할TP)
+│   │   │                               글자: `TP`/`SL` / `추가`(추가대기) / `분TP` / `분SL`
+│   │   │                               ⚠ **네 글자가 한 벌이다** (2026-08-24). `분할`이던 것을
+│   │   │                                 `분TP`로 바꿨다 — 같은 날 분할 SL이 생기면서 `분할`만으로는
+│   │   │                                 익절인지 손절인지 알 수 없게 됐다. 롱이면 분할 TP·분할 SL이
+│   │   │                                 **둘 다 청산 방향이라 색까지 같고**(초록) 좌측 같은 레인에
+│   │   │                                 나란히 서므로 **글자가 유일한 단서다**
 │   │   │                               — `+`·`TP`를 그대로 두면 신규 등록 버튼과 뜻이 겹친다
 │   │   │                             각 버튼 옆 `×`(`CloseButton`) — 눌러서 제거. 진입 라벨의 ×만 2회 확인
 │   │   │                               (드래그 시스템 절의 "마커 옆 × 버튼" 참고)
@@ -611,8 +618,8 @@ frontend/src/
 │       │                           못박지 않으면 글자 메트릭이 바뀔 때마다 높이가 달라진다.
 │       │                           지금은 셋 다 33px(예전 36px보다 살짝 낮다 — 같은 날 요청)
 │       │                         아코디언 펼침 상태 localStorage `accordion_pos_{LONG|SHORT}` 영속화
-│       │                           (이건 **카드 전체 접기**다 — 아래 세 아코디언과 다른 값)
-│       │                         ⚠ 카드 안 세 아코디언(**시장가 청산·추가 진입·분할 TP**)은
+│       │                           (이건 **카드 전체 접기**다 — 아래 네 아코디언과 다른 값)
+│       │                         ⚠ 카드 안 네 아코디언(**시장가 청산·추가 진입·분할 TP·분할 SL**)은
 │       │                           **한 번에 하나만 열린다** (2026-08-22 사용자 요청).
 │       │                           열린 것을 상태 하나(`openSection`)로 들고 있어 다른 것을 열면
 │       │                           이전 것이 자동으로 닫힌다 — 불리언 셋으로 되돌리지 말 것.
@@ -634,6 +641,17 @@ frontend/src/
 │       │                           (`(ot) => executeOrder(ot, isLong)`)
 │       ├── ScaleInCard.jsx    ← 추가 진입 카드 (LIMIT/MARKET, 가격 방향 검증) — PositionCard 아코디언 내 embedded
 │       ├── SplitTPCard.jsx    ← 분할 TP 카드 (지정가, 잔여 수량 표시) — PositionCard 아코디언 내 embedded
+│       ├── SplitSLCard.jsx    ← **분할 SL 카드** (조건부 시장가) — 2026-08-24. 분할 TP의 손절 쪽 짝
+│       │                         ⚠ **기본 가격이 평단가다** (분할 TP는 현재가 ±3%) —
+│       │                           출발점이 "본전까지 내려오면 절반 청산"이라서다. 값은 바꿀 수 있다
+│       │                         ⚠ **방향 검증이 현재가 기준이다** (분할 TP는 진입가 기준).
+│       │                           트리거라 반대쪽에 걸면 바이낸스가 -2021로 거절한다 —
+│       │                           롱은 현재가 아래, 숏은 위. 위에 걸고 싶으면 그건 분할 TP다
+│       │                         ⚠ 슬라이더는 **잔여 대비 %** (분할 TP와 같은 규칙).
+│       │                           잔여 = 포지션 − 이미 걸린 분할 SL 합계.
+│       │                           **전량 손절은 잔여에서 빼지 않는다** — `closePosition`은 수량이
+│       │                           없고 "발동 시점에 남은 전부"라 겹쳐도 합이 200%가 되지 않는다.
+│       │                           빼면 분할 SL을 아예 못 걸게 된다
 │       │                         ⚠ 슬라이더는 **잔여 대비 %**다 (2026-08-19 사용자 요청).
 │       │                           예전엔 포지션 전체 대비라, 40%짜리를 하나 걸면 60~100 구간이
 │       │                           통째로 죽은 구간이 됐다 — 끌리긴 하는데 버튼이 비활성이고
@@ -774,7 +792,7 @@ frontend/src/
 - **settingsSlice**: riskPctLong/riskPctShort, leverage, interval_, indicators (localStorage 동기화) — 변경 시 800ms debounce 후 `replacePendingOrder` 자동 호출 (미체결 주문과 **같은 사이드**의 값이 바뀐 경우에만)
   - **리스크 %는 롱·숏 따로**, 레버리지는 하나 — 바이낸스가 레버리지를 심볼 단위로만 받는다(`positionSide` 없음). 읽을 땐 `riskPctFor(s, isLong)`
   - 실거래·연습 값도 따로 (`swapTradeSettings`) → 리스크는 총 **네 벌**, 레버리지는 두 벌
-- **uiSlice**: drawings, drawMode, orderStatus, criticalAlert, selectedBox, opacityPopup, 드래그 상태(dragTpsl/dragScaleIn/dragSplitTp) — drawings는 200ms debounce localStorage 영속화
+- **uiSlice**: drawings, drawMode, orderStatus, criticalAlert, selectedBox, opacityPopup, 드래그 상태(dragTpsl/dragScaleIn/dragSplitTp/dragPartialSl) — drawings는 200ms debounce localStorage 영속화
 - **orderSlice**: 모든 주문 액션 (executeOrder/saveTpsl/scaleIn/cancelScaleIn/moveScaleIn/addSplitTp/cancelSplitTp/moveSplitTp/closePosition/updatePendingTpsl/replacePendingOrder/deleteBox) + 일일 손실 한도 가드 + side 매핑 헬퍼 사용
   - ⚠ 플랜 박스를 쓰는 셋(`executeOrder`/`replacePendingOrder`/`updatePendingTpsl`)은 **`isLong`을 인자로 받는다** (2026-08-19). 박스가 둘이라 스토어에서 알아서 고르게 두면 무엇이 나갈지가 부르는 쪽에 안 드러난다
 - `useOrderFlow.js`는 orderSlice 액션을 컴포넌트에서 편리하게 사용하기 위한 재-export 래퍼
@@ -1809,9 +1827,20 @@ KDE 기반 `S/R Levels`를 제거하고 대신 넣은 지표. 근거가 밀도(�
 - ⚠ **화면에는 체결 전까지 안 보인다** (2026-08-23 사용자 선택 B). `GET /api/tpsl`이
   store의 `presetTpsl` id를 모아 걸러낸다. 그 가격은 **플랜 박스가 이미 보여주므로**
   같이 그리면 같은 값이 두 번 뜬다. 체결되면 status가 WATCHING을 벗어 정상적으로 보인다
-- ⚠ **조건부 트리거 주문은 포지션이 0이 돼도 자동 취소되지 않는다** (2026-08-23 ETH 실측).
-  분할 TP(`LIMIT` + `reduceOnly`)는 바이낸스가 알아서 지우지만 **트리거 주문은 남는다** —
-  손절이 발동해 포지션이 0이 된 뒤에도 익절이 `status=NEW`로 살아 있었다.
+- ⚠ **수량을 지정한 트리거 주문은 포지션이 0이 돼도 자동 취소되지 않는다.**
+  ⚠ **`closePosition`은 거래소가 알아서 치운다** — 2026-08-24 ETHUSDT 실측으로 갈렸다.
+    (2026-08-23에는 `조건부 트리거 주문은 남는다`고 **뭉뚱그려 적혀 있었다.** 그 실측은
+     사전 등록분을 본 것이고 그건 수량 지정 방식이다. 그 문장 때문에 2026-08-24에
+     "전량 TP/SL 찌꺼기를 치우는 코드"를 만들 뻔했다 — **없는 문제였다**)
+
+  | 주문 | 포지션이 0이 되면 |
+  |---|---|
+  | 분할 TP (`LIMIT` + `reduceOnly`) | 바이낸스가 지운다 |
+  | 전량 TP/SL (`closePosition:true`) | **바이낸스가 지운다** (청산 2초 뒤 사라짐) |
+  | **수량 지정 트리거** (사전 등록분·분할 SL) | **남는다** (18초 뒤에도 `status=NEW`) |
+
+  실측: ETH 0.01 롱에 `closePosition` SL과 `quantity` SL을 같이 걸고 시장가 청산 →
+  위 표대로 갈렸다.
   - **그래서 `reconcile`이 주인 없는 사전 TP/SL을 치운다**: `presetTpsl`이 있는데
     ① 진입 주문이 openOrders에 없고 ② 그 사이드에 포지션도 없으면 → 취소
   - ⚠ 그 정리 블록은 `if (!relevant.length) return;` **앞에** 있어야 한다.
