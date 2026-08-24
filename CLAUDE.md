@@ -351,6 +351,16 @@ frontend/src/
 │   │                             (5m 렉의 원인 — 점선이 선 길이만큼 조각으로 펼쳐진다)
 │   └── dragStateMachine.js    ← DRAG_HANDLERS 테이블
 │                                 박스: draw/pan/entry/tp/sl/pos_tp/pos_sl/scale_in/split_tp/partial_sl
+│                                 ⚠ **`partial_sl`(분할 SL) 이동만 순서가 반대다** (2026-08-24).
+│                                   나머지는 전부 **취소 → 등록**인데 이것만 **등록 → 취소**다
+│                                   (`orderSlice.movePartialSl`).
+│                                   잘못된 쪽(롱은 현재가 위)에 놓으면 거래소가 `-2021`로 거절하는데,
+│                                   취소를 먼저 하면 **드래그 한 번 잘못한 걸로 손절이 사라진다**.
+│                                   이 순서면 거절돼도 옛 손절이 그대로 남고 선도 제자리로 돌아온다
+│                                   ※ 겹치는 순간(합계 200%)이 생기지만 **트리거는 깎지도 거절하지도
+│                                     않는다** — 2026-08-24 ETH 실측. 청산 방향 지정가와 다른 점이다
+│                                   ※ `split_tp`(분할 TP)는 그대로 취소 → 등록이다. 그쪽은 잘못된
+│                                     자리면 거절이 아니라 **즉시 체결**이라 순서로 막을 수 없다
 │                                 트렌드라인: line_ep/line_move
 │                                 채널: channel_ep/channel_move/channel_mid_offset/channel_mirror_ep
 │                                 원: circle_move/circle_radius
