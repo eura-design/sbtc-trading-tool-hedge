@@ -3,7 +3,8 @@ export const createServerSlice = (set) => ({
   balance:   null,
   balError:  null,
   position:  null,
-  tpsl:      { long: { tp: null, sl: null, splitTps: [] }, short: { tp: null, sl: null, splitTps: [] } },
+  tpsl:      { long:  { tp: null, sl: null, splitTps: [], partialSls: [] },
+               short: { tp: null, sl: null, splitTps: [], partialSls: [] } },
   liveClose: null,
 
   // Refetch 콜백 (폴링 훅이 마운트 시 등록)

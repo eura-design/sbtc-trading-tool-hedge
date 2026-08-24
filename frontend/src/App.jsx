@@ -315,7 +315,8 @@ export default function App() {
   const pivotLevels = usePivotLevels(indicatorParams.pivot, replayOn ? replayNowMs : null);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
-  const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp } = useOrderFlow();
+  const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp,
+          addPartialSl, cancelPartialSl } = useOrderFlow();
 
   // ── 단축키 설정 ─────────────────────────────────────────────────────────
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcutSettings();
@@ -581,6 +582,8 @@ export default function App() {
           onCancelScaleIn={cancelScaleIn}
           onAddSplitTp={addSplitTp}
           onCancelSplitTp={cancelSplitTp}
+          onAddPartialSl={addPartialSl}
+          onCancelPartialSl={cancelPartialSl}
           onDrawModeToggle={() => {
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
             fibTool.cancelFibDraw(); structs.cancelStructDraw();

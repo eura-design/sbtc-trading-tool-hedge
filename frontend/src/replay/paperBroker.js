@@ -122,6 +122,26 @@ export class PaperBroker {
     // ⚠ 단일 TP를 내리지 않는다 — 공존한다 (setTpsl의 주석 참고)
   }
 
+  // ── 분할 SL (수량 지정 STOP_MARKET) — 2026-08-24 ──────────────────────────
+  //
+  // ⚠ 실거래(`POST /api/tpsl/partial-sl`)와 **같은 규칙을 미러링한다** — 한쪽만 고치면
+  //   연습이 실거래와 다르게 체결된다 (splitTp 재계산이 두 벌인 것과 같은 이유)
+  // ⚠ 정렬은 **닿는 순서**다: 롱은 높은 값이 먼저 닿고(가격이 내려오므로), 숏은 낮은 값이 먼저.
+  //   분할 TP가 가격 내림차순인 것과 대비되는 지점이라 헷갈리기 쉽다
+  addPartialSl({ positionSide, price, qty }) {
+    const t = this.tpsl[positionSide];
+    if (!t.partialSls) t.partialSls = [];
+    t.partialSls.push({ orderId: this.nextId(), price, qty, side: CLOSE_SIDE[positionSide] });
+    t.partialSls.sort((a, b) => positionSide === "LONG" ? b.price - a.price : a.price - b.price);
+  }
+
+  cancelPartialSl(orderId) {
+    for (const side of ["LONG", "SHORT"]) {
+      const t = this.tpsl[side];
+      if (t.partialSls) t.partialSls = t.partialSls.filter(o => o.orderId !== orderId);
+    }
+  }
+
   cancelSplitTp(orderId) {
     for (const side of ["LONG", "SHORT"]) {
       this.tpsl[side].splitTps = this.tpsl[side].splitTps.filter(o => o.orderId !== orderId);
@@ -242,17 +262,37 @@ export class PaperBroker {
       const tpDir = side === "LONG" ? "up" : "down";
       const slDir = side === "LONG" ? "down" : "up";
 
-      // ⚠ SL을 먼저 본다 — 봉 하나 안의 순서를 모를 때의 보수적 선택
-      if (t.sl && reached(bar, t.sl.price, slDir)) {
-        // 갭: 봉이 SL 너머에서 시작하면 그 시가에 체결된다 (실제로 그렇게 밀린다)
-        const fill = side === "LONG"
-          ? Math.min(t.sl.price, bar.o)
-          : Math.max(t.sl.price, bar.o);
-        this._closePosition(side, p.size, fill, TAKER_FEE, "SL 체결");
-        this.tpsl[side] = blankTpsl();
-        this.events.push({ type: "sl", side, price: fill });
-        continue;
+      // ⚠ 손절 쪽을 먼저 본다 — 봉 하나 안의 순서를 모를 때의 보수적 선택
+      //
+      // ⚠ **전량 SL과 분할 SL이 공존할 수 있다** (2026-08-24) → 한 봉 안에 여럿이 닿으면
+      //   **가격이 실제로 닿는 순서**로 처리한다: 롱은 높은 값부터(가격이 내려오므로),
+      //   숏은 낮은 값부터. 익절 쪽(아래 `exits`)과 정렬 방향이 **반대**다 — 헷갈리기 쉽다.
+      //   전량 SL은 closePosition이라 그 시점에 남은 전부를 정리한다
+      const stops = [
+        ...(t.sl ? [{ kind: "sl", price: t.sl.price }] : []),
+        ...(t.partialSls ?? []).map(ps => ({ kind: "psl", price: ps.price, ps })),
+      ].sort((a, b) => side === "LONG" ? b.price - a.price : a.price - b.price);
+
+      const remainSl = new Set(t.partialSls ?? []);
+      for (const e of stops) {
+        const cur = this.pos[side];
+        if (!cur) break;
+        if (!reached(bar, e.price, slDir)) continue;
+        // 갭: 봉이 트리거 너머에서 시작하면 그 시가에 체결된다 (실제로 그렇게 밀린다)
+        const fill = side === "LONG" ? Math.min(e.price, bar.o) : Math.max(e.price, bar.o);
+        if (e.kind === "sl") {
+          this._closePosition(side, cur.size, fill, TAKER_FEE, "SL 체결");
+          t.sl = null;
+          this.events.push({ type: "sl", side, price: fill });
+        } else {
+          // 조건부 시장가라 **테이커**다 (분할 TP는 지정가라 메이커인 것과 다르다)
+          this._closePosition(side, Math.min(e.ps.qty, cur.size), fill, TAKER_FEE, "분할 SL 체결");
+          remainSl.delete(e.ps);
+          this.events.push({ type: "partial_sl", side, price: fill });
+        }
       }
+      t.partialSls = (t.partialSls ?? []).filter(ps => remainSl.has(ps));
+      if (!this.pos[side]) { this.tpsl[side] = blankTpsl(); continue; }
 
       // ⚠ **단일 TP와 분할 TP는 공존할 수 있다** (2026-08-23) → 한 봉 안에 여러 개가
       //   닿았을 때 **가격이 실제로 닿는 순서**로 처리해야 한다: 롱은 낮은 값부터,
@@ -406,6 +446,7 @@ export class PaperBroker {
       tp: this.tpsl[side].tp,
       sl: this.tpsl[side].sl,
       splitTps: this.tpsl[side].splitTps.map(s => ({ ...s })),
+      partialSls: (this.tpsl[side].partialSls ?? []).map(s => ({ ...s })),
     });
     return { long: one("LONG"), short: one("SHORT") };
   }
@@ -420,7 +461,7 @@ export class PaperBroker {
   }
 }
 
-function blankTpsl() { return { tp: null, sl: null, splitTps: [] }; }
+function blankTpsl() { return { tp: null, sl: null, splitTps: [], partialSls: [] }; }
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 

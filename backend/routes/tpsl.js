@@ -266,4 +266,56 @@ router.delete("/split", async (req, res) => {
   }
 });
 
+// ── 분할 SL (수량 지정 STOP_MARKET) — 2026-08-24 ─────────────────────────────
+//
+// "평단까지 내려오면 절반만 청산" 같은 예약. 분할 TP의 손절 쪽 짝이다.
+//
+// ⚠ **`closePosition`을 쓰지 않는다 — 수량을 직접 적는다.** 그게 전량 손절과 갈리는
+//   유일한 표시이고, 조회·청소·취소 판정이 전부 그 값을 본다 (`utils/orderKind.js`).
+//   헷지모드 청산 방향이라 바이낸스가 `reduceOnly`를 자동으로 붙여 포지션보다
+//   많이는 못 판다 (2026-08-24 실측)
+//
+// ⚠ **store에 기록하지 않는다.** 주문 자체에 다 찍혀 있어서 거래소가 원본이면 충분하다
+//   ("주문의 정체는 바이낸스가 정한다" 절). 그래서 **바이낸스 앱에서 직접 건 것도
+//   똑같이 목록에 뜨고 취소된다**
+//
+// ⚠ 트리거는 `CONTRACT_PRICE` — 우리 TP/SL 전부와 같은 값이어야 한다.
+//   마크 가격을 쓰면 차트 캔들이 선을 뚫어도 발동하지 않을 수 있다 (PUT 주석 참고)
+router.post("/partial-sl", async (req, res) => {
+  const { side, price, qty } = req.body;
+  if (!side || !price || !qty) return res.status(400).json({ error: "side, price, qty 필요" });
+  try {
+    const { data } = await binance("POST", "/fapi/v1/algoOrder", {
+      algoType: "CONDITIONAL", symbol: "BTCUSDT",
+      side: positionToClose(side), positionSide: side,
+      type: "STOP_MARKET", triggerPrice: roundPrice(price),
+      quantity: parseFloat(qty).toFixed(3), workingType: "CONTRACT_PRICE",
+    });
+    res.json({ success: true, orderId: String(data.algoId),
+      price: parseFloat(roundPrice(price)), qty: parseFloat(qty) });
+  } catch (err) {
+    const code = err.response?.data?.code;
+    const msg  = err.response?.data?.msg || err.message;
+    // -2021 = 즉시 발동할 자리. 롱 손절은 현재가보다 **아래**여야 한다 —
+    // 위에 걸고 싶다면 그건 익절이므로 분할 TP를 써야 한다
+    res.status(500).json({ error: code === -2021
+      ? "즉시 발동할 가격입니다 — ▲LONG은 현재가보다 아래, ▼SHORT는 위여야 합니다"
+      : msg });
+  }
+});
+
+// DELETE /api/tpsl/partial-sl — 분할 SL 하나 취소
+router.delete("/partial-sl", async (req, res) => {
+  const { orderId } = req.body ?? {};
+  if (!orderId) return res.status(400).json({ error: "orderId 필요" });
+  try {
+    // ⚠ 전량 손절을 여기로 지우지 못하게 막는다 (그 반대도 `DELETE /`가 막는다)
+    await assertCancelKind(orderId, "PARTIAL_SL");
+    await cancelOrder({ orderId, algoId: orderId, isAlgo: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
+  }
+});
+
 module.exports = router;

@@ -256,6 +256,38 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
+  // ── 분할 SL (수량 지정 STOP_MARKET) — 2026-08-24 ─────────────────────────
+  //
+  // ⚠ **전량 손절(`saveTpsl`)을 건드리지 않는다 — 공존한다.** 합계가 포지션을 채우면
+  //   "덮였다"로 판정하므로(backend `coversPosition`) 전량 손절 없이 분할 SL만으로도 된다.
+  //   다만 분할 SL은 수량이 고정이라 **추가 진입이 체결되면 덮는 비율이 떨어진다** —
+  //   그때는 무방비 경보가 `일부만 덮습니다 (0.140 / 0.190)`으로 알려준다
+  addPartialSl: async (side, price, qty) => {
+    if (get().replayOn) return paperActions.addPartialSl(get, side, price, qty);
+    const { setOrderStatus, _refetchTpsl } = get();
+    setOrderStatus(null);
+    try {
+      await api("POST", "/api/tpsl/partial-sl", { side, price, qty });
+      setOrderStatus({ type: "success", msg: `분할 SL 등록 완료 (${price?.toLocaleString()})` });
+      setTimeout(() => { _refetchTpsl(); }, 500);
+    } catch (e) {
+      setOrderStatus({ type: "error", msg: `분할 SL 실패: ${e.message}` });
+    }
+  },
+
+  cancelPartialSl: async (orderId) => {
+    if (get().replayOn) return paperActions.cancelPartialSl(get, orderId);
+    const { setOrderStatus, _refetchTpsl } = get();
+    setOrderStatus(null);
+    try {
+      await api("DELETE", "/api/tpsl/partial-sl", { orderId });
+      setOrderStatus({ type: "success", msg: "분할 SL 취소 완료" });
+      setTimeout(() => { _refetchTpsl(); }, 500);
+    } catch (e) {
+      setOrderStatus({ type: "error", msg: `취소 실패: ${e.message}` });
+    }
+  },
+
   cancelSplitTp: async (orderId) => {
     if (get().replayOn) return paperActions.cancelSplitTp(get, orderId);
     const { setOrderStatus, _refetchTpsl } = get();

@@ -24,7 +24,8 @@ import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArr
 
 
 export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
-  onScaleIn, onCancelScaleIn, onAddSplitTp, onCancelSplitTp, onDrawModeToggle }) {
+  onScaleIn, onCancelScaleIn, onAddSplitTp, onCancelSplitTp,
+  onAddPartialSl, onCancelPartialSl, onDrawModeToggle }) {
   const { theme } = useTheme();
   const online = useHealth();
 
@@ -361,6 +362,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           scaleInOrders={position?.scaleInOrders?.filter(o => o.side === "BUY")}
           onScaleIn={onScaleIn} onCancelScaleIn={onCancelScaleIn}
           onAddSplitTp={onAddSplitTp} onCancelSplitTp={onCancelSplitTp}
+          onAddPartialSl={onAddPartialSl} onCancelPartialSl={onCancelPartialSl}
         />
         <PositionCard
           posData={position?.short} side="SHORT"
@@ -369,6 +371,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           scaleInOrders={position?.scaleInOrders?.filter(o => o.side === "SELL")}
           onScaleIn={onScaleIn} onCancelScaleIn={onCancelScaleIn}
           onAddSplitTp={onAddSplitTp} onCancelSplitTp={onCancelSplitTp}
+          onAddPartialSl={onAddPartialSl} onCancelPartialSl={onCancelPartialSl}
         />
 
 

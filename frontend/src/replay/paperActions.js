@@ -142,6 +142,18 @@ export const paperActions = {
     ok(get, `분할 TP 등록 ($${price?.toLocaleString()})`);
   },
 
+  addPartialSl: (get, side, price, qty) => {
+    const { paperBroker } = get();
+    if (!paperBroker) return;
+    paperBroker.addPartialSl({ positionSide: side, price, qty });
+    ok(get, `분할 SL 등록 ($${price?.toLocaleString()})`);
+  },
+
+  cancelPartialSl: (get, orderId) => {
+    get().paperBroker?.cancelPartialSl(orderId);
+    ok(get, "분할 SL 취소 완료");
+  },
+
   cancelSplitTp: (get, orderId) => {
     get().paperBroker?.cancelSplitTp(orderId);
     ok(get, "분할 TP 취소 완료");

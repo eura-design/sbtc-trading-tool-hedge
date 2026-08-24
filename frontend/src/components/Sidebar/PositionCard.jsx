@@ -4,6 +4,7 @@ import { useTheme } from "../../ThemeContext";
 import { useAccordion } from "../../hooks/useAccordion";
 import { ScaleInCard } from "./ScaleInCard";
 import { SplitTPCard } from "./SplitTPCard";
+import { SplitSLCard } from "./SplitSLCard";
 import { unrealizedFor } from "../../utils/equity";
 import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow } from "../sidebarBtn";
 
@@ -43,6 +44,7 @@ export function PositionCard({
   posData, side, tpsl, tpslSaving, onClose, lastPrice,
   scaleInOrders, onScaleIn, onCancelScaleIn,
   onAddSplitTp, onCancelSplitTp,
+  onAddPartialSl, onCancelPartialSl,
 }) {
   const { theme } = useTheme();
   const [closePct, setClosePct] = useState(() => Number(localStorage.getItem("closePct")) || 100);
@@ -52,9 +54,10 @@ export function PositionCard({
   //   (2026-08-22 사용자 요청). 열린 것을 상태 하나로 들고 있으므로 다른 것을 열면
   //   이전 것은 자동으로 닫힌다 — 불리언 셋으로 되돌리지 말 것.
   //   같은 것을 다시 누르면 닫힌다(null). 카드 단위라 LONG·SHORT는 서로 독립이다
-  const [openSection, setOpenSection] = useState(null);   // "close" | "scaleIn" | "splitTP" | null
+  const [openSection, setOpenSection] = useState(null);   // "close" | "scaleIn" | "splitTP" | "splitSL" | null
   const scaleInOpen = openSection === "scaleIn";
   const splitTPOpen = openSection === "splitTP";
+  const splitSLOpen = openSection === "splitSL";
   const closeOpen   = openSection === "close";
   const [expanded, toggleExpanded] = useAccordion(`accordion_pos_${side}`, true);
   // 어느 쪽으로 옮겨 가든 청산 확인 단계는 푼다 — 접힌 채로 `✓ 확인`이 남아 있으면
@@ -62,6 +65,7 @@ export function PositionCard({
   const openOnly        = (k) => { setOpenSection(v => (v === k ? null : k)); setConfirming(false); };
   const toggleScaleIn   = () => openOnly("scaleIn");
   const toggleSplitTP   = () => openOnly("splitTP");
+  const toggleSplitSL   = () => openOnly("splitSL");
   const toggleClose     = () => openOnly("close");
 
   if (!posData) return null;
@@ -91,6 +95,7 @@ export function PositionCard({
 
   const closeQty = parseFloat((posData.size * closePct / 100).toFixed(3));
   const splitTpCount = tpsl?.splitTps?.length ?? 0;
+  const partialSlCount = tpsl?.partialSls?.length ?? 0;
 
   return (
     <div style={{
@@ -234,6 +239,27 @@ export function PositionCard({
           lastPrice={lastPrice}
           onAddSplitTp={onAddSplitTp}
           onCancelSplitTp={onCancelSplitTp}
+        />
+      </AccordionSection>
+
+      {/* 아코디언: 분할 SL — 분할 TP의 손절 쪽 짝 (2026-08-24)
+          ⚠ 넷이 **한 번에 하나만 열린다** (openSection 하나로 관리) */}
+      <AccordionSection
+        label="분할 SL"
+        badge={partialSlCount}
+        isOpen={splitSLOpen}
+        onToggle={toggleSplitSL}
+        theme={theme}
+        posColor={posColor}
+      >
+        <SplitSLCard
+          embedded
+          posData={posData}
+          side={side}
+          tpsl={tpsl}
+          lastPrice={lastPrice}
+          onAddPartialSl={onAddPartialSl}
+          onCancelPartialSl={onCancelPartialSl}
         />
       </AccordionSection>
       </>}
