@@ -787,7 +787,33 @@ function checkNakedFast(positions, regular, algos) {
     if (covered === null) { nakedStrikes.delete(side); continue; }   // 판단 불가 → 침묵
 
     if (busy.has(side)) { nakedStrikes.delete(side); continue; }     // 지금 거는 중이다
-    if (nakedWarned.has(side)) continue;                             // 이미 알렸다
+
+    const partialQty = stops.filter(o => !isFullClose(o))
+      .reduce((sum, o) => sum + orderQtyOf(o), 0);
+    const msg = nakedMsg(side, partialQty, amt);
+
+    // ── 이미 알렸으면 조용히 — **단, 상태가 달라졌으면 문구를 갈아끼운다** ──────
+    //
+    // ⚠ 래치(중복 방지)가 **문구 갱신까지 막고 있었다** (2026-08-24 실측으로 발견).
+    //   실제로 일어난 일:
+    //     18:21:57  손절 0.003 / 포지션 0.004 -> "일부만 덮습니다 (0.003 / 0.004)"
+    //     18:22:11  그 분할 SL 이 발동해 사라짐. 포지션 0.001 이 **하나도 안 덮인 상태**
+    //               그런데 배너는 여전히 "(0.003 / 0.004)" 였다
+    //   숫자를 넣은 이유가 "얼마나 비어 있는지 정확히 알리려고"인데, 그 숫자가 낡으면
+    //   **"0.003 은 덮여 있구나"로 읽혀 없느니만 못하다.**
+    //
+    // ⚠ 문구가 **같으면 아무것도 하지 않는다** — 중복 방지는 그대로다.
+    //   달라졌을 때만 옛 배너를 거두고 새로 띄운다 (프론트는 문구를 키로 지운다)
+    const warned = nakedWarned.get(side);
+    if (warned) {
+      if (warned.msg === msg) continue;
+      push.pushAlertClear(warned.msg);
+      nakedWarned.set(side, { msg, at: warned.at });   // 시작 시각은 처음 그대로 둔다
+      console.error(`[안전망/즉시] 문구 갱신 -> ${msg}`);
+      tradeLog.append({ event: "NAKED_CHANGED", side, slPartialQty: partialQty, posAmt: amt });
+      push.pushAlert("critical", msg);
+      continue;
+    }
 
     const prev  = nakedStrikes.get(side);
     const since = prev?.since ?? Date.now();
@@ -808,9 +834,6 @@ function checkNakedFast(positions, regular, algos) {
     //    끝까지 안 되면 그때 알린다
     if (n < NAKED_ALARM_STRIKES) continue;
 
-    const partialQty = stops.filter(o => !isFullClose(o))
-      .reduce((sum, o) => sum + orderQtyOf(o), 0);
-    const msg = nakedMsg(side, partialQty, amt);
     nakedWarned.set(side, { msg, at: since });   // 띄운 시각이 아니라 **처음 본 시각**
     console.error(`[안전망/즉시] ${msg}`);
     tradeLog.append({ event: "NAKED_POSITION", side, slPartialQty: partialQty, posAmt: amt, fast: true });
