@@ -72,6 +72,9 @@ export default function App() {
     longPendingExists, shortPendingExists, hasPending, drawLocked,
   } = derivePositionFlags(position);
 
+  // ⚠ 폴링·실시간 훅보다 **먼저** 부른다 — `useRealtimeData`가 `addToast`를 받는다
+  const { toasts, addToast, addLineAlert, removeToast } = useToast();
+
   // ── 폴링 / 실시간 ────────────────────────────────────────────────────────
   // 리플레이 중에는 실계좌를 읽지 않는다 — 폴링이 돌면 페이퍼 잔고·포지션을
   // 실계좌 값으로 덮어써서, 연습 중이던 포지션이 몇 초마다 화면에서 사라진다.
@@ -79,7 +82,9 @@ export default function App() {
   useBalance(!replayOn);
   usePosition(!replayOn);
   useTpsl(!replayOn);
-  useRealtimeData();
+  // ⚠ `useToast`가 이 위에 있어야 한다 — `useRealtimeData`가 백엔드의 `notice`를
+  //   토스트로 띄우기 때문이다 (SL 경보가 해소됐을 때 무슨 일이 있었는지 알린다)
+  useRealtimeData(addToast);
 
   // ── 지표 파라미터 ─────────────────────────────────────────────────────────
   // showStruct가 struct.tfs를 봐야 해서 지표 표시 여부보다 먼저 로드한다.
@@ -213,7 +218,6 @@ export default function App() {
     structs.setSelectedStructId(null);
   }, [replayOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { toasts, addToast, addLineAlert, removeToast } = useToast();
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
   // 리플레이 중에는 끈다 — 재생 시점에서는 알 수 없는 "현재 시각의 RSI"가 울리면
   // 그 자체가 미래 정보다

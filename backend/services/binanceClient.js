@@ -1,7 +1,7 @@
 const axios  = require("axios");
 const crypto = require("crypto");
 const { closeToPosition } = require("../utils/side");
-const { isFullClose, isStopOrder, isTpOrder, coversPosition,
+const { isFullClose, isStopOrder, isTpOrder, coversPosition, orderQtyOf, triggerPriceOf,
   TPSL_TYPES, STOP_TYPES } = require("../utils/orderKind");
 const store = require("../store/pendingOrders");
 
@@ -367,12 +367,13 @@ async function checkExistingTPSL(positionSide) {
     let hasSL = coversPosition(stops, null);
     let hasTP = coversPosition(tps, null);
     let coverOk = true;
+    let posAmt = null;
 
     // 2차: 부분 주문뿐이라 판단 불가(null)일 때만 포지션 수량을 물어본다
     if (positionSide && (hasSL === null || hasTP === null)) {
       const posRes = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" })
         .catch(e => { console.warn("[TPSL조회] 포지션 수량 조회 실패:", e.response?.data?.msg || e.message); return null; });
-      const posAmt = posRes
+      posAmt = posRes
         ? Math.abs(parseFloat(posRes.data.find(p => p.positionSide === positionSide)?.positionAmt ?? 0))
         : null;
       if (hasSL === null) hasSL = coversPosition(stops, posAmt);
@@ -384,7 +385,15 @@ async function checkExistingTPSL(positionSide) {
     //   재등록 경로는 false여도 안전하다 — 다시 거는 건 멱등이다
     if (hasSL === null || hasTP === null) coverOk = false;
 
-    return { hasTP: hasTP === true, hasSL: hasSL === true, ok: ok && coverOk };
+    // 경보 문구에 쓸 상세값 (2026-08-24). "SL이 없다"와 "일부만 덮는다"는 다른 상황이라
+    // 같은 문구로 알리면 안 된다 — 실제로 99.4%가 걸려 있는데 "없습니다"라고 떴다
+    const slFull = stops.find(isFullClose);
+    return {
+      hasTP: hasTP === true, hasSL: hasSL === true, ok: ok && coverOk,
+      slPartialQty: stops.filter(o => !isFullClose(o)).reduce((sum, o) => sum + orderQtyOf(o), 0),
+      slPrice: slFull ? triggerPriceOf(slFull) : null,
+      posAmt,
+    };
   } catch (e) {
     console.warn("[TPSL조회] 실패 → 결과 신뢰 불가:", e.response?.data?.msg || e.message);
     return { hasTP: false, hasSL: false, ok: false };

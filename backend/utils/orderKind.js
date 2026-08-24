@@ -80,6 +80,9 @@ const orderQtyOf  = o => parseFloat(o.origQty ?? o.quantity ?? 0) || 0;
 // closePosition은 응답 경로에 따라 boolean으로도 문자열로도 온다
 const isFullClose = o => o.closePosition === true || o.closePosition === "true";
 
+// 트리거 가격도 이름이 다르다 (일반 `stopPrice` / 알고 `triggerPrice`)
+const triggerPriceOf = o => parseFloat(o.stopPrice ?? o.triggerPrice ?? NaN);
+
 const isTpslOrder = o => TPSL_TYPES.includes(orderTypeOf(o));
 const isStopOrder = o => STOP_TYPES.includes(orderTypeOf(o));
 const isTpOrder   = o => TP_TYPES.includes(orderTypeOf(o));
@@ -103,4 +106,4 @@ function coversPosition(orders, posAmt) {
 
 module.exports = { isLiveLimit, isCloseDir, isEntryDir, limitKind, coversPosition,
   TPSL_TYPES, STOP_TYPES, TP_TYPES,
-  orderTypeOf, orderQtyOf, isFullClose, isTpslOrder, isStopOrder, isTpOrder };
+  orderTypeOf, orderQtyOf, isFullClose, triggerPriceOf, isTpslOrder, isStopOrder, isTpOrder };

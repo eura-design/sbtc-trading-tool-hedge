@@ -37,7 +37,11 @@ const resolvingOrphans = new Set();
 
 // SL 없는 포지션 경보 래치 — 60초마다 같은 경보가 쌓이지 않게 사이드당 한 번만 띄운다
 // (SL이 생기거나 포지션이 닫히면 해제 → 다음에 또 벌거벗으면 다시 울린다)
-const nakedWarned = new Set();
+// 사이드 -> { msg, at } — **띄운 문구를 그대로 들고 있는다.**
+// 배너를 거둘 때 문구를 다시 만들면 안 된다: 상황(없음 / 일부만)에 따라 문구가 달라지는데
+// 거둘 때는 상황이 이미 바뀐 뒤라 다른 문구가 나온다 -> 프론트가 목록에서 못 찾아 배너가 안 닫힌다
+// (pushService.pushAlertClear 주석: "문구가 키다")
+const nakedWarned = new Map();
 
 // ⚠ **한 번 보고 경보하지 않는다 — 이 지연을 없애지 말 것** (2026-08-22, 실계좌 재현).
 //   SL을 차트에서 드래그해 옮기면 `PUT /api/tpsl`이 **취소 → 등록** 순서로 처리하므로
@@ -51,14 +55,41 @@ const NAKED_RECHECK_MS = 5000;
 
 // 무방비 경보 문구는 여기 하나가 만든다 — 띄울 때와 거둘 때가 **글자 그대로 같아야**
 // 프론트가 목록에서 지운다 (pushService.pushAlertClear 주석)
-const nakedMsg = side => `⚠ ${side} 포지션에 SL이 없습니다`;
+//
+// ⚠ **"없다"와 "일부만 덮는다"를 나눈다** (2026-08-24). 예전엔 어떤 경우든 `SL이 없습니다`
+//   였는데, 부분 손절(수량 지정)이 생기면 **틀린 말이 된다** — 실측(2026-08-24 경보 테스트):
+//   포지션 0.173 중 0.172(99.4%)에 손절이 걸려 있는데도 `SL이 없습니다`라고 떴다.
+//   수량까지 적어야 "얼마가 비어 있는지"가 화면에서 바로 읽힌다
+const fmtQty = q => Number(q).toFixed(3);
+const nakedMsg = (side, partialQty = 0, posAmt = null) =>
+  partialQty > 0 && posAmt
+    ? `⚠ ${side} 손절이 포지션의 일부만 덮습니다 (${fmtQty(partialQty)} / ${fmtQty(posAmt)})`
+    : `⚠ ${side} 포지션에 SL이 없습니다`;
 
 // 경보 해소 — 래치를 풀고, 이미 띄운 배너가 있으면 거둔다
-// (안 거두면 20ms 만에 해결된 경보가 몇 시간씩 화면에 남는다 — 그게 이번 신고였다)
-function resolveNaked(side) {
-  if (!nakedWarned.delete(side)) return;
-  push.pushAlertClear(nakedMsg(side));
-  console.log(`[안전망] ${side} SL 확인됨 → 경보 해제`);
+// (안 거두면 20ms 만에 해결된 경보가 몇 시간씩 화면에 남는다 — 그게 08-22 신고였다)
+//
+// ⚠ **거두는 것으로 끝내지 않고 무슨 일이 있었는지 남긴다** (2026-08-24 사용자 요청).
+//   예전엔 배너가 소리 없이 사라져서, 봤던 사람은 그게 **해결된 것인지 오작동이었는지**
+//   알 수 없었다. 금색 토스트(30초 자동 닫힘)로 알린다 — 좋은 소식이라 빨간 배너로 띄우면
+//   확인 버튼을 눌러야 사라져 성가시다
+//
+// ⚠ **없어진 원인은 적지 않는다** (2026-08-24 사용자 확정). 이 환경에서는 계정 스트림이
+//   이벤트를 한 건도 안 보내서(health의 `uds.events: 0`) 누가 취소했는지 알 근거가 없다.
+//   바이낸스 앱에서 지운 것과 우리 화면에서 지운 것을 구분할 수 없으므로 **관측한 사실만** 적는다
+function resolveNaked(side, reason = "sl", detail = {}) {
+  const warned = nakedWarned.get(side);
+  if (!warned) return;
+  nakedWarned.delete(side);
+  push.pushAlertClear(warned.msg);
+
+  const secs = Math.max(0, Math.round((Date.now() - warned.at) / 1000));
+  const dur  = secs >= 60 ? `${Math.floor(secs / 60)}분 ${secs % 60}초` : `${secs}초`;
+  const notice = reason === "closed"
+    ? `✅ ${side} 포지션 종료 — SL 경보 해제`
+    : `✅ ${side} 손절 복구됨${detail.price ? ` — ${detail.price.toLocaleString()}` : ""} (없던 시간 ${dur})`;
+  push.pushNotice(notice);
+  console.log(`[안전망] ${notice}`);
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -417,9 +448,9 @@ async function runReconcile() {
     // 위 retryable 경로가 못 고친 건 사람이 판단해야 한다. 알리기만 한다.
     for (const side of ["LONG", "SHORT"]) {
       const open = side === "LONG" ? hasLong : hasShort;
-      if (!open) { resolveNaked(side); continue; }
+      if (!open) { resolveNaked(side, "closed"); continue; }
       const first = await checkExistingTPSL(side);
-      if (first.hasSL) { resolveNaked(side); continue; }
+      if (first.hasSL) { resolveNaked(side, "sl", { price: first.slPrice }); continue; }
       // 위 retryable이 이번 사이클에 고칠 예정이면 중복 경보를 내지 않는다
       const willRetry = retryable.some(([, o]) => closeToPosition(o.closeSide) === side);
       if (willRetry || nakedWarned.has(side)) continue;
@@ -432,10 +463,10 @@ async function runReconcile() {
         checkExistingTPSL(side),
         binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }).catch(() => null),
       ]);
-      if (second.hasSL) { resolveNaked(side); continue; }
+      if (second.hasSL) { resolveNaked(side, "sl", { price: second.slPrice }); continue; }
       if (posRes) {
         const amt = parseFloat(posRes.data.find(p => p.positionSide === side)?.positionAmt ?? 0);
-        if (amt === 0) { resolveNaked(side); continue; }   // 그새 닫혔다
+        if (amt === 0) { resolveNaked(side, "closed"); continue; }   // 그새 닫혔다
       }
       // ⚠ **"없다"와 "못 물어봤다"를 구분한다** — 조회가 실패했으면 침묵하고 다음
       //   사이클(60초)에 다시 본다. 통신이 한 번 튄 것을 SL 사고로 알리면 안 된다
@@ -445,10 +476,11 @@ async function runReconcile() {
         continue;
       }
 
-      nakedWarned.add(side);
-      const msg = nakedMsg(side);
+      const msg = nakedMsg(side, second.slPartialQty, second.posAmt);
+      nakedWarned.set(side, { msg, at: Date.now() });
       console.error(`[안전망] ${msg}`);
-      tradeLog.append({ event: "NAKED_POSITION", side });
+      tradeLog.append({ event: "NAKED_POSITION", side,
+        slPartialQty: second.slPartialQty, posAmt: second.posAmt });
       push.pushAlert("critical", msg);
     }
 

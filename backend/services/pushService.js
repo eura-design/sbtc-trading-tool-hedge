@@ -41,9 +41,20 @@ function pushUpdate(targets) {
   broadcast("update", { targets });
 }
 
-/** 긴급 알림 (SL 실패 등) */
+/** 긴급 알림 (SL 실패 등) — 빨간 배너, 확인 버튼을 눌러야 사라진다 */
 function pushAlert(level, msg) {
   broadcast("alert", { level, msg });
+}
+
+/**
+ * 지나가는 알림 (금색 토스트, 30초 뒤 자동으로 사라짐) — 2026-08-24.
+ *
+ * `pushAlert`와 나눈 이유: 무방비 경보가 **해소됐을 때** 무슨 일이 있었는지 알려주려는데,
+ * 그건 좋은 소식이라 빨간 배너 + 확인 버튼이 어울리지 않는다. 배너를 거두는
+ * `pushAlertClear`는 조용히 지우기만 해서, 사용자는 배너가 왜 사라졌는지 알 수 없었다.
+ */
+function pushNotice(msg) {
+  broadcast("notice", { msg });
 }
 
 /**
@@ -61,4 +72,4 @@ function pushAlertClear(msg) {
   broadcast("alert-clear", { msg });
 }
 
-module.exports = { init, pushUpdate, pushAlert, pushAlertClear };
+module.exports = { pushNotice, init, pushUpdate, pushAlert, pushAlertClear };
