@@ -1,6 +1,7 @@
 const WebSocket    = require("ws");
 const { binance, cancelOrder, placeTPSL, checkExistingTPSL, cancelPresetTPSL } = require("./binanceClient");
-const { isStopOrder, isFullClose, coversPosition, orderQtyOf, triggerPriceOf } = require("../utils/orderKind");
+const { isStopOrder, isFullClose, coversPosition, orderQtyOf, triggerPriceOf,
+  isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES } = require("../utils/orderKind");
 const store          = require("../store/pendingOrders");
 const push           = require("./pushService");
 const tradeLog       = require("../store/tradeLog");
@@ -400,6 +401,60 @@ async function runReconcile() {
         .catch(e => console.warn("[RECONCILE] 사전 TPSL 취소 실패:", e.message));
       store.set(orderId, { ...info, presetTpsl: null });
       push.pushUpdate(["tpsl"]);
+    }
+
+    // ── 주인 없는 부분 청산 트리거 정리 (2026-08-24, ETHUSDT 실측으로 확인) ──
+    //
+    // ⚠ **수량을 지정한 트리거는 포지션이 0이 돼도 바이낸스가 지우지 않는다.**
+    //   실측(2026-08-24, ETH 0.01 롱에 둘을 걸고 시장가 청산):
+    //     · `closePosition:true` STOP_MARKET → 청산 **2초 뒤 사라짐** (거래소가 지운다)
+    //     · `quantity` 지정 STOP_MARKET      → **18초 뒤에도 status=NEW**
+    //   ※ CLAUDE.md의 "조건부 트리거 주문은 포지션이 0이 돼도 자동 취소되지 않는다"는
+    //     기술은 **너무 넓었다** — 그 실측(2026-08-23)은 사전 등록분을 본 것이고,
+    //     그건 수량 지정 방식이다. `closePosition`은 거래소가 알아서 치운다
+    //
+    // 그래서 **분할 SL**은 포지션이 손절·익절로 닫히면 거래소에 남는다.
+    // 그대로 두면 나중에 같은 사이드에 새 포지션이 생겼을 때 **옛 가격에 발동한다**.
+    // (`청산` 버튼으로 닫을 때는 close.js가 같이 취소하므로 이 경로가 필요 없다 —
+    //  문제는 거래소가 알아서 닫는 경우다: 손절 발동·익절 발동·강제청산)
+    //
+    // ⚠ 판정은 **주문 자체 + 그 사이드 상태**로 한다 (store 기록 없음):
+    //     청산 방향 · 수량 지정 · 그 사이드 포지션 없음 · 그 사이드 미체결 진입 없음
+    //   마지막 조건이 **사전 등록분(preplaceTPSL)을 지켜준다** — 그건 진입 주문에 딸린
+    //   것이라 진입이 살아 있는 동안은 걸리지 않는다. 진입이 사라지면 위의 preset 정리가
+    //   id로 먼저 치운다
+    //
+    // ⚠ 헷지모드라 청산 방향(SELL/LONG·BUY/SHORT)은 **새 포지션을 열 수 없다.**
+    //   포지션도 진입 주문도 없으면 그 주문은 아무 일도 할 수 없는 상태다 —
+    //   그래서 우리가 만든 것이 아니어도(바이낸스 앱에서 건 것이어도) 치우는 게 맞다
+    //
+    // ⚠ 알고 주문 조회는 **치울 사이드가 있을 때만** 한다 — 평소엔 호출이 늘지 않는다
+    const emptySides = ["LONG", "SHORT"].filter(sd => !(sd === "LONG" ? hasLong : hasShort));
+    if (emptySides.length) {
+      const entrySides = new Set(openOrders.filter(o => isLiveLimit(o) && isEntryDir(o))
+        .map(o => o.positionSide));
+      const targets = emptySides.filter(sd => !entrySides.has(sd));
+      if (targets.length) {
+        const algoRaw = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" })
+          .then(r => r.data)
+          .catch(e => { console.warn("[RECONCILE] 알고주문 조회 실패 → 찌꺼기 정리 스킵:",
+            e.response?.data?.msg || e.message); return null; });
+        if (algoRaw) {
+          const algos = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
+          const stale = [
+            ...openOrders.filter(o => TPSL_TYPES.includes(o.type)).map(o => ({ o, id: o.orderId, isAlgo: false })),
+            ...algos.filter(o => TPSL_TYPES.includes(o.orderType)).map(o => ({ o, id: o.algoId, isAlgo: true })),
+          ].filter(({ o }) => o.positionSide && targets.includes(o.positionSide)
+            && isCloseDir(o) && !isFullClose(o));
+          for (const { o, id, isAlgo } of stale) {
+            console.warn(`[RECONCILE] 주인 없는 부분 청산 트리거 → 취소 ${o.positionSide} ` +
+              `${orderQtyOf(o)}@${triggerPriceOf(o)} id=${id}`);
+            await cancelOrder({ orderId: id, algoId: id, isAlgo })
+              .catch(e => console.warn("[RECONCILE] 취소 실패:", e.response?.data?.msg || e.message));
+          }
+          if (stale.length) push.pushUpdate(["tpsl"]);
+        }
+      }
     }
 
     // ── TPSL_PARTIAL / FILLED(TP/SL 미등록) → 포지션 있으면 재시도 ──────────
