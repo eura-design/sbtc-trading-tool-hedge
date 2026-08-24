@@ -1,5 +1,6 @@
 const WebSocket    = require("ws");
 const { binance, cancelOrder, placeTPSL, checkExistingTPSL, cancelPresetTPSL } = require("./binanceClient");
+const { isStopOrder, isFullClose, coversPosition, orderQtyOf, triggerPriceOf } = require("../utils/orderKind");
 const store          = require("../store/pendingOrders");
 const push           = require("./pushService");
 const tradeLog       = require("../store/tradeLog");
@@ -608,6 +609,11 @@ async function watchAccount() {
     const hasLong  = posR.value.data.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0);
     const hasShort = posR.value.data.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0);
 
+    // ⚠ **sig 비교보다 먼저 부른다.** 변화가 없는 회차에도 봐야 "연속 2회"가 성립하고,
+    //   첫 관측(기준선만 잡고 return)에서도 판정은 해야 한다 — 서버를 켰을 때 이미
+    //   무방비인 상태가 가장 위험하다
+    checkNakedFast(posR.value.data, ordR.value.data, algos);
+
     if (lastAccountSig === null) { lastAccountSig = sig; lastSides = { long: hasLong, short: hasShort }; return; }  // 첫 관측은 기준선만
     if (sig === lastAccountSig) return;
     lastAccountSig = sig;
@@ -638,6 +644,97 @@ async function watchAccount() {
     lastSides = { long: hasLong, short: hasShort };
   } catch (e) {
     console.warn("[ACCOUNT] 감시 실패:", e.response?.data?.msg || e.message);
+  }
+}
+
+// ── 무방비 감시를 3초 주기로 끌어올린다 (2026-08-24 사용자 요청) ──────────────
+//
+// 예전엔 판정이 60초짜리 reconcile 안에만 있어서 **경보가 최대 65초 늦었고, 해제는 더
+// 늦었다**(실측: 손절 복구 55초 뒤에야 배너가 사라졌다). `watchAccount`가 이미 3초마다
+// 포지션·미체결·조건부 주문 셋을 다 받아오는데 — **그게 판정에 필요한 재료 전부다** —
+// 쓰지 않고 있었다. 그래서 **추가 조회 없이** 여기에 얹는다.
+//
+// ⚠ **60초 reconcile의 판정은 그대로 둔다.** 빠르게 하는 장치지 대체재가 아니다 —
+//   watchAccount는 조회가 하나라도 실패하면 그 회차를 통째로 건너뛴다 (포지션 사라짐
+//   즉시 뒷정리와 같은 이유)
+//
+// ⚠ **연속 2회 봐야 울린다.** 한 번 보고 울리면 오경보가 난다: 차트에서 손절선을 끌면
+//   `PUT /api/tpsl`이 취소 → 등록 순서로 처리해 그 사이 **69ms** 동안 진짜로 SL이 없다
+//   (2026-08-22 실측). 3초 간격 두 번이 그 틈에 다 걸릴 수는 없다.
+//   reconcile 쪽의 5초 재확인과 목적이 같다
+//
+// ⚠ **해제는 재확인 없이 즉시** 한다 — 좋은 소식이라 빨라서 손해 볼 게 없다
+const NAKED_STRIKES = 2;
+// side -> { n, since } — n은 연속으로 "안 덮임"을 본 횟수, since는 **처음 본 시각**.
+// ⚠ 경보의 시작 시각으로 `since`를 쓴다 (경보를 띄운 시각이 아니라). 그래야 해제될 때
+//   찍는 `없던 시간`이 실제와 맞는다 — 안 그러면 2회 확인에 걸린 3초가 통째로 빠진다
+const nakedStrikes = new Map();
+
+// TP/SL을 **지금 거는 중인 사이드** — 체결 직후엔 포지션이 생긴 뒤 SL이 걸리기까지
+// 틈이 있고, `placeTPSL`이 실패하면 재시도로 최대 31초까지 벌어진다. 그 사이를
+// 무방비로 알리면 매 체결마다 오경보가 뜬다 (reconcile의 `willRetry` 스킵과 같은 목적).
+// `placingTpsl`은 주문번호 기준이라 store로 사이드를 되짚는다
+function sidesPlacingTpsl() {
+  const out = new Set();
+  for (const id of placingTpsl) {
+    const cs = store.get(String(id))?.closeSide;
+    if (cs) out.add(closeToPosition(cs));
+  }
+  return out;
+}
+
+function checkNakedFast(positions, regular, algos) {
+  const busy = sidesPlacingTpsl();
+  for (const side of ["LONG", "SHORT"]) {
+    const amt = Math.abs(parseFloat(
+      positions.find(x => x.positionSide === side)?.positionAmt ?? 0));
+    if (!(amt > 0)) { nakedStrikes.delete(side); resolveNaked(side, "closed"); continue; }
+
+    const closeSide = side === "LONG" ? "SELL" : "BUY";
+    const stops = [
+      ...regular.filter(o => o.positionSide === side),
+      ...algos.filter(o => o.positionSide === side || (!o.positionSide && o.side === closeSide)),
+    ].filter(isStopOrder);
+
+    const covered = coversPosition(stops, amt);
+    if (covered === true) {
+      nakedStrikes.delete(side);
+      const full = stops.find(isFullClose);
+      resolveNaked(side, "sl", { price: full ? triggerPriceOf(full) : null });
+      continue;
+    }
+    if (covered === null) { nakedStrikes.delete(side); continue; }   // 판단 불가 → 침묵
+
+    if (busy.has(side)) { nakedStrikes.delete(side); continue; }     // 지금 거는 중이다
+    if (nakedWarned.has(side)) continue;                             // 이미 알렸다
+
+    const prev  = nakedStrikes.get(side);
+    const since = prev?.since ?? Date.now();
+    const n     = (prev?.n ?? 0) + 1;
+    nakedStrikes.set(side, { n, since });
+    if (n < NAKED_STRIKES) continue;                                 // 한 번 더 보고 정한다
+
+    const partialQty = stops.filter(o => !isFullClose(o))
+      .reduce((sum, o) => sum + orderQtyOf(o), 0);
+    const msg = nakedMsg(side, partialQty, amt);
+    nakedWarned.set(side, { msg, at: since });   // 띄운 시각이 아니라 **처음 본 시각**
+    console.error(`[안전망/즉시] ${msg}`);
+    tradeLog.append({ event: "NAKED_POSITION", side, slPartialQty: partialQty, posAmt: amt, fast: true });
+    push.pushAlert("critical", msg);
+
+    // ── 알리는 데서 끝내지 않고 **수리도 즉시 시작한다** (2026-08-24 사용자 요청) ──
+    //
+    // 무방비의 흔한 원인은 체결 후 `placeTPSL` 실패다. 그걸 다시 거는 건 reconcile의
+    // retryable 경로인데 타이머가 60초라, 경보만 6초 만에 뜨고 **수리는 최대 60초를
+    // 기다렸다**. 알림만 빨라지고 고치는 건 그대로인 셈이다.
+    //
+    // 포지션이 사라졌을 때 뒷정리를 즉시 부르는 것과 **같은 방식**이다.
+    // ⚠ 사이드당 래치(`nakedWarned`)가 있어 무방비 한 번에 **한 번만** 부른다 —
+    //   3초마다 부르지 않는다. 그래서 평소 부하가 늘지 않는다
+    //   (reconcile 주기를 30초로 줄이는 대신 이 방식을 택한 이유)
+    // ⚠ reconcile에는 중복 실행 방지가 이미 있다 (`reconcileRunning`)
+    console.log(`[안전망/즉시] ${side} 수리 시도 → reconcile 즉시 실행`);
+    reconcileWithBinance().catch(e => console.warn("[안전망/즉시] reconcile 실패:", e.message));
   }
 }
 
