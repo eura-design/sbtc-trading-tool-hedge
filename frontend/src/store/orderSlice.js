@@ -296,14 +296,29 @@ export const createOrderSlice = (set, get) => ({
     const target = all.find(o => o.orderId === orderId);
     if (!target) return;
     const side = target.positionSide;   // 백엔드·페이퍼가 같이 실어 보낸다
+    // ⚠ **새로 걸고 나서 옛것을 취소한다 — 순서를 뒤집지 말 것** (2026-08-24).
+    //   `moveSplitTp`(분할 TP)는 취소부터 하는데, 손절에 그러면 **드래그 한 번 잘못한 걸로
+    //   손절이 사라진다.** 잘못된 쪽(롱은 현재가 위)에 놓으면 바이낸스가 -2021 로 거절하는데,
+    //   그때 이미 옛 주문은 지워진 뒤다. 3초 뒤 선이 화면에서 없어지고, 그게 유일한
+    //   손절이었으면 15초 뒤 무방비 경보가 뜬다.
+    //   이 순서면 **거절당해도 옛 손절이 그대로 남는다** — 실패해도 보호가 줄지 않는다
+    //   (부분 청산의 분할 SL 재조정도 같은 이유로 같은 순서다 — backend/routes/close.js 3-2)
+    // ⚠ 겹치는 순간이 생기지만 무해하다: 청산 방향이라 포지션보다 많이는 못 판다
+    try {
+      await api("POST", "/api/tpsl/partial-sl", { side, price: newPrice, qty: target.qty });
+    } catch (e) {
+      setOrderStatus({ type: "error", msg: `분할 SL 이동 실패 (기존 손절은 그대로): ${e.message}` });
+      setTimeout(() => { _refetchTpsl(); }, 500);   // 선을 원래 자리로 되돌린다
+      return;
+    }
     try {
       await api("DELETE", "/api/tpsl/partial-sl", { orderId });
-      await api("POST", "/api/tpsl/partial-sl", { side, price: newPrice, qty: target.qty });
       setOrderStatus({ type: "success", msg: `분할 SL 가격 이동 완료 ($${newPrice?.toLocaleString()})` });
-      setTimeout(() => { _refetchTpsl(); }, 500);
     } catch (e) {
-      setOrderStatus({ type: "error", msg: `분할 SL 이동 실패: ${e.message}` });
+      // 옛것이 안 지워졌다 — 손절이 둘이 되지만 과하게 덮는 쪽이라 위험하진 않다
+      setOrderStatus({ type: "error", msg: `옛 분할 SL 취소 실패 — 목록에서 직접 지우세요: ${e.message}` });
     }
+    setTimeout(() => { _refetchTpsl(); }, 500);
   },
 
   cancelSplitTp: async (orderId) => {
