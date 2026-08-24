@@ -54,5 +54,53 @@ const limitKind = (o, hasPosFor, stored) => {
 //   조회(`GET /api/tpsl`)·교체(`cancelExistingAlgoTPSL`)·청산(`routes/close.js`)이
 //   **같은 목록을 봐야 한다.** 한 곳만 빠지면 그쪽에서 유령 주문이 남는다
 const TPSL_TYPES = ["TAKE_PROFIT_MARKET", "STOP_MARKET", "TAKE_PROFIT", "STOP"];
+const STOP_TYPES = ["STOP_MARKET", "STOP"];                 // 손절 쪽
+const TP_TYPES   = ["TAKE_PROFIT_MARKET", "TAKE_PROFIT"];   // 익절 쪽
 
-module.exports = { isLiveLimit, isCloseDir, isEntryDir, limitKind, TPSL_TYPES };
+// ── 전량 청산 주문인가, 부분 청산 주문인가 ────────────────────────────────
+//
+// 바이낸스는 조건부 주문(TP/SL)에 두 가지를 허용한다:
+//   · `closePosition: true` → 수량을 적지 않는다. **"발동 시점에 남아 있는 전부"**라는 뜻
+//   · `quantity` 지정        → 그만큼만 청산한다 (헷지모드 청산 방향이라 `reduceOnly`가 자동으로 붙어
+//                              포지션보다 많이는 못 판다 — 2026-08-24 실측)
+//
+// 우리 시스템이 거는 TP/SL은 **늘 전자**다(`placeTPSL`). 후자는 두 가지뿐이다:
+//   ① 지정가 진입에 미리 걸어 두는 사전 TP/SL (`preplaceTPSL` — 포지션이 없어 closePosition을 못 쓴다)
+//   ② 부분 손절 (예: "평단까지 내려오면 절반만 청산")
+//
+// ⚠ **판정 근거를 store에 두지 않는다.** 주문 자체에 찍혀 있으므로 거래소가 원본이다
+//   ("주문의 정체는 바이낸스가 정한다" 절과 같은 원칙). 그래서 **바이낸스 앱에서 직접 건
+//   부분 손절도 똑같이 인식된다** — store에 이름표를 달았다면 그건 못 알아봤다
+//
+// ⚠ 일반 주문(`openOrders`)과 알고 주문(`openAlgoOrders`)은 **필드 이름이 다르다.**
+//   한쪽만 읽으면 바이낸스 웹이 지정가형(`STOP`)으로 걸어 둔 것을 놓친다
+const orderTypeOf = o => o.type   ?? o.orderType;
+const orderQtyOf  = o => parseFloat(o.origQty ?? o.quantity ?? 0) || 0;
+
+// closePosition은 응답 경로에 따라 boolean으로도 문자열로도 온다
+const isFullClose = o => o.closePosition === true || o.closePosition === "true";
+
+const isTpslOrder = o => TPSL_TYPES.includes(orderTypeOf(o));
+const isStopOrder = o => STOP_TYPES.includes(orderTypeOf(o));
+const isTpOrder   = o => TP_TYPES.includes(orderTypeOf(o));
+
+// 이 트리거 주문 목록이 **포지션 전부를 덮는가** (순수 함수 — node에서 바로 검산한다)
+//
+//   true  = 덮는다        · false = 못 덮는다        · null = **판단 불가**
+//
+// ⚠ `null`을 `false`로 뭉개지 말 것. "손절이 없다"와 "포지션 수량을 못 물어봤다"는 다르다 —
+//   후자를 경보로 올리면 통신이 튈 때마다 가짜 경보가 뜬다 (`checkExistingTPSL`의 `ok` 주석)
+// ⚠ 합계로 판정한다 — 절반짜리 손절 **두 개**면 덮인 것이 맞다
+function coversPosition(orders, posAmt) {
+  if (orders.some(isFullClose)) return true;          // "남은 전부" → 수량과 무관하게 덮인다
+  const qty = orders.filter(o => !isFullClose(o))
+    .reduce((sum, o) => sum + orderQtyOf(o), 0);
+  if (qty <= 0) return false;                          // 아무것도 없다
+  if (posAmt == null) return null;                     // 부분 주문뿐 → 포지션 수량이 있어야 안다
+  if (!(posAmt > 0)) return false;
+  return qty + 1e-8 >= posAmt;                         // 부동소수점 여유
+}
+
+module.exports = { isLiveLimit, isCloseDir, isEntryDir, limitKind, coversPosition,
+  TPSL_TYPES, STOP_TYPES, TP_TYPES,
+  orderTypeOf, orderQtyOf, isFullClose, isTpslOrder, isStopOrder, isTpOrder };

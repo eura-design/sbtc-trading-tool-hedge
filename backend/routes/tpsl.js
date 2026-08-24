@@ -2,7 +2,7 @@ const express = require("express");
 const { binance, roundPrice, cancelOrder, assertCancelKind } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
-const { isLiveLimit, isCloseDir } = require("../utils/orderKind");
+const { isLiveLimit, isCloseDir, isFullClose, orderQtyOf } = require("../utils/orderKind");
 const router  = express.Router();
 
 // SPLIT_TP를 store에서 지우기 전 두는 유예 — 등록 직후 낡은 openOrders 스냅샷에
@@ -41,17 +41,49 @@ router.get("/", async (req, res) => {
       TAKE_PROFIT_MARKET: ["TAKE_PROFIT_MARKET", "TAKE_PROFIT"],
       STOP_MARKET:        ["STOP_MARKET",        "STOP"],
     };
+    //
+    // ⚠ **전량 청산(`closePosition:true`)인 것만 고른다** (2026-08-24).
+    //   예전엔 종류만 맞으면 **먼저 나온 것**을 집었다. 그때는 후보가 하나뿐이라 맞았지만,
+    //   부분 손절(수량 지정)이 생기면 **어느 게 잡힐지 바이낸스가 주는 순서에 달린다.**
+    //   그러면 차트 손절선이 그때그때 다른 가격에 그려지고, 더 나쁘게는 그 선을 끌었을 때
+    //   `saveTpsl`이 **부분 손절의 주문번호를 취소 대상으로 실어 보내** 조용히 지워버린다
+    //   (그 자리에 전량 손절이 새로 걸려 손절이 두 개가 된다).
+    //   → 부분 청산 주문은 아래 `partialOf`가 따로 담는다. 안 보이게 두지 않는다
     const findOrder = (type, positionSide) => {
       const types = TYPES[type] ?? [type];
       const r = regular.find(o => types.includes(o.type) && o.positionSide === positionSide
-        && !presetIds.has(String(o.orderId)));
+        && isFullClose(o) && !presetIds.has(String(o.orderId)));
       if (r) return { orderId: r.orderId, price: parseFloat(r.stopPrice), isAlgo: false };
       const closeSide = positionToClose(positionSide);
       // positionSide 필드 없는 algo 주문은 side(closeSide)로 폴백
       const a = algo.find(o => types.includes(o.orderType) && !presetIds.has(String(o.algoId)) &&
+        isFullClose(o) &&
         (o.positionSide === positionSide || (!o.positionSide && o.side === closeSide)));
       if (a) return { orderId: a.algoId, price: parseFloat(a.triggerPrice), isAlgo: true };
       return null;
+    };
+
+    // 부분 청산 트리거 주문(수량 지정) — 예: "평단까지 내려오면 절반만 청산".
+    // 사전 등록분(preset)은 제외한다 — 그건 아직 체결 안 된 진입 주문에 딸린 것이고,
+    // 그 가격은 플랜 박스가 이미 보여준다 (위 presetIds 주석)
+    const partialOf = (type, positionSide) => {
+      const types = TYPES[type] ?? [type];
+      const closeSide = positionToClose(positionSide);
+      const out = [];
+      for (const o of regular) {
+        if (!types.includes(o.type) || o.positionSide !== positionSide) continue;
+        if (isFullClose(o) || presetIds.has(String(o.orderId))) continue;
+        out.push({ orderId: String(o.orderId), price: parseFloat(o.stopPrice),
+          qty: orderQtyOf(o), isAlgo: false });
+      }
+      for (const o of algo) {
+        if (!types.includes(o.orderType)) continue;
+        if (!(o.positionSide === positionSide || (!o.positionSide && o.side === closeSide))) continue;
+        if (isFullClose(o) || presetIds.has(String(o.algoId))) continue;
+        out.push({ orderId: String(o.algoId), price: parseFloat(o.triggerPrice),
+          qty: orderQtyOf(o), isAlgo: true });
+      }
+      return out.sort((a, b) => b.price - a.price);
     };
 
     // SPLIT_TP: store에 있는데 바이낸스에 없으면 이미 체결/취소됨 → store 정리
@@ -97,8 +129,10 @@ router.get("/", async (req, res) => {
     const shortSplitTps = splitTps.filter(o => o.side === "BUY");
 
     res.json({
-      long:  { tp: findOrder("TAKE_PROFIT_MARKET", "LONG"),  sl: findOrder("STOP_MARKET", "LONG"),  splitTps: longSplitTps  },
-      short: { tp: findOrder("TAKE_PROFIT_MARKET", "SHORT"), sl: findOrder("STOP_MARKET", "SHORT"), splitTps: shortSplitTps },
+      long:  { tp: findOrder("TAKE_PROFIT_MARKET", "LONG"),  sl: findOrder("STOP_MARKET", "LONG"),
+               splitTps: longSplitTps,  partialSls: partialOf("STOP_MARKET", "LONG")  },
+      short: { tp: findOrder("TAKE_PROFIT_MARKET", "SHORT"), sl: findOrder("STOP_MARKET", "SHORT"),
+               splitTps: shortSplitTps, partialSls: partialOf("STOP_MARKET", "SHORT") },
     });
   } catch (err) {
     res.status(500).json({ error: err.response?.data?.msg || err.message });

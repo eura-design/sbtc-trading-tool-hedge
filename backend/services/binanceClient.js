@@ -1,6 +1,9 @@
 const axios  = require("axios");
 const crypto = require("crypto");
 const { closeToPosition } = require("../utils/side");
+const { isFullClose, isStopOrder, isTpOrder, coversPosition,
+  TPSL_TYPES, STOP_TYPES } = require("../utils/orderKind");
+const store = require("../store/pendingOrders");
 
 const BASE = "https://fapi.binance.com";
 // const BASE = "https://demo-fapi.binance.com";
@@ -90,10 +93,41 @@ async function cancelExistingAlgoTPSL(positionSide) {
     //   `GET /api/tpsl`은 지정가형도 TP/SL로 읽는데 여기서만 빼면, 바이낸스 웹에서
     //   지정가형으로 걸어 둔 TP/SL 위에 우리가 새 TP/SL을 얹어 **둘이 공존**하게 된다.
     //   화면엔 하나만 보이고 나머지는 유령이 된다
+    // ⚠ **부분 청산 트리거(수량 지정)는 남긴다** (2026-08-24).
+    //   이 함수는 `placeTPSL`이 TP/SL을 **갈아끼우기 전에** 부르는 청소기다. 예전엔 그 사이드의
+    //   조건부 주문을 **전부** 지웠는데, 그때는 후보가 우리가 건 전량 TP/SL과 사전 등록분뿐이라
+    //   맞는 동작이었다. 부분 손절(예: "평단까지 내려오면 절반")이 생기면 **그것까지 빨려 들어간다.**
+    //   진입이 체결될 때마다 도는 경로라 **추가 진입 한 번이면 사라진다** — 조용히, 흔적 없이.
+    //
+    // ⚠ 그렇다고 `closePosition:false`를 통째로 빼면 안 된다. **사전 등록분(preset)도 수량
+    //   지정이라 같은 그물에 걸린다** — 그건 여기서 지워지는 것이 의도된 동작이다
+    //   (`placeTPSL` 주석: "이 호출이 사전 등록분도 함께 지운다 — 그래서 체결 경로에서는
+    //   preset을 따로 지울 필요가 없다"). 안 지우면 트리거만 거래소에 남아 유령이 된다.
+    //   → 그래서 **전량 청산분 + store가 아는 사전 등록분 id**만 지운다.
+    //     store에 없는 수량 지정 주문(= 부분 손절, 우리 것이든 바이낸스 앱에서 건 것이든)은 남긴다
+    //
+    // ※ -4130(같은 사이드에 전량 STOP_MARKET 둘) 걱정은 그대로 해결된다 — 전량분은 여전히
+    //   전부 지우기 때문이다. 수량 지정분은 전량분과 공존 가능하다 (2026-08-24 실계좌 실측)
+    const presetIds = new Set();
+    for (const [, info] of store.entries()) {
+      for (const k of ["tp", "sl"]) {
+        const id = info?.presetTpsl?.[k]?.orderId;
+        if (id) presetIds.add(String(id));
+      }
+    }
     const toCancel = algo.filter(o =>
       ["TAKE_PROFIT_MARKET", "STOP_MARKET", "TAKE_PROFIT", "STOP"].includes(o.orderType) &&
-      o.positionSide === positionSide
+      o.positionSide === positionSide &&
+      (isFullClose(o) || presetIds.has(String(o.algoId)))
     );
+    const kept = algo.filter(o =>
+      ["TAKE_PROFIT_MARKET", "STOP_MARKET", "TAKE_PROFIT", "STOP"].includes(o.orderType) &&
+      o.positionSide === positionSide && !toCancel.includes(o)
+    );
+    if (kept.length > 0) {
+      console.log(`[TPSL] 부분 청산 트리거 ${kept.length}건은 보존 (${positionSide}): ` +
+        kept.map(o => `${o.orderType} ${o.quantity}@${o.triggerPrice} #${o.algoId}`).join(", "));
+    }
     await Promise.allSettled(toCancel.map(o => cancelOrder({ algoId: o.algoId, isAlgo: true })));
     if (toCancel.length > 0) console.log(`[TPSL] 기존 알고리즘 TP/SL ${toCancel.length}건 취소 완료 (${positionSide})`);
   } catch (e) {
@@ -242,15 +276,21 @@ async function assertCancelKind(orderId, kind) {
   const alg = algo.find(o => String(o.algoId) === id);
   if (!reg && !alg) return;                       // 못 찾음 → 판단하지 않는다
 
+  const o      = reg ?? alg;
   const type   = reg ? reg.type : alg.orderType;
   const side   = reg ? reg.side : alg.side;
   const posSide= reg ? reg.positionSide : alg.positionSide;
   const closing = (side === "SELL" && posSide === "LONG") || (side === "BUY" && posSide === "SHORT");
+  const full    = isFullClose(o);
 
+  // ⚠ **`TPSL`은 전량 청산분만 가리킨다** (2026-08-24). 부분 손절(수량 지정)도 같은
+  //   `STOP_MARKET`이라, 안 가르면 차트 손절선 옆 `×`(= `DELETE /api/tpsl`)가
+  //   **부분 손절을 지워도 이 장치가 안 막아준다.** 종류가 다르면 거절해야 한다
   const ok =
-    kind === "TPSL"     ? ["TAKE_PROFIT_MARKET","STOP_MARKET","TAKE_PROFIT","STOP"].includes(type)
-  : kind === "SPLIT_TP" ? (type === "LIMIT" &&  closing)
-  : kind === "SCALE_IN" ? (type === "LIMIT" && !closing)
+    kind === "TPSL"       ? (TPSL_TYPES.includes(type) &&  full)
+  : kind === "PARTIAL_SL" ? (STOP_TYPES.includes(type) && !full && closing)
+  : kind === "SPLIT_TP"   ? (type === "LIMIT" &&  closing)
+  : kind === "SCALE_IN"   ? (type === "LIMIT" && !closing)
   : true;
 
   if (!ok) {
@@ -298,11 +338,53 @@ async function checkExistingTPSL(positionSide) {
       o.positionSide === positionSide ||
       (!o.positionSide && closeSide && o.side === closeSide);
 
-    const hasTP = regular.filter(matchReg).some(o => o.type === "TAKE_PROFIT_MARKET") ||
-                  algo.filter(matchAlgo).some(o => o.orderType === "TAKE_PROFIT_MARKET");
-    const hasSL = regular.filter(matchReg).some(o => o.type === "STOP_MARKET") ||
-                  algo.filter(matchAlgo).some(o => o.orderType === "STOP_MARKET");
-    return { hasTP, hasSL, ok };
+    const mine = [...regular.filter(matchReg), ...algo.filter(matchAlgo)];
+    const stops = mine.filter(isStopOrder);
+    const tps   = mine.filter(isTpOrder);
+
+    // ── "있나"가 아니라 **"포지션 전부를 덮고 있나"**로 판정한다 (2026-08-24) ──
+    //
+    // 예전에는 `STOP_MARKET`이 하나라도 있으면 `hasSL: true`였다. 그때는 맞는 말이었다 —
+    // 우리가 거는 손절은 늘 `closePosition:true`(=남은 전부)라 후보가 그것 하나뿐이었다.
+    //
+    // ⚠ **부분 손절(수량 지정)이 생기면 그 전제가 깨진다.** 절반짜리 손절 하나만 남아도
+    //   "손절 있음"으로 읽어서 ① 무방비 경보가 안 울리고 ② reconcile이 TPSL_PLACED로
+    //   확정해 재등록을 건너뛰고 ③ recoveryService의 시작 시 복구도 건너뛴다.
+    //   **안전장치 셋이 한꺼번에 조용히 죽는다.**
+    //
+    // 그래서 기준을 "덮여 있나"로 바꾼다:
+    //   · `closePosition:true`가 하나라도 있으면 → 무조건 덮인다 (수량과 무관)
+    //   · 아니면 부분 주문들의 **수량 합 ≥ 포지션 수량**일 때만 덮인 것으로 본다
+    //
+    // ⚠ 포지션 수량 조회는 **필요할 때만** 한다 — 전량 주문이 있으면 물어볼 이유가 없다.
+    //   평소(우리가 건 TP/SL만 있는 상태)에는 호출이 늘지 않는다
+    //
+    // ⚠ **지정가형(`STOP`/`TAKE_PROFIT`)도 이제 같이 센다** (2026-08-24, 조사 중 발견).
+    //   예전엔 `_MARKET`만 봐서, 바이낸스 웹이 지정가형으로 걸어 둔 손절이 있어도
+    //   "손절 없음"으로 읽어 **오경보**를 냈다. `GET /api/tpsl`·`close.js`는 이미
+    //   지정가형을 보고 있었는데(2026-08-23 감사) 여기만 빠져 있었다
+    // 1차: 포지션 수량 없이 판정 (전량 주문이 있으면 여기서 끝난다 = 평소 경로)
+    let hasSL = coversPosition(stops, null);
+    let hasTP = coversPosition(tps, null);
+    let coverOk = true;
+
+    // 2차: 부분 주문뿐이라 판단 불가(null)일 때만 포지션 수량을 물어본다
+    if (positionSide && (hasSL === null || hasTP === null)) {
+      const posRes = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" })
+        .catch(e => { console.warn("[TPSL조회] 포지션 수량 조회 실패:", e.response?.data?.msg || e.message); return null; });
+      const posAmt = posRes
+        ? Math.abs(parseFloat(posRes.data.find(p => p.positionSide === positionSide)?.positionAmt ?? 0))
+        : null;
+      if (hasSL === null) hasSL = coversPosition(stops, posAmt);
+      if (hasTP === null) hasTP = coversPosition(tps, posAmt);
+    }
+
+    // ⚠ 여기까지 와서도 null이면 **"덮였다"고 넘겨짚지 않는다.** false로 내리되 `ok:false`로
+    //   알려서 경보 경로가 침묵하게 한다 (위 `ok` 주석과 같은 원칙).
+    //   재등록 경로는 false여도 안전하다 — 다시 거는 건 멱등이다
+    if (hasSL === null || hasTP === null) coverOk = false;
+
+    return { hasTP: hasTP === true, hasSL: hasSL === true, ok: ok && coverOk };
   } catch (e) {
     console.warn("[TPSL조회] 실패 → 결과 신뢰 불가:", e.response?.data?.msg || e.message);
     return { hasTP: false, hasSL: false, ok: false };
