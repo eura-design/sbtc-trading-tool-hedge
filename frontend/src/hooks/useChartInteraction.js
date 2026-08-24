@@ -1,6 +1,7 @@
 import { useCallback, useRef, useEffect } from "react";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
 import { getScales, padYDomain, tsToIdx } from "../chart/scales";
+import { idxToTimestamp } from "../utils/coordUtils";
 import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
@@ -50,8 +51,9 @@ export function useChartInteraction({
   commitLiveStructPoint,   // 진행 중 레그 끝점을 클릭해 꼭짓점으로 확정
   // 레그 등락률 hover 표시 — 자동 ZZ는 모듈 상태에서 읽으므로 on/off 여부만 받는다
   showZZ = false,
-  // ※ 자동 ZZ에는 거래량 비교 설정이 없다 — 2026-08-14 기능째로 제거됐다.
-  //   ZZ 레그 hover는 등락률(%)만 뜬다 (hitDetection.js의 showVol:false)
+  // 자동 ZZ의 `거래량 비교` (indicatorParams.zz.show_legvol) — 2026-08-24 되살림.
+  // 수동 구조는 구조마다 값을 들고 있지만 자동 ZZ는 지표라 값이 하나다
+  zzShowVol = true,
   // 도형 통합 인터페이스
   drawables,
   overlaysRef,
@@ -193,6 +195,12 @@ export function useChartInteraction({
       : Infinity;
     const volBotPos = volTopPos + effectiveVolH;
     const scales = scalesRef?.current ?? getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog);
+    // 커서가 가리키는 시각 — 날짜축 태그에 쓴다 (useCrosshair).
+    // X축 눈금과 **같은 함수**(idxToTimestamp)로 구한다. 마지막 봉 오른쪽(미래 영역)은
+    // 봉 간격으로 외삽되므로 눈금이 없는 자리에서도 값이 나온다
+    const ts = scales && candles.length
+      ? idxToTimestamp(scales.xScale.invert(pos.x), candles)
+      : null;
     if (pos.x >= 0 && pos.x <= IW) {
       if (pos.y >= 0 && pos.y <= IH) {
         const price = scales ? scales.yScale.invert(pos.y) : null;
@@ -211,11 +219,11 @@ export function useChartInteraction({
             }
           }
         }
-        updateCrosshair?.({ x: pos.x, y: pos.y, inRsi: false, IW, IH, rsiH, volH, price, bodyPct });
+        updateCrosshair?.({ x: pos.x, y: pos.y, inRsi: false, IW, IH, rsiH, volH, price, ts, bodyPct });
       } else if (effectiveVolH > 0 && pos.y >= volTopPos && pos.y <= volBotPos) {
-        updateCrosshair?.({ x: pos.x, y: pos.y, inRsi: false, IW, IH, rsiH, volH, price: null, bodyPct: null });
+        updateCrosshair?.({ x: pos.x, y: pos.y, inRsi: false, IW, IH, rsiH, volH, price: null, ts, bodyPct: null });
       } else if (effectiveRsiH > 0 && pos.y >= rsiTopPos && pos.y <= rsiBotPos) {
-        updateCrosshair?.({ x: pos.x, y: pos.y - rsiTopPos, inRsi: true, IW, IH, rsiH, volH });
+        updateCrosshair?.({ x: pos.x, y: pos.y - rsiTopPos, inRsi: true, IW, IH, rsiH, volH, ts });
       } else {
         hideCrosshair?.();
       }
@@ -303,7 +311,7 @@ export function useChartInteraction({
           px: pos.x, py: pos.y,
           structures, liveSegment: getStructLiveSegment(),
           zzSegments: showZZ ? getZzSegments() : null,
-          xScale: scales.xScale, yScale: scales.yScale, candles,
+          xScale: scales.xScale, yScale: scales.yScale, candles, zzShowVol,
         });
         // 거래량은 **candlesRef**로 — React candles는 봉마감 때만 갱신돼서
         // 진행 중 레그의 마지막 봉 거래량이 낡아 있다 (구조 지표와 같은 함정)
@@ -383,7 +391,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, dragPartialSl, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, partialSls, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
+  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, dragPartialSl, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, partialSls, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ, zzShowVol]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;

@@ -1,9 +1,42 @@
 import { useRef, useCallback } from "react";
+import * as d3 from "d3";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
 import { LEG_VOL_METRICS } from "../chart/legVolume";
 
-function fmtPrice(p) {
-  return (p / 1000).toFixed(1) + "k";
+// ── 축 위의 크로스헤어 태그 (2026-08-24 사용자 요청 — 트레이딩뷰와 같은 자리) ──────
+//
+// 가격은 **오른쪽 가격축**, 시각은 **아래 날짜축**에 알약 모양으로 붙는다.
+// 예전에는 커서 옆에 `62.9k`가 떠 있었다 — 그건 제거됐다:
+//   ① 축 눈금과 나란히 놓여야 "지금 이 자리가 얼마인가"를 눈금과 바로 견줄 수 있고
+//   ② 커서 옆 라벨은 캔들 위에 겹쳐 앉아 정작 보려던 봉을 가렸다
+//   ③ `62.9k`는 $100 단위라 눈금(정수 달러)보다 거칠었다
+//
+// ⚠ 가격 형식은 **가격축 눈금과 같은 `,.0f`**로 맞춘다 (candleRenderer의 Y축).
+//   태그만 소수점을 붙이면 같은 축에 두 가지 정밀도가 나란히 뜨고, 자릿수가 늘면
+//   폭 72px(M.right) 밖으로 넘친다
+const fmtTagPrice = d3.format(",.0f");
+
+// ⚠ 날짜 태그에는 **한글을 쓰지 않는다** (X축 눈금의 `%d일 %H:%M`과 다른 점).
+//   태그 폭을 글자 수 × 등폭 한 칸으로 계산하는데, 한글은 폴백 폰트라 두 칸을
+//   차지해서 계산이 어긋난다 — 배경 알약이 글자보다 짧아진다.
+//   눈금보다 정보는 더 준다: 눈금은 `%y/%m/%d`인데 태그는 연도를 네 자리로 적는다
+function fmtTagTime(ts, interval_) {
+  const d = new Date(ts);
+  if (interval_ === "1M") return d3.timeFormat("%Y/%m")(d);
+  if (interval_ === "1d" || interval_ === "1w") return d3.timeFormat("%Y/%m/%d")(d);
+  return d3.timeFormat("%m/%d %H:%M")(d);
+}
+
+const TAG_H  = 18;    // 알약 높이
+const TAG_FS = 12;    // 축 눈금과 같은 글자 크기
+const TAG_CH = TAG_FS * 0.6;   // 등폭 한 글자 폭 (JetBrains Mono = 0.6em)
+const TAG_PAD = 6;    // 날짜 태그 좌우 여백 (가격 태그는 축 눈금과 같은 6px 들여쓰기)
+
+function hideTags(T) {
+  T.priceBg?.setAttribute("display", "none");
+  T.priceText?.setAttribute("display", "none");
+  T.timeBg?.setAttribute("display", "none");
+  T.timeText?.setAttribute("display", "none");
 }
 
 // 구분 공백은 U+00A0 — SVG 기본 공백 처리(xml:space="default")가 tspan 경계의
@@ -11,19 +44,38 @@ function fmtPrice(p) {
 const NB = " ";
 const UP = "#0ecb81", DN = "#f6465d";
 
-// 레그 hover 라벨의 거래량 줄 간격 (fontSize 11 기준)
+// 레그 hover 라벨의 거래량 줄 간격 (거래량 줄 fontSize 11 기준)
 const LEG_ROW_H = 13;
+
+// 지그재그 레그 등락률(%)의 글자 크기 — **캔들 몸통 등락률(bodyPct)과 같은 13px**
+// (2026-08-24 사용자 요청). 예전엔 11px이라 같은 `%` 값인데 둘의 크기가 달랐다.
+// 겹쳐 보일 걱정은 없다: 레그 라벨은 한 줄 아래에 따로 놓이므로 자리로 이미 갈린다.
+//
+// ⚠ **ChartSvg의 `<text>` fontSize와 반드시 같아야 한다** — 이 값은 그림이 아니라
+//   거래량 줄의 x를 잡는 데 쓰인다(아래 rowX). 어긋나면 등락률 글자와 거래량 줄이
+//   겹치거나 사이가 벌어진다. 그래서 ChartSvg가 이 상수를 가져다 쓴다
+export const LEG_PCT_FS = 13;
+const LEG_PCT_CH = LEG_PCT_FS * 0.6;   // 등폭 한 글자 폭 (JetBrains Mono = 0.6em)
 
 function hideLegRows(L) {
   for (const { key } of LEG_VOL_METRICS) L[`${key}Text`]?.setAttribute("display", "none");
 }
 
-export function useCrosshair() {
+export function useCrosshair(interval_) {
   const vLineRef      = useRef(null);
   const hLineMainRef  = useRef(null);
   const hLineRsiRef   = useRef(null);
-  const priceTextRef  = useRef(null);
   const bodyPctRef    = useRef(null);
+
+  // 축 태그 4개(가격 알약 배경·글자 / 날짜 알약 배경·글자)를 **ref 하나에 모은다** —
+  // legRefs와 같은 이유다 (ChartArea → ChartSvg로 prop을 넷 더 내리지 않으려고).
+  // ChartSvg가 콜백 ref로 채운다
+  const axisTagRefs = useRef({});
+
+  // interval_은 렌더마다 바뀔 수 있는데 update는 useCallback으로 고정돼 있다 →
+  // ref에 담아 읽는다 (deps에 넣으면 크로스헤어 콜백이 TF마다 새로 만들어진다)
+  const intervalRef = useRef(interval_);
+  intervalRef.current = interval_;
 
   // 지그재그 레그(수동 구조 / 자동 ZZ) hover 라벨의 SVG 요소들.
   // 크로스헤어와 같은 imperative 레이어에 둔다 — 마우스 이동마다 React 상태를
@@ -44,12 +96,12 @@ export function useCrosshair() {
   //   문자폭을 추정해 x를 계산해야 하고, 값 길이가 바뀔 때마다 어긋난다.
   const legRefs = useRef({});
 
-  const update = useCallback(({ x, y, inRsi, IW, IH, rsiH, volH, price, bodyPct }) => {
+  const update = useCallback(({ x, y, inRsi, IW, IH, rsiH, volH, price, ts, bodyPct }) => {
     const vLine     = vLineRef.current;
     const hLineMain = hLineMainRef.current;
     const hLineRsi  = hLineRsiRef.current;
-    const priceText = priceTextRef.current;
     const bodyPctEl = bodyPctRef.current;
+    const T         = axisTagRefs.current;
     if (!vLine || !hLineMain || !hLineRsi) return;
 
     const effectiveVolH = volH ?? 0;
@@ -65,6 +117,28 @@ export function useCrosshair() {
     vLine.setAttribute("y2", containerH - M.bottom);
     vLine.setAttribute("display", "inline");
 
+    // 날짜 태그 — 세로선이 보이는 동안은 **어느 패널에 있든** 함께 뜬다
+    // (RSI·거래량 패널에서도 "지금 몇 시 봉인가"는 똑같이 궁금하다)
+    if (T.timeBg && T.timeText && ts != null) {
+      const label = fmtTagTime(ts, intervalRef.current);
+      const w     = label.length * TAG_CH + TAG_PAD * 2;
+      // 화면 좌우 끝에서는 알약을 안쪽으로 물린다 — 안 그러면 글자가 잘린다
+      const bx = Math.max(M.left, Math.min(svgX - w / 2, M.left + IW + M.right - w));
+      const by = M.top + IH + 3;         // 축선(M.top+IH) 바로 아래
+      T.timeBg.setAttribute("x", bx);
+      T.timeBg.setAttribute("y", by);
+      T.timeBg.setAttribute("width", w);
+      T.timeBg.setAttribute("height", TAG_H);
+      T.timeBg.setAttribute("display", "inline");
+      T.timeText.textContent = label;
+      T.timeText.setAttribute("x", bx + w / 2);
+      T.timeText.setAttribute("y", by + TAG_H / 2);
+      T.timeText.setAttribute("display", "inline");
+    } else {
+      T.timeBg?.setAttribute("display", "none");
+      T.timeText?.setAttribute("display", "none");
+    }
+
     const x1 = M.left, x2 = M.left + IW;
 
     if (!inRsi) {
@@ -74,20 +148,30 @@ export function useCrosshair() {
       hLineMain.setAttribute("display", "inline");
       hLineRsi.setAttribute("display", "none");
 
-      if (priceText && price != null) {
-        priceText.textContent = fmtPrice(price);
-        priceText.setAttribute("x", svgX + 8);
-        priceText.setAttribute("y", svgY + 14);
-        priceText.setAttribute("display", "inline");
+      // 가격 태그 — **오른쪽 가격축 위**. 폭은 축 전체(M.right)를 덮고,
+      // 글자는 눈금과 같은 자리에서 시작한다(+6)
+      if (T.priceBg && T.priceText && price != null) {
+        T.priceBg.setAttribute("x", M.left + IW);
+        T.priceBg.setAttribute("y", svgY - TAG_H / 2);
+        T.priceBg.setAttribute("width", M.right);
+        T.priceBg.setAttribute("height", TAG_H);
+        T.priceBg.setAttribute("display", "inline");
+        T.priceText.textContent = fmtTagPrice(price);
+        T.priceText.setAttribute("x", M.left + IW + 6);
+        T.priceText.setAttribute("y", svgY);
+        T.priceText.setAttribute("display", "inline");
+      } else {
+        T.priceBg?.setAttribute("display", "none");
+        T.priceText?.setAttribute("display", "none");
       }
 
+      // 캔들 몸통 등락률 — 커서 옆에 남는 유일한 라벨이다.
+      // 가격이 축으로 떠난 자리를 그대로 물려받는다 (예전엔 가격 글자 폭만큼 밀려 있었다)
       if (bodyPctEl && bodyPct != null) {
         const sign   = bodyPct >= 0 ? "+" : "";
         bodyPctEl.textContent = `${sign}${bodyPct.toFixed(2)}%`;
         bodyPctEl.setAttribute("fill", bodyPct >= 0 ? UP : DN);
-        // 모노스페이스 13px 기준 문자당 약 8px (getComputedTextLength는 강제 레이아웃 유발)
-        const priceW = priceText ? priceText.textContent.length * 8 : 40;
-        bodyPctEl.setAttribute("x", svgX + 8 + priceW + 5);
+        bodyPctEl.setAttribute("x", svgX + 8);
         bodyPctEl.setAttribute("y", svgY + 14);
         bodyPctEl.setAttribute("display", "inline");
       } else {
@@ -99,7 +183,9 @@ export function useCrosshair() {
       hLineRsi.setAttribute("y1", svgY); hLineRsi.setAttribute("y2", svgY);
       hLineRsi.setAttribute("display", "inline");
       hLineMain.setAttribute("display", "none");
-      priceText?.setAttribute("display", "none");
+      // RSI 패널에는 가격축이 없다 — 가격 태그만 감춘다 (날짜 태그는 위에서 이미 그렸다)
+      T.priceBg?.setAttribute("display", "none");
+      T.priceText?.setAttribute("display", "none");
       bodyPctEl?.setAttribute("display", "none");
       // RSI 패널엔 지그재그가 없다
       const L = legRefs.current;
@@ -161,8 +247,8 @@ export function useCrosshair() {
     el.setAttribute("display", "inline");
 
     // 거래량 줄의 x는 등락률 폭에서 계산한다
-    // (모노스페이스 11px 기준 문자당 약 6.6px — getComputedTextLength는 강제 레이아웃 유발)
-    const rowX = M.left + x + 8 + text.length * 6.6 + 6;
+    // (등폭이라 글자 수 × 한 글자 폭 — getComputedTextLength는 강제 레이아웃을 유발한다)
+    const rowX = M.left + x + 8 + text.length * LEG_PCT_CH + 6;
 
     // 값 tspan과 증감률 tspan을 채운다.
     // ※ 증감률 색은 **값의 방향이 아니라 증감 자체**로 정한다
@@ -201,15 +287,15 @@ export function useCrosshair() {
     vLineRef.current?.setAttribute("display", "none");
     hLineMainRef.current?.setAttribute("display", "none");
     hLineRsiRef.current?.setAttribute("display", "none");
-    priceTextRef.current?.setAttribute("display", "none");
     bodyPctRef.current?.setAttribute("display", "none");
+    hideTags(axisTagRefs.current);
     const L = legRefs.current;
     L.pct?.setAttribute("display", "none");
     hideLegRows(L);
   }, []);
 
   return {
-    vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, legRefs,
+    vLineRef, hLineMainRef, hLineRsiRef, bodyPctRef, legRefs, axisTagRefs,
     updateCrosshair: update, hideCrosshair: hide, showLegPct,
   };
 }

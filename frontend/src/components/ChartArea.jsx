@@ -268,14 +268,17 @@ export function ChartArea({
   const partialSls = [...(tpsl?.long?.partialSls ?? []), ...(tpsl?.short?.partialSls ?? [])];
 
   // ── 크로스헤어 ────────────────────────────────────────────────────────────
-  const { vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef, legRefs,
-          updateCrosshair, hideCrosshair, showLegPct } = useCrosshair();
+  // interval_은 **날짜 태그 형식**에 쓴다 (1d/1w는 날짜만, 그 아래는 시각까지)
+  const { vLineRef, hLineMainRef, hLineRsiRef, bodyPctRef, legRefs, axisTagRefs,
+          updateCrosshair, hideCrosshair, showLegPct } = useCrosshair(interval_);
 
   // ── 차트 인터랙션 ─────────────────────────────────────────────────────────
   const { dragRef, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onDoubleClick, updateCrosshairOnTick } =
     useChartInteraction({
       candles, candlesRef, IW, IH, rsiH: effectiveRsiH, volH: effectiveVolH,
       updateCrosshair, hideCrosshair, showLegPct, showZZ,
+      // 자동 ZZ 레그 hover의 거래량 3줄 on/off (더블클릭 팝업의 `거래량 비교`)
+      zzShowVol: indicatorParams.zz?.show_legvol !== false,
       scalesRef,
       onLineDoubleClick: (id, type, x, y) => setOpacityPopup({ id, type, x, y }),
       xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,
@@ -361,7 +364,7 @@ export function ChartArea({
         rsiH={effectiveRsiH} onDividerMouseDown={onDividerMouseDown}
         showVol={showVol} volH={effectiveVolH} onVolDividerMouseDown={onVolDividerMouseDown}
         vLineRef={vLineRef} hLineMainRef={hLineMainRef} hLineRsiRef={hLineRsiRef}
-        priceTextRef={priceTextRef} bodyPctRef={bodyPctRef} legRefs={legRefs}
+        bodyPctRef={bodyPctRef} legRefs={legRefs} axisTagRefs={axisTagRefs}
         hasPos={hasPos} hasLong={hasLong} hasShort={hasShort} position={position} tpsl={tpsl} dragTpsl={dragTpsl} tpslSaving={tpslSaving}
         closeConfirm={closeConfirm}
         scaleInOrders={position?.scaleInOrders} dragScaleIn={dragScaleIn}

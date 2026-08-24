@@ -35,7 +35,18 @@ export const INDICATOR_DEFAULTS = {
   // max_choch 기본이 숫자면 낮춰둔 걸 잊고 "CHoCH가 안 뜬다"고 오해한다 → 기본은 전체
   // ※ show_legvol은 **없다** — 자동 ZZ의 레그 hover 거래량 비교는 2026-08-14 사용자 요청으로
   //   기능째로 제거됐다 (거래량 3줄은 수동 구조 전용). 키를 되살리지 말 것
-  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: true, opacity: 1.0 },
+  //   show_legvol — 레그 hover 거래량 비교 3줄 (2026-08-24 되살림, 수동 구조와 짝)
+  //   ⚠ **alert_choch·show_legvol 둘 다 기본 false**다 (2026-08-24 사용자 요청).
+  //     수동 구조(`alertChoch`/`showLegVol`)와 초기값을 맞춘 것이다 — 한쪽만 바꾸지 말 것.
+  //     읽는 쪽은 `=== true`로 본다 (App.jsx) — `!== false`로 되돌리면 저장값이 없을 때 켜진다
+  //   opacity — 2026-08-24 사용자 요청으로 1.0 → 0.25.
+  //     수동 구조의 STRUCT_DEFAULT_OPACITY와 **같은 값이어야 한다** (초기 수치 통일).
+  //     한쪽만 바꾸지 말 것
+  //   ※ alert_choch는 일부러 **다르게 둔다** — 자동 ZZ는 ON, 수동 구조는 OFF.
+  //     수동 구조는 알림을 켜면 선이 호박색 점선이 되어, 기본 ON이면 모든 구조가
+  //     그 색이 되어 색으로 알림 여부를 구분할 수 없게 된다 (Structures.jsx [R10]).
+  //     자동 ZZ는 그 스타일이 없어 ON이어도 같은 문제가 생기지 않는다
+  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.25 },
   // 수동 구조(Custom Structure Zigzag)
   //   tfs — 표시할 타임프레임 (중복 선택 가능, 기본 1h). **여기 있는 건 이것뿐이다.**
   //   ※ CHoCH 표시 on/off·개수는 구조마다 localStorage에 있다 (st.showChoch / st.maxChoch,

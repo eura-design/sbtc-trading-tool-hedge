@@ -9,6 +9,10 @@ function inView(px, IH) { return px !== null && px >= -20 && px <= IH + 20; }
 
 const CL = PALETTE.long;  // LONG 계열 (초록)
 const CS = PALETTE.short; // SHORT 계열 (빨강)
+// 강제청산선 — **사이드바 포지션 카드의 `청산가`와 같은 색**(PositionCard.jsx).
+// PALETTE.short(#f6465d)를 쓰지 않는 이유: 그건 "숏"이라는 뜻이라 롱 포지션의
+// 청산선에 쓰면 사이드 색으로 읽힌다. 청산은 롱·숏 공통의 **위험** 표시다
+const C_LIQ = "#ff4444";
 
 // 버튼 면의 기본 진하기. 진입선 라벨과 TP/SL 핸들이 **같은 값을 봐야** 나란히 놓였을 때
 // 한쪽만 더 진해 보이지 않는다 (2026-08-15: 라벨만 0.9라 유독 진하다는 지적으로 통일)
@@ -194,6 +198,42 @@ function AddTpSlButton({ btn, color, hovered, onEnter, onLeave }) {
 // 모양은 MarkerButton과 같은 규칙(어두운 면 + 사이드 색 테두리·글자, 높이 TPSL_BTN.h)이지만
 // **누를 수 없다** — 진입선은 드래그 대상이 아니라 커서도 바꾸지 않는다
 //
+/**
+ * 강제청산선 (2026-08-24 사용자 요청) — **빨간 점선 + 은은한 글로우**.
+ *
+ * 스타일 기준은 **알림 켠 추세선**이다 (호박색 점선 + 글로우, TrendLines.jsx).
+ * 색만 빨강으로 바꿨다: 이 앱에서 그 모양은 "여기 닿으면 무슨 일이 난다"는 뜻이고,
+ * 청산선이 정확히 그 뜻이다.
+ *
+ * ⚠ **오른쪽 끝은 마지막 봉까지**다 (2026-08-24 사용자 요청) — 차트 오른쪽 끝(IW)까지
+ *   늘이면 아직 오지 않은 구간에도 선이 깔린다. FVG·오더블록 박스와 같은 이유·같은 계산이다.
+ *   ※ 진입선은 여전히 IW까지 간다 (사용자가 청산선만 지정했다)
+ *
+ * ⚠ **왼쪽 끝은 진입선과 같은 자리**다. 청산가는 포지션이 생긴 뒤에만 뜻이 있는 값이라,
+ *   진입 전 구간까지 그으면 그 자리에 의미 없는 선이 깔린다. 그래서 좌표를 따로
+ *   만들지 않고 **진입선이 쓴 첫 가로 구간의 x1을 그대로 가져온다**(entryPathSegments) —
+ *   각자 계산하면 두 선의 시작점이 어긋난다.
+ *
+ * ⚠ **라벨도 × 버튼도 없다** (같은 날 사용자 확정). 이건 주문이 아니라 거래소가 계산한
+ *   값이라 끌 수도, 지울 수도 없다 — 마커를 붙이면 조작할 수 있는 것처럼 보인다.
+ *   숫자는 사이드바 포지션 카드의 `청산가`가 이미 보여준다.
+ *
+ * ⚠ 화면 밖으로 벗어나면 **저절로 잘린다** — ChartSvg가 이 레이어를 클립(`#cc`)한다.
+ *   레버리지가 낮으면 청산가가 화면 밖인 게 정상이다 (5배면 약 20% 떨어진 곳).
+ */
+function LiqLine({ yPx, x1, x2 }) {
+  if (!Number.isFinite(yPx) || !(x2 > x1)) return null;
+  return (
+    <>
+      {/* 글로우 — 알림 추세선과 같은 값(굵기 6 / 투명도 0.18) */}
+      <line x1={x1} x2={x2} y1={yPx} y2={yPx}
+        stroke={C_LIQ} strokeWidth={6} opacity={0.18} />
+      <line x1={x1} x2={x2} y1={yPx} y2={yPx}
+        stroke={C_LIQ} strokeWidth={1.5} opacity={0.9} strokeDasharray="6,3" />
+    </>
+  );
+}
+
 // ⚠ `row`(hitDetection.posEntryRows)가 라벨·×·수량 배지 자리를 전부 정한다 —
 //   `+TP`/`+SL`도 같은 행에서 나온다. 여기서 좌표를 만들면 그 넷이 따로 논다.
 //   오른쪽 여백은 왼쪽 버튼과 **같은 값**(TPSL_BTN.x0) — 양끝이 대칭으로 보이게
@@ -270,6 +310,28 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
   const entryPath = (pos) =>
     entryPathSegments(pos.entrySteps, pos.entryPrice, entryX, yScale, IW);
 
+  // 강제청산선 — 진입선과 **같은 x에서 시작**해야 한다. 그래서 좌표를 새로 만들지 않고
+  // 진입선이 쓴 첫 가로 구간의 x1을 그대로 가져온다 (h가 비는 일은 없다 —
+  // entryPathPoints는 항상 IW까지 가는 가로 구간을 하나는 만든다)
+  // 청산선 오른쪽 끝 = **마지막 봉의 오른쪽 가장자리** (2026-08-24 사용자 요청).
+  // ⚠ 차트 오른쪽 끝(IW)까지 늘이지 말 것 — 그러면 **아직 오지 않은 구간**에도 선이 깔린다.
+  //   청산가는 "지금까지의 사실"이지 미래에 대한 예약이 아니다.
+  //   FVG·오더블록 박스가 같은 이유로 같은 계산을 쓴다 (overlayRenderers의 boxRightEdge).
+  // ※ 진입선은 여전히 IW까지 간다 — 사용자가 청산선만 지정했다
+  const lastBarX = (() => {
+    if (!candles?.length || !xScale) return IW;
+    const half = (xScale(1) - xScale(0)) / 2;
+    return Math.min(IW, xScale(candles.length - 1) + half);
+  })();
+
+  const liqOf = (pos) => {
+    const price = pos?.liquidationPrice;
+    if (!pos || !price) return null;                 // 청산가를 못 받았으면 그리지 않는다
+    return { yPx: yScale(price), x1: entryPath(pos).h[0]?.x1 ?? 0, x2: lastBarX };
+  };
+  const liqLong  = liqOf(position.long);
+  const liqShort = liqOf(position.short);
+
   // 우측 진입 행 — `+TP`/`+SL` · 수량 배지 · `×` · `LONG/SHORT`가 한 덩어리다.
   // 좌표는 hitDetection이 정한다 (렌더와 클릭 판정이 같은 함수를 봐야 어긋나지 않는다)
   const entryRows = posEntryRows(position, tpsl, yScale, IW, IH);
@@ -290,6 +352,11 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
 
   return (
     <g>
+      {/* 강제청산선 — 진입선보다 **먼저** 그린다. 겹치는 일은 거의 없지만
+          (청산가는 진입가에서 멀다) 순서가 곧 위아래라, 확정된 사실인 진입선이 위에 온다 */}
+      {liqLong  && <LiqLine yPx={liqLong.yPx}  x1={liqLong.x1}  x2={liqLong.x2} />}
+      {liqShort && <LiqLine yPx={liqShort.yPx} x1={liqShort.x1} x2={liqShort.x2} />}
+
       {/* 진입선 — **진입봉부터 차트 오른쪽 끝까지**, 평단이 바뀐 지점에서 꺾이는 계단
           (2026-08-15 사용자 요청). 전 폭 가로선이면 "언제 들어갔나"가 안 보인다 —
           왼쪽 끝이 진입 시점이라 보유 기간이 선 길이로 읽힌다. 좌표는 entryPath() 참고 */}

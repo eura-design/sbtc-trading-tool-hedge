@@ -425,6 +425,56 @@ export const DRAG_HANDLERS = {
     onUp({ setters }) { setters.setCursor("crosshair"); },
   },
 
+  // 메인 라인 중간 핸들: **메인 라인만** 위아래로 옮긴다 (미러는 제자리 → 폭이 바뀐다).
+  //
+  // ⚠ 위 `channel_mid_offset`(미러 중간 핸들)과 대칭이다 — 2026-08-24 사용자 요청으로
+  //   채널 핸들을 메인 3 + 미러 3으로 맞추면서 생겼다. 규칙은 하나다:
+  //   **잡은 점이 있는 선이 움직이고, 반대쪽 선은 제자리에 있는다.**
+  //
+  // ⚠ 스케일을 **두 군데서 따로** 본다. 하나로 합치지 말 것:
+  //   ① 메인 라인이 커서를 따라 평행 이동하는 방식 → **지금 차트 스케일**(setters.isLog).
+  //      화면에서 평행해 보여야 하므로 눈에 보이는 축을 따른다
+  //   ② 미러를 제자리에 두려고 offset을 고치는 방식 → **채널의 isLog**(drag.chIsLog).
+  //      offset이 "더하는 값"인지 "곱하는 값"인지는 만들어질 때 정해졌고
+  //      렌더(Channels.jsx applyOffset)가 그 기준으로 그린다
+  //   둘이 다를 수 있어서(로그로 그린 채널을 선형 차트에서 보는 중 등) 한쪽 기준으로
+  //   묶으면 끄는 동안 **미러 라인이 같이 밀린다** — 이 핸들의 존재 이유가 사라진다
+  channel_mid_main: {
+    onMove({ pos, drag, scales, IH, setters }) {
+      if (!scales) return;
+      const nowPrice   = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
+      const startPrice = scales.yScale.invert(drag.startY);
+      // ① 메인 라인 새 위치 (시작값 기준 — 누적하지 않는다)
+      let p1, p2;
+      if (setters.isLog) {
+        const ratio = (startPrice > 0 && nowPrice > 0) ? nowPrice / startPrice : 1;
+        p1 = drag.startP1 * ratio;
+        p2 = drag.startP2 * ratio;
+      } else {
+        const delta = nowPrice - startPrice;
+        p1 = drag.startP1 + delta;
+        p2 = drag.startP2 + delta;
+      }
+      // ② 미러 가격은 그대로 → 새 p에서 offset을 역산한다
+      let offset, offset2;
+      if (drag.chIsLog) {
+        const m1 = drag.startP1 * drag.startOffset;
+        const m2 = drag.startP2 * drag.startOffset2;
+        offset  = p1 !== 0 ? m1 / p1 : drag.startOffset;
+        offset2 = p2 !== 0 ? m2 / p2 : drag.startOffset2;
+      } else {
+        offset  = (drag.startP1 + drag.startOffset)  - p1;
+        offset2 = (drag.startP2 + drag.startOffset2) - p2;
+      }
+      // 두 번 부르지만 **패치가 겹치지 않아**(위치 / offset) 순서와 무관하고,
+      // React가 한 번에 반영하므로 미러가 깜빡이지 않는다
+      setters.setChannelPosition(drag.channelId, drag.t1, p1, drag.t2, p2);
+      setters.updateChannelBothOffsets(drag.channelId, offset, offset2);
+      setters.setCursor("ns-resize");
+    },
+    onUp({ setters }) { setters.setCursor("crosshair"); },
+  },
+
   // 미러 라인 끝점 드래그: 마우스가 미러 위치를 따라가도록 offset 보정 후 메인 라인 이동
   channel_mirror_ep: {
     onMove({ pos, drag, scales, candles, IW, IH, setters }) {

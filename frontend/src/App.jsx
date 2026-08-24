@@ -295,7 +295,7 @@ export default function App() {
   // 지나가는 이벤트이고, 자주 뜨는 편이라 확인 버튼을 강제하면 화면을 막는다.
   useChochAlert({
     structures: structs.structures,
-    zzAlertOn:  showZZ && indicatorParams.zz?.alert_choch !== false,
+    zzAlertOn:  showZZ && indicatorParams.zz?.alert_choch === true,
     onAlert:    addToast,
   });
 
@@ -365,19 +365,24 @@ export default function App() {
       items: [{
         id: ZZ_ID,
         opacity:    indicatorParams.zz?.opacity ?? 1.0,
-        alertChoch: indicatorParams.zz?.alert_choch !== false,
+        // ⚠ 알림·거래량 비교는 **기본 OFF**다 (2026-08-24 사용자 요청, 수동 구조와 통일)
+        //   → `!== false`가 아니라 `=== true`. 되돌리면 저장값이 없을 때 켜진 채로 뜬다
+        alertChoch: indicatorParams.zz?.alert_choch === true,
         showChoch:  indicatorParams.zz?.show_choch  !== false,
         maxChoch:   indicatorParams.zz?.max_choch ?? null,   // null = 전체
-        // ⚠ showLegVol은 **없다** — 자동 ZZ의 거래량 비교는 2026-08-14 기능째로 제거됐다.
-        //   거래량 3줄은 수동 구조 전용이다 (LineOpacityPopup의 LEGVOL_KINDS 참고)
+        // 레그 hover 거래량 비교 3줄 — 2026-08-24 되살림 (수동 구조와 짝을 맞춘다).
+        // 2026-08-14~24에는 없었다: 그때 사용자가 뺐고, 같은 사용자가 다시 요청했다.
+        // ⚠ 수동 구조는 **구조마다** 값을 들고 있지만(st.showLegVol) 자동 ZZ는
+        //   지표라 값이 하나다 → indicatorParams.zz.show_legvol
+        showLegVol: indicatorParams.zz?.show_legvol === true,
       }],
       setSelectedId: (id) => setZzSelected(id != null),
       delete:     () => {},   // 지표는 지울 대상이 아니다
       toggleLock: () => {},   // 드래그로 움직이지 않으므로 잠금도 의미 없다
       // 구조와 마찬가지로 toggleAlert = **CHoCH 발생 알림**(근접 알림이 아니다)
-      toggleAlert: () => setIndicatorParam("zz", "alert_choch", indicatorParams.zz?.alert_choch === false),
+      toggleAlert: () => setIndicatorParam("zz", "alert_choch", !indicatorParams.zz?.alert_choch),
       toggleChoch: () => setIndicatorParam("zz", "show_choch",  indicatorParams.zz?.show_choch  === false),
-      // toggleLegVol 없음 — 위 showLegVol 주석 참고 (팝업이 kind로 걸러 행 자체를 안 그린다)
+      toggleLegVol: () => setIndicatorParam("zz", "show_legvol", !indicatorParams.zz?.show_legvol),
       setOpacity:  (_id, opacity) => setIndicatorParam("zz", "opacity", opacity),
       setMaxChoch: (_id, n) => setIndicatorParam("zz", "max_choch", n),
     },

@@ -8,6 +8,9 @@ import { Structures }   from "./Structures";
 import { PositionLines } from "./PositionLines";
 import { BoxOverlay, DrawingCurrent } from "./BoxOverlay";
 import { LEG_VOL_METRICS } from "../../chart/legVolume";
+// 레그 등락률 글자 크기 — 거래량 줄의 x 계산에도 쓰이므로 **한 곳에서 가져온다**
+// (여기서 숫자를 다시 적으면 라벨과 거래량 줄이 겹친다 — useCrosshair의 rowX)
+import { LEG_PCT_FS } from "../../hooks/useCrosshair";
 
 // 지그재그 레그 hover 라벨의 거래량 줄 머리말 (상위3 / 평균 / 총량 — legVolume.js [LV9]).
 // 공백은 U+00A0 — 일반 공백은 SVG 기본 공백 처리에서 사라진다 (useCrosshair 참고).
@@ -29,8 +32,8 @@ export function ChartSvg({
   scales, candles, candlesRef,
   showRsi, rsiH, onDividerMouseDown,
   showVol, volH, onVolDividerMouseDown,
-  vLineRef, hLineMainRef, hLineRsiRef, priceTextRef, bodyPctRef,
-  legRefs,
+  vLineRef, hLineMainRef, hLineRsiRef, bodyPctRef,
+  legRefs, axisTagRefs,
   hasPos, hasLong, hasShort, position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, partialSls, dragPartialSl, closeConfirm,
   lines, selectedLineId, lineStart, linePreview, isLog,
   drawings, current, locked, selectedBox,
@@ -41,6 +44,10 @@ export function ChartSvg({
 }) {
   const { isDark } = useTheme();
   const crosshairColor = isDark ? "#d1d5db" : "#374151";
+  // 축 태그(알약)는 **크로스헤어 선과 같은 색을 배경으로** 깔고 글자를 패널 배경색으로
+  // 뒤집는다. 두 색 다 이미 이 파일이 쓰던 것이라(선 색 / 글자 테두리 색) 새 토큰이 없고,
+  // 다크·라이트 어느 쪽에서도 축 눈금 위에서 또렷하다
+  const tagTextColor = isDark ? "#0d1117" : "#f9fafb";
 
   return (
     <svg ref={svgRef} width={containerW} height={containerH}
@@ -106,12 +113,26 @@ export function ChartSvg({
         <line ref={vLineRef}     display="none" stroke={crosshairColor} strokeWidth={0.5} strokeDasharray="3,3" opacity={0.7} x1={0} x2={0} y1={0} y2={0} />
         <line ref={hLineMainRef} display="none" stroke={crosshairColor} strokeWidth={0.5} strokeDasharray="3,3" opacity={0.7} x1={0} x2={0} y1={0} y2={0} />
         <line ref={hLineRsiRef}  display="none" stroke={crosshairColor} strokeWidth={0.5} strokeDasharray="3,3" opacity={0.7} x1={0} x2={0} y1={0} y2={0} />
-        <text ref={priceTextRef} display="none" x={0} y={0}
-          fontSize={13} fontWeight={600}
+        {/* 축 위의 태그 — 가격은 **오른쪽 가격축**, 시각은 **아래 날짜축**
+            (2026-08-24 사용자 요청, 트레이딩뷰와 같은 자리).
+            ⚠ 커서 옆에 떠 있던 가격 라벨(`62.9k`)은 이때 제거됐다 — 되살리지 말 것.
+              축 눈금과 나란히 있어야 견주기 쉽고, 커서 옆 라벨은 보려던 캔들을 가렸다.
+            ⚠ 클립(`#cc`) **바깥**에 있어야 한다 — 태그는 차트 안쪽(IW×IH)이 아니라
+              여백(M.right / M.bottom)에 그려지므로 클립 안에 넣으면 통째로 잘린다.
+            좌표·글자는 전부 useCrosshair가 imperative로 채운다 (React 리렌더 없음) */}
+        <rect ref={el => (axisTagRefs.current.priceBg = el)} display="none"
+          x={0} y={0} width={0} height={0} rx={2} fill={crosshairColor} />
+        <text ref={el => (axisTagRefs.current.priceText = el)} display="none" x={0} y={0}
+          fontSize={12} fontWeight={600} dominantBaseline="central"
           fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
-          fill={crosshairColor}
-          stroke={isDark ? "#0d1117" : "#f9fafb"}
-          strokeWidth={3} paintOrder="stroke"
+          fill={tagTextColor}
+        />
+        <rect ref={el => (axisTagRefs.current.timeBg = el)} display="none"
+          x={0} y={0} width={0} height={0} rx={2} fill={crosshairColor} />
+        <text ref={el => (axisTagRefs.current.timeText = el)} display="none" x={0} y={0}
+          fontSize={12} fontWeight={600} textAnchor="middle" dominantBaseline="central"
+          fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
+          fill={tagTextColor}
         />
         <text ref={bodyPctRef} display="none" x={0} y={0}
           fontSize={13} fontWeight={600}
@@ -120,10 +141,13 @@ export function ChartSvg({
           stroke={isDark ? "#0d1117" : "#f9fafb"}
           strokeWidth={3} paintOrder="stroke"
         />
-        {/* 지그재그 레그 hover 라벨 — 캔들 등락률(bodyPct)보다 작게, 한 줄 아래.
+        {/* 지그재그 레그 hover 라벨 — 캔들 등락률(bodyPct) **한 줄 아래**.
+            등락률(%) 글자는 그 캔들 등락률과 **같은 크기**다 (2026-08-24 사용자 요청) —
+            같은 `%`인데 크기가 달랐고, 둘은 줄이 나뉘어 있어 크기로 구분할 필요가 없다.
+            거래량 세 줄은 그대로 11px — 저건 성격이 다른 값이고 줄 수도 많다.
             요소가 16개라 ref를 객체 하나(legRefs)에 콜백으로 모은다 (useCrosshair 참고) */}
         <text ref={el => (legRefs.current.pct = el)} display="none" x={0} y={0}
-          fontSize={11} fontWeight={700}
+          fontSize={LEG_PCT_FS} fontWeight={700}
           fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
           fill="#0ecb81"
           stroke={isDark ? "#0d1117" : "#f9fafb"}

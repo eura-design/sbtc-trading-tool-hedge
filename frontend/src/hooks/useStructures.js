@@ -6,7 +6,13 @@ import { normalizeStructurePoints } from "../chart/deriveStructure";
 // 신규 구조 기본 투명도 — 사용자 지정값. 1.0으로 되돌리지 말 것 ([R2] 참고).
 // 지그재그는 배경처럼 깔리고 CHoCH 마크만 또렷하게 보이도록 한 설정이다.
 // 개별 조절은 단축키 `[` `]` (0.25 단위) 또는 더블클릭 팝업.
-export const STRUCT_DEFAULT_OPACITY = 0.5;
+// ⚠ 신규 구조 기본 투명도 — 2026-08-24 사용자 요청으로 **0.5 → 0.25**.
+//   자동 ZZ(indicatorParams.zz.opacity)와 **같은 값으로 맞춘 것**이다:
+//   두 지표는 팝업 구성이 같은데 초기 수치만 달라 서로 다른 것처럼 보였다.
+//   한쪽만 바꾸지 말 것 — 바꾸려면 자동 ZZ 기본값도 같이.
+//   ※ 0.25는 투명도 슬라이더의 최소값이다 (LineOpacityPopup)
+//   ※ 이미 그려 둔 구조는 자기 값을 들고 있어 그대로다 — 새로 그리는 것부터 적용된다
+export const STRUCT_DEFAULT_OPACITY = 0.25;
 
 /**
  * 수동 구조(Structure) 도형 스토어
@@ -14,10 +20,14 @@ export const STRUCT_DEFAULT_OPACITY = 0.5;
  * 데이터: { id, points: [{ t, p, type:"H"|"L" }], opacity, locked,
  *          showChoch, alertChoch, maxChoch, showLegVol }
  *   maxChoch: 표시할 CHoCH 개수(최신 N개). undefined = 제한 없음 (기본)
- *   showChoch / showLegVol은 **undefined = ON** — 이미 저장된 구조가 새 필드 때문에
- *     꺼진 채로 뜨면 안 되므로 false만 OFF로 읽는다
- *   alertChoch만 **기본 OFF** (true일 때만 ON). 알림 ON이 호박색 점선으로 보이므로
- *     기본이 ON이면 전 구조가 알림 스타일이 된다 — [SL2] / Structures.jsx [R10]
+ *   showChoch만 **undefined = ON** — CHoCH 마크는 이 지표의 본체라 보이는 게 기본이다
+ *   alertChoch / showLegVol은 **기본 OFF** (true일 때만 ON)
+ *     - alertChoch: 알림 ON이 호박색 점선으로 보이므로, 기본이 ON이면 전 구조가
+ *       알림 스타일이 되어 색이 아무것도 구분해주지 못한다 — [SL2] / Structures.jsx [R10]
+ *     - showLegVol: 2026-08-24 사용자 요청으로 ON → OFF. 자동 ZZ(`zz.show_legvol`)와
+ *       **초기값을 맞춘 것**이다. 한쪽만 바꾸지 말 것
+ *       ⚠ 판정을 `!== false`로 되돌리지 말 것 — 그러면 손대지 않은 기존 구조가
+ *         전부 다시 켜진다 (기본값을 바꾼 의미가 사라진다)
  *
  * ╔════════════════════════════════════════════════════════════════════════╗
  * ║ 사용자 확정 사양 — 임의 변경 금지 (2026-08-12 확정, 실사용 테스트 통과)    ║
@@ -277,7 +287,7 @@ export function useStructures(mode = {}) {
    * 기본이 OFF인 이유는 표시와 묶여 있기 때문이다 — 알림 ON인 구조는 호박색 점선으로
    * 그려지므로(Structures.jsx [R10]), 기본이 ON이면 모든 구조가 알림 스타일이 되어
    * 색이 아무 정보도 주지 못한다. 켜는 건 명시적 행동이어야 한다.
-   * (showChoch/showLegVol은 여전히 기본 ON — 그쪽은 "보이는 게 기본"이 맞다)
+   * (showChoch만 기본 ON — CHoCH 마크는 이 지표의 본체라 보이는 게 기본이다)
    *
    * 표시(showChoch)와 **독립**이다 — 화면은 깔끔하게 두고 알림만 받는 조합이
    * 성립해야 한다. 알림 대상은 진행 중 레그에서 나온 CHoCH뿐이라
@@ -289,13 +299,14 @@ export function useStructures(mode = {}) {
 
   /**
    * 이 구조의 레그에 마우스를 올렸을 때 **거래량 비교 3줄**(피크/상위3/평균)을 띄울지.
-   * 더블클릭 팝업의 `거래량 비교` 행. 기본 ON (undefined = ON).
+   * 더블클릭 팝업의 `거래량 비교` 행. **기본 OFF** (true일 때만 ON) — 2026-08-24
+   * 사용자 요청으로 ON에서 바뀌었다. 자동 ZZ(`zz.show_legvol`)와 초기값을 맞춘 것이다.
    *
    * 등락률(%)은 이 설정과 무관하게 항상 뜬다 — 끄고 싶은 건 거래량 쪽이고,
    * 등락률까지 사라지면 "레그 hover가 통째로 죽었다"로 보인다.
    */
   const toggleStructLegVol = useCallback((id) => {
-    store.update(id, item => ({ showLegVol: item.showLegVol === false }));
+    store.update(id, item => ({ showLegVol: !item.showLegVol }));
   }, [store]);
 
   /**

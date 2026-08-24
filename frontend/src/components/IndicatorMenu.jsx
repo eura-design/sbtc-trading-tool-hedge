@@ -13,7 +13,12 @@ export const INDICATORS = [
   { key: "pivot", label: "Pivot Levels" },
   { key: "ob",  label: "Order Block" },
   { key: "fvg", label: "FVG" },
-  { key: "zz",  label: "Structure Zigzag" },
+  // ⚠ 이름의 `Auto`는 **아래 `Custom`과 짝이다** (2026-08-24 사용자 요청).
+  //   둘 다 지그재그 + CHoCH라 이름이 거의 같은데, 하나는 시스템이 봉에서 뽑고
+  //   하나는 사용자가 손으로 찍는다 — 그 차이가 이름에서 바로 읽혀야 한다.
+  //   ※ key는 "zz" 그대로 — 바꾸면 localStorage("indicators")의 on/off와
+  //     서버에 저장된 파라미터(indicator_params.json)가 통째로 초기화된다
+  { key: "zz",  label: "Auto Structure Zigzag" },
   // 수동 구조 표시 토글 — 자동 ZZ와 독립
   // ※ key는 "struct" 유지 — 바꾸면 localStorage("indicators")에 저장된 on/off가 초기화된다
   // ⚙ 설정은 전용 패널(StructTfPanel): **표시 타임프레임뿐이다.**
@@ -152,10 +157,11 @@ function RecentCountSlider({ label, value, detected, onChange, theme }) {
         {label}
       </span>
       <input
-        type="range" min={1} max={top} step={1} value={pos}
+        // 막대는 0에서 시작하고 손잡이는 1에서 멈춘다 (위 ParamSlider와 같은 규칙)
+        type="range" min={0} max={top} step={1} value={pos}
         disabled={detected === 0}
         onChange={e => {
-          const n = parseInt(e.target.value, 10);
+          const n = Math.max(1, parseInt(e.target.value, 10));
           onChange(n >= top ? null : n);      // 맨 오른쪽 칸 = 전체(제한 해제)
         }}
         style={{
@@ -225,13 +231,17 @@ function ParamSlider({ meta, value, onChange, theme }) {
       </span>
       <input
         type="range"
-        min={meta.min} max={meta.max} step={meta.step}
+        // ⚠ **막대는 0에서 시작하고 손잡이가 meta.min에서 멈춘다** (2026-08-24 사용자 요청).
+        //   min을 그대로 걸면 왼쪽 끝이 곧 최소값이라 "더 내릴 수 있는데 안 되는 건지"가
+        //   모양에서 안 읽힌다. 사이드바 슬라이더(Slider.jsx)·청산 비율과 같은 규칙이다.
+        min={Math.min(meta.min, 0)} max={meta.max} step={meta.step}
         // 저장값이 상한을 넘을 수 있다 (예: max_choch 상한이 실제 검출 개수로 좁혀진 경우).
         // 핸들이 범위 밖으로 나가지 않도록 표시만 클램프한다 — 저장값은 그대로 둔다.
         value={Math.min(Math.max(value, meta.min), meta.max)}
         onChange={e => {
           const raw = e.target.value;
-          onChange(meta.step < 1 ? parseFloat(raw) : parseInt(raw, 10));
+          const n = meta.step < 1 ? parseFloat(raw) : parseInt(raw, 10);
+          onChange(Math.min(Math.max(n, meta.min), meta.max));
         }}
         style={{ flex: 1, cursor: "pointer", accentColor: "#c084fc" }}
       />

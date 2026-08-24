@@ -412,6 +412,9 @@ export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
  */
 export function findHoveredLeg({
   px, py, structures, liveSegment, zzSegments, xScale, yScale, candles, threshold = 6,
+  // 자동 ZZ의 `거래량 비교` — 지표 단위 설정이라 인자로 받는다 (수동 구조는 도형이
+  // 자기 값을 들고 있어 st.showLegVol을 직접 읽는다). 2026-08-24 되살림
+  zzShowVol = true,
 }) {
   const pct = (p1, p2) => (p1 ? ((p2 - p1) / p1) * 100 : null);
 
@@ -431,7 +434,7 @@ export function findHoveredLeg({
           i2: tsToIdx(pts[k].t, candles),
           prev,
           // 거래량 3줄 표시 여부는 **구조마다** (더블클릭 팝업 `거래량 비교`). undefined = ON
-          showVol: st.showLegVol !== false,
+          showVol: st.showLegVol === true,
         };
       }
     }
@@ -467,10 +470,9 @@ export function findHoveredLeg({
         pct: pct(sg.p1, sg.p2),
         i1: sg.i1, i2: sg.i2,
         prev: p ? { i1: p.i1, i2: p.i2 } : null,
-        // ⚠ 자동 ZZ는 **거래량 비교를 하지 않는다** (2026-08-14 사용자 요청으로 제거).
-        // 거래량 3줄은 수동 구조 전용이다 — 되살리지 말 것.
-        // 등락률(%)은 그대로 뜬다(위 pct) — ZZ 레그에서 사라진 건 거래량 줄뿐이다.
-        showVol: false,
+        // 거래량 3줄 표시 여부 — 자동 ZZ는 **지표 하나에 값 하나**다
+        // (수동 구조는 구조마다 따로. 저쪽은 도형이 여러 개고 이쪽은 하나뿐이라 그렇다)
+        showVol: zzShowVol !== false,
       };
     }
   }
@@ -868,7 +870,26 @@ export function buildHitChain(ctx) {
         if (Math.hypot(pos.x-bx2, pos.y-by2) < 10) {
           dragRef.current = { type:"channel_mirror_ep", channelId:selectedChannelId, endpoint:"end", offset:ch.offset2 ?? ch.offset }; return true;
         }
-        // 미러 라인 중간 핸들 (양쪽 offset 동일 delta 조절)
+        // 메인 라인 중간 핸들 → **메인 라인만** 움직인다 (미러는 제자리 → 폭이 바뀐다)
+        //
+        // ⚠ 미러 중간 핸들과 **대칭**이다 (2026-08-24 사용자 요청 — 핸들을 3+3으로 맞췄다).
+        //   "잡은 점이 있는 선이 움직인다"가 두 핸들의 공통 규칙이다.
+        //   미러를 제자리에 두려면 offset도 같이 고쳐야 하므로, 되돌릴 기준값
+        //   (p1/p2 + 양쪽 offset)을 전부 실어 보낸다 — 드래그 중에는 **누적이 아니라
+        //   시작값에서 한 번에** 다시 계산해야 값이 흘러가지 않는다.
+        //   `chIsLog`는 **채널이 만들어진 시점의 스케일**이다(offset의 뜻을 정한다) —
+        //   지금 차트 스케일과 다를 수 있어 따로 실어야 미러가 제자리에 선다.
+        const midX1 = (ax+bx)/2, midY1 = (ay+by)/2;
+        if (Math.hypot(pos.x-midX1, pos.y-midY1) < 10) {
+          dragRef.current = {
+            type:"channel_mid_main", channelId:selectedChannelId, startY:pos.y,
+            t1:ch.t1, t2:ch.t2, startP1:ch.p1, startP2:ch.p2,
+            startOffset:ch.offset, startOffset2:ch.offset2 ?? ch.offset,
+            chIsLog: ch.isLog ?? false,
+          };
+          return true;
+        }
+        // 미러 라인 중간 핸들 (양쪽 offset 동일 delta 조절 → 미러만 움직인다)
         const midX = (ax2+bx2)/2, midY = (ay2+by2)/2;
         if (Math.hypot(pos.x-midX, pos.y-midY) < 10) {
           dragRef.current = { type:"channel_mid_offset", channelId:selectedChannelId, startY:pos.y, startOffset:ch.offset, startOffset2:ch.offset2 ?? ch.offset }; return true;

@@ -152,6 +152,19 @@ export const CURSOR_RULES = [
     },
     cursor: "ns-resize",
   },
+  // 채널 선택 시 **메인선** 중간 핸들 (메인만 이동 → 폭이 바뀐다, 2026-08-24)
+  // ⚠ 반드시 아래 "몸통" 규칙보다 **앞에** 둘 것 — 이 점은 메인 라인 위에 있어서
+  //   순서가 뒤집히면 몸통(move)이 먼저 잡혀 조절 커서가 영영 안 뜬다
+  {
+    test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
+      if (selectedChannelId == null || !channels?.length) return false;
+      const ch = channels.find(c => c.id === selectedChannelId);
+      if (!ch) return false;
+      const { ax, ay, bx, by } = channelXYs(ch, candles, xScale, yScale, isLog);
+      return Math.hypot(pos.x-(ax+bx)/2, pos.y-(ay+by)/2) < 10;
+    },
+    cursor: "ns-resize",
+  },
   // 채널 선택 시 몸통
   {
     test: ({ selectedChannelId, channels, pos, xScale, yScale, candles, isLog }) => {
@@ -161,6 +174,7 @@ export const CURSOR_RULES = [
       const { ax, ay, bx, by, ax2, ay2, bx2, by2 } = channelXYs(ch, candles, xScale, yScale, isLog);
       if (Math.hypot(pos.x-ax, pos.y-ay) < 10 || Math.hypot(pos.x-bx, pos.y-by) < 10) return false;
       if (Math.hypot(pos.x-ax2, pos.y-ay2) < 10 || Math.hypot(pos.x-bx2, pos.y-by2) < 10) return false;
+      if (Math.hypot(pos.x-(ax+bx)/2, pos.y-(ay+by)/2) < 10) return false;
       if (Math.hypot(pos.x-(ax2+bx2)/2, pos.y-(ay2+by2)/2) < 10) return false;
       return distToSeg(pos.x, pos.y, ax, ay, bx, by) < 8
           || distToSeg(pos.x, pos.y, ax2, ay2, bx2, by2) < 8;

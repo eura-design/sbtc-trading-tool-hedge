@@ -60,13 +60,20 @@ export const Channels = memo(function Channels({
               strokeDasharray={alert && !selected ? "6,3" : undefined} />}
             {/* ※ 알림 ON을 나타내던 🔔 아이콘은 2026-08-14 사용자 요청으로 제거.
                 알림 여부는 **호박색 + 점선**만으로 나타낸다 (선/원/수동 구조도 동일) */}
-            {/* 선택 핸들 */}
+            {/* 선택 핸들 — **메인 3 + 미러 3, 총 6개** (2026-08-24 사용자 요청).
+                예전엔 가운데 점이 미러 쪽에만 있어 5개였다.
+                가운데 점의 규칙은 양쪽이 같다: **그 점이 있는 선만 움직이고
+                반대쪽 선은 제자리** → 폭이 바뀐다 (dragStateMachine의
+                channel_mid_main / channel_mid_offset).
+                ⚠ 좌표는 히트 판정(hitDetection 4.7)과 같아야 한다 — 각자 계산하면
+                  보이는 자리와 잡히는 자리가 어긋난다 */}
             {selected && <>
               <circle cx={a1.x} cy={a1.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
+              <circle cx={(a1.x+b1.x)/2} cy={(a1.y+b1.y)/2} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
               <circle cx={b1.x} cy={b1.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
               <circle cx={a2.x} cy={a2.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
-              <circle cx={b2.x} cy={b2.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
               <circle cx={(a2.x+b2.x)/2} cy={(a2.y+b2.y)/2} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
+              <circle cx={b2.x} cy={b2.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
             </>}
           </g>
         );

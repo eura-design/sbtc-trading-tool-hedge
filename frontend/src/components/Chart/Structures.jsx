@@ -44,11 +44,16 @@ import { clipPolylineX, clipSegmentX, inViewX, VIEW_PAD } from "../../chart/svgG
 //      걸리는 별개 값이라, OFF로 저장해 두면 구조별 ON이 먹지 않는데 그 사실이
 //      구조 팝업 어디에도 드러나지 않았다. 켜고 끄는 곳은 팝업 하나로 족하다.
 //
-// [R10] CHoCH 발생 알림(alertChoch)은 **기본 OFF**다 (2026-08-13 사용자 결정).
-//      다른 구조별 플래그(showChoch/showLegVol)는 기본 ON인데 이것만 반대인 이유:
-//      알림 ON인 구조는 호박색 점선 + 글로우로 그려진다. 기본이 ON이면 **모든**
-//      구조가 알림 스타일이 되어 색이 아무것도 구분해주지 못한다 (실제로 그렇게 보였다).
-//      "undefined = ON이 이 파일의 관례"라며 되돌리지 말 것 — 표시와 묶인 플래그라 다르다.
+// [R10] CHoCH 발생 알림(alertChoch)과 거래량 비교(showLegVol)는 **기본 OFF**다.
+//      기본 ON인 건 showChoch 하나뿐이다 — CHoCH 마크는 이 지표의 본체라 다르다.
+//      · alertChoch (2026-08-13 사용자 결정): 알림 ON인 구조는 호박색 점선 + 글로우로
+//        그려진다. 기본이 ON이면 **모든** 구조가 알림 스타일이 되어 색이 아무것도
+//        구분해주지 못한다 (실제로 그렇게 보였다)
+//      · showLegVol (2026-08-24 사용자 요청): 자동 ZZ(`zz.show_legvol`)와 초기값을 맞췄다.
+//        **네 값이 한 벌이다** — 자동·수동 × 알림·거래량 비교 전부 기본 OFF.
+//        한쪽만 바꾸지 말 것
+//      "undefined = ON이 이 파일의 관례"라며 되돌리지 말 것 — 손대지 않은 기존 구조가
+//      전부 다시 켜져서 기본값을 바꾼 의미가 사라진다.
 //
 // [R9] **그리기 전에 뷰포트로 자른다** (2026-08-13, 5m 렉 신고 → 실측으로 원인 확인).
 //      구조 좌표는 timestamp라, 로드된 캔들 범위보다 과거에 그린 구조는 tsToIdx가
@@ -200,7 +205,7 @@ export const Structures = memo(function Structures({
   // draft(그리는 중)는 아직 구조가 아니므로 ON.
   const liveShowVol = liveOwnerId === DRAFT_ID
     ? true
-    : visible.find(st => st.id === liveOwnerId)?.showLegVol !== false;
+    : visible.find(st => st.id === liveOwnerId)?.showLegVol === true;
   // ownerId / type — 점선 끝점을 **클릭해서 확정**하는 경로가 쓴다 (2026-08-15).
   // hitDetection이 "어느 구조에, 어떤 타입으로 붙일지"를 알아야 하는데 진행 중 레그는
   // 구조 목록에 없어서 직접 알아낼 수 없다 (prev·showVol을 여기서 실어 보내는 것과 같은 이유).

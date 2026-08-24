@@ -172,7 +172,7 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, onSeek, onDr
 
       {/* 진행 슬라이더
           ⚠ **폭을 고정한다** (2026-08-15 사용자 요청). 예전엔 `flex: 1`이라
-            옆 요소(로딩 문구·에러·"구간 끝")가 나타났다 사라질 때마다 바 길이가 출렁였다 */}
+            옆 요소(로딩 문구·에러)가 나타났다 사라질 때마다 바 길이가 출렁였다 */}
       <input
         type="range" min={0} max={1} step={0.0005} value={progress}
         onChange={e => onSeek(+e.target.value)}
@@ -186,8 +186,9 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, onSeek, onDr
         </span>
       )}
       {error   && <span style={{ fontSize: "11px", color: "#f6465d" }}>{error}</span>}
-      {atEnd && !loading && !error &&
-        <span style={{ fontSize: "11px", color: theme.textMuted }}>구간 끝</span>}
+      {/* ※ `구간 끝` 문구는 2026-08-24 사용자 요청으로 제거됐다.
+          끝에 닿은 것은 손잡이가 오른쪽 끝에 있는 것과 재생·한 틱 버튼이 꺼지는 것으로
+          이미 보인다. `atEnd`는 그 버튼 비활성에 계속 쓰이므로 prop은 그대로 둔다 */}
 
       {/* ※ "기존 도형 보기"는 2026-08-15 사용자 요청으로 **기능째 제거**됐다.
           리플레이 도형은 이제 항상 연습용 키(`replay_*`)만 쓴다 — 되살리려면

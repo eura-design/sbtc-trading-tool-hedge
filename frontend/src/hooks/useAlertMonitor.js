@@ -34,6 +34,32 @@ function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef) {
       const period0 = rsiParamsRef.current.period ?? 14;
       st.rsiState = buildRSIState(closed_, period0);
       st.prevRSI  = st.rsiState?.rsi ?? null;
+
+      // ⚠ **시작 시점에 이미 과매수/과매도면 "들어와 있는 상태"로 시작한다** (2026-08-24).
+      //   이게 없으면 감시가 다시 시작될 때마다 **같은 알림이 또 뜬다**: inOB/inOS가
+      //   false로 출발하니 첫 틱에서 곧바로 "과매수 진입"으로 판정된다.
+      //   히스테리시스도 쿨다운도 이걸 못 막는다 — 둘 다 같이 초기화되기 때문이다.
+      //   실제 신고(2026-08-24): 1일 RSI 과매수가 뜨고 몇 초 뒤 또 떴다. 그 사이에
+      //   화면이 한 번 깜빡였다(= 앱이 다시 로드되며 감시가 재시작).
+      //   새로고침·리플레이 종료 때도 똑같이 재현된다.
+      //
+      //   이 앱의 기존 원칙과 같다 — **첫 관측은 무음, 기준선만 잡는다**
+      //   (useChochAlert의 "첫 관측은 무조건 무음" 참고).
+      //   알리려는 것은 "지금 과매수다"가 아니라 **"방금 과매수로 들어갔다"**이다.
+      //
+      // ※ 봉 마감 RSI가 아니라 **진행 중 봉까지 반영한 값**으로 잡는다. 마감 RSI가 68인데
+      //   현재가 기준으로 이미 75라면, 마감값으로 잡으면 첫 틱에서 바로 울린다
+      const rp0  = rsiParamsRef.current;
+      const ob0  = rp0.overbought ?? 70;
+      const os0  = rp0.oversold   ?? 30;
+      const n0   = st.candles.length;
+      const now0 = (st.rsiState && n0 >= 2)
+        ? tickRSI(st.rsiState, st.candles[n0 - 2].c, st.candles[n0 - 1].c, period0)
+        : st.prevRSI;
+      if (now0 !== null) {
+        st.inOB = now0 >= ob0;
+        st.inOS = now0 <= os0;
+      }
     })
     .catch(e => console.error("[AlertMonitor] REST 실패", tf, e));
 
