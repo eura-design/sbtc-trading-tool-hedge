@@ -34,7 +34,7 @@ export const Circles = memo(function Circles({
         const alert    = !!ci.alert;
         const color    = selected ? "#f0b90b" : alert ? "#fbbf24" : CIRCLE_COLOR;
         const opacity  = ci.opacity ?? 1.0;
-        const sw       = 4.5;
+        const sw       = 4;   // 2026-08-25 사용자 지정 (4.5에서 내림)
 
         return (
           <g key={ci.id}>

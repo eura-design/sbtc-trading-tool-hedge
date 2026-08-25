@@ -2,6 +2,7 @@ const express = require("express");
 const { binance, cancelOrder } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const push    = require("../services/pushService");
+const { log, errOf } = require("../store/logStore");
 const { positionToClose } = require("../utils/side");
 const { rescaleSplitTps } = require("../utils/splitTp");
 const { isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES,
@@ -98,7 +99,8 @@ router.post("/", async (req, res) => {
       splitTpOrders.forEach(o => store.delete(String(o.orderId)));
     } else if (splitTpOrders.length > 0) {
       console.warn("[close] 포지션 크기 조회 실패 — 분할 TP를 건드리지 않고 청산만 진행");
-      push.pushAlert("error", "포지션 크기를 읽지 못해 분할 TP를 조정하지 못했습니다 — 분할 TP 카드에서 수량을 확인하세요");
+      // notice = 금색 토스트 (pushService 참고) — 익절 쪽이라 손절은 그대로 살아 있다
+      push.pushAlert("notice", "포지션 크기를 읽지 못해 분할 TP를 조정하지 못했습니다 — 분할 TP 카드에서 수량을 확인하세요");
       splitTpOrders = [];   // 취소한 적이 없으므로 재등록·롤백 대상에서도 뺀다
     }
   }
@@ -185,10 +187,10 @@ router.post("/", async (req, res) => {
           console.warn(`[close] 분할 TP 재등록 실패 ${o.price}:`, e.response?.data?.msg);
         }
       }
-      if (anyFailed) push.pushAlert("error", "분할 TP 재등록 일부 실패 — 분할 TP 카드에서 수동 확인 필요");
+      if (anyFailed) push.pushAlert("notice", "분할 TP 재등록 일부 실패 — 분할 TP 카드에서 수동 확인 필요");
       // 잔여가 최소 수량 미만이면 items가 비어 있다 (사실상 전량 청산 — 재등록할 게 없다)
       if (newSize >= 0.001 && items.length === 0 && splitTpOrders.length > 0) {
-        push.pushAlert("error", "분할 TP가 최소 수량 미만이 되어 재등록되지 않았습니다");
+        push.pushAlert("notice", "분할 TP가 최소 수량 미만이 되어 재등록되지 않았습니다");
       }
 
       push.pushUpdate(["tpsl"]);
@@ -236,15 +238,28 @@ router.post("/", async (req, res) => {
         console.log(`[close] 분할 SL ${dropped.length}건은 잔여가 최소 수량 미만 → 그대로 둔다`);
       }
       if (anyFailed) {
-        push.pushAlert("error", "분할 SL 재조정 일부 실패 — 분할 SL 카드에서 수량을 확인하세요");
+        // ⚠ 여기만 **빨간 배너**다 (위 세 줄은 notice). 분할 SL은 손절이라,
+        //   수량이 어긋나면 포지션의 일부가 손절 없이 남는다 — notice로 내리지 말 것
+        push.pushAlert("critical", "분할 SL 재조정 일부 실패 — 분할 SL 카드에서 수량을 확인하세요");
       }
       push.pushUpdate(["tpsl"]);
     }
 
+    log("POSITION_CLOSED", { posSide: side, partial: !!partial, qty: closeQty,
+      orderId: data.orderId, status: data.status });
+    // 이 청산이 얼마 벌었는지를 **주문번호에 붙여** 남긴다 (TRADE_SETTLED).
+    // 체결이 잡힐 때까지 조금 기다린다 — 응답 직후에는 아직 비어 있다
+    setTimeout(() => {
+      require("../services/incomeLogger")
+        .logTradesFor(data.orderId, { posSide: side, partial: !!partial })
+        .catch(() => {});
+    }, 2500);
     res.json({ success: true, orderId: data.orderId, status: data.status });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
     console.error("[POST /api/close]", msg);
+    log("POSITION_CLOSE_FAILED", { level: "error", posSide: side, partial: !!partial,
+      qty: parseFloat(quantity), err: errOf(err) });
 
     // 부분 청산 실패 시 사전 취소했던 분할 TP 롤백
     if (partial && splitTpOrders.length > 0) {

@@ -296,10 +296,15 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
         </div>
       </div>
       <input
-        // 막대는 0에서 시작하고 손잡이는 0.25에서 멈춘다 (아래 onChange의 Math.max)
-        type="range" min={0} max={1} step={0.25}
+        // ⚠ **10% 단위 / 하한 10%** (2026-08-25 사용자 지정 — 그전엔 25% 단위·하한 25%).
+        //   막대는 0에서 시작하고 **손잡이만 0.1에서 멈춘다**(아래 onChange의 Math.max) —
+        //   min을 0.1로 올리지 말 것: 그러면 눈금이 10~100을 10칸으로 나눠 0.1 간격이
+        //   깨진다. 완전히 투명한 도형은 "사라진 것"과 구분되지 않아 하한을 둔다
+        //   ⚠ 단축키 `[` `]`(useKeyboardShortcuts)도 **같은 폭·같은 하한**이다 — 한쪽만
+        //     바꾸면 슬라이더 눈금에 없는 값이 만들어진다
+        type="range" min={0} max={1} step={0.1}
         value={opacity}
-        onChange={e => d.setOpacity(popup.id, Math.max(0.25, parseFloat(e.target.value)))}
+        onChange={e => d.setOpacity(popup.id, Math.max(0.1, parseFloat(e.target.value)))}
         style={{ width: "100%", accentColor: PALETTE.accent, cursor: "pointer" }}
       />
 

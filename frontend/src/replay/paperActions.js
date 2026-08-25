@@ -24,7 +24,14 @@ const ok = (get, msg) => {
   get().scheduleReplaySave?.();
   get().setOrderStatus({ type: "success", msg });
 };
-const err = (get, e)   => get().setOrderStatus({ type: "error", msg: e.message });
+// ⚠ **무엇이 실패했는지 앞에 적는다** (2026-08-25 사용자 요청). 예전엔 `e.message`만
+//   띄워서, 진입 실패와 추가 진입 실패가 **똑같이 `수량이 0입니다`**로 떴다
+//   (paperBroker가 두 곳에서 같은 문구를 던진다). 실거래는 `추가 진입 실패: …`처럼
+//   갈리므로, 이름을 안 붙이면 **연습만 실거래보다 덜 친절해진다**.
+//   `what`은 실거래 orderSlice의 같은 액션이 쓰는 이름과 맞출 것
+const err = (get, e, what) => get().setOrderStatus({
+  type: "error", msg: what ? `${what}: ${e.message}` : e.message,
+});
 
 export const paperActions = {
 
@@ -63,7 +70,7 @@ export const paperActions = {
       if (orderType === "LIMIT") setDrawing(isLong, prev => prev ? { ...prev, orderId: r.orderId } : prev);
       else setDrawing(isLong, null);
       ok(get, `연습 주문 완료 (${posCalc.actualQty.toFixed(3)} BTC)`);
-    } catch (e) { err(get, e); }
+    } catch (e) { err(get, e, "연습 주문 실패"); }
   },
 
   saveTpsl: (get, newTp, newSl, dragSide) => {
@@ -73,7 +80,7 @@ export const paperActions = {
     try {
       paperBroker.setTpsl(positionSide, { tp: newTp, sl: newSl });
       ok(get, "TP/SL 수정 완료");
-    } catch (e) { err(get, e); }
+    } catch (e) { err(get, e, "TP/SL 수정 실패"); }
     finally { setDragTpsl(null); }
   },
 
@@ -114,7 +121,7 @@ export const paperActions = {
     try {
       paperBroker.addScaleIn({ positionSide: side, orderType, price, qty: quantity });
       ok(get, orderType === "MARKET" ? "시장가 추가 진입 완료" : `지정가 추가 진입 등록 ($${price?.toLocaleString()})`);
-    } catch (e) { err(get, e); }
+    } catch (e) { err(get, e, "추가 진입 실패"); }
   },
 
   cancelScaleIn: (get, orderId) => {

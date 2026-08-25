@@ -29,12 +29,13 @@ const DEFAULTS = {
   // show_legvol — 자동 ZZ 레그 hover 거래량 비교 3줄 (2026-08-24 **되살림**).
   //   2026-08-14~24에는 없었다: 그때 사용자가 기능째로 뺐고, 같은 사용자가 다시 요청했다.
   //   수동 구조와 팝업 구성을 같게 하려는 것이다 (프론트 LineOpacityPopup의 LEGVOL_KINDS)
-  // opacity — 2026-08-24 사용자 요청으로 1.0 → **0.25**.
+  // opacity — 2026-08-25 사용자 요청으로 0.25 → **0.3** (1.0 → 0.25는 2026-08-24).
+  //   0.3인 이유는 투명도 슬라이더 눈금(10% 단위)에 맞추기 위해서다.
   //   수동 구조 신규 기본값(프론트 useStructures.STRUCT_DEFAULT_OPACITY)과 같은 값이어야 한다.
   //   한쪽만 바꾸지 말 것
   // ⚠ alert_choch·show_legvol은 **둘 다 false**다 (2026-08-24 사용자 요청) —
   //   수동 구조의 같은 플래그와 초기값을 맞춘 것이다. 한쪽만 바꾸지 말 것
-  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.25 },
+  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.3 },
   pd:  { swing_lb: 5, lookback: 200 },
   // 수동 구조(Custom Structure Zigzag) — tfs: 표시 타임프레임(중복 선택, 기본 1h)
   // ※ CHoCH 표시 on/off·개수는 구조마다 localStorage에 들고 있다 (st.showChoch/st.maxChoch)

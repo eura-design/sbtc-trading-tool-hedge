@@ -1,5 +1,6 @@
 const express  = require("express");
 const { binance } = require("../services/binanceClient");
+const { log, errOf } = require("../store/logStore");
 const router   = express.Router();
 
 // POST /api/leverage — 레버리지 즉시 변경 (포지션 보유 중 증가 시 사용)
@@ -13,10 +14,12 @@ router.post("/", async (req, res) => {
     const { data } = await binance("POST", "/fapi/v1/leverage", {
       symbol: "BTCUSDT", leverage: lev,
     });
+    log("LEVERAGE_CHANGED", { leverage: lev });
     res.json({ success: true, leverage: data.leverage, maxNotionalValue: data.maxNotionalValue });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
     console.error("[POST /api/leverage]", msg);
+    log("LEVERAGE_FAILED", { level: "error", leverage: lev, err: errOf(err) });
     res.status(500).json({ error: msg });
   }
 });

@@ -4,12 +4,23 @@ const { closeToPosition } = require("../utils/side");
 const { isFullClose, isStopOrder, isTpOrder, coversPosition, orderQtyOf, triggerPriceOf,
   TPSL_TYPES, STOP_TYPES } = require("../utils/orderKind");
 const store = require("../store/pendingOrders");
+const { log, errOf } = require("../store/logStore");
 
 const BASE = "https://fapi.binance.com";
 // const BASE = "https://demo-fapi.binance.com";
 
 let _timeOffset  = 0;   // 로컬 시간 - 바이낸스 서버 시간 (ms)
 let _bannedUntil = 0;   // IP 밴 해제 시각 (ms, 0 = 밴 없음)
+
+// ── 요청 가중치 (2026-08-25) ─────────────────────────────────────────────────
+// 바이낸스는 응답 헤더에 1분 누적 가중치를 실어 준다. 한도(2400)에 다가가면
+// 밴이 나는데, 그전에는 **밴이 난 뒤에야** 알 수 있었다.
+// ⚠ 매 요청마다 남기면 로그가 이것으로 뒤덮인다 → **한도의 절반을 넘었을 때만**,
+//   그것도 1분에 한 번만 남긴다
+const WEIGHT_LIMIT   = 2400;
+const WEIGHT_WARN_AT = WEIGHT_LIMIT / 2;
+let _lastWeight     = 0;
+let _lastWeightLogAt = 0;
 
 function checkBan() {
   if (_bannedUntil > Date.now()) {
@@ -24,16 +35,27 @@ function parseBan(e) {
   if (m) {
     _bannedUntil = Number(m[1]);
     console.error(`[BAN] Binance IP 밴 — ${new Date(_bannedUntil).toLocaleTimeString()} 해제`);
+    // ⚠ 밴은 **콘솔 문장이 아니라 이벤트로** 남긴다 (2026-08-25) — 문장이면 몇 번
+    //   당했는지 셀 수가 없다. 밴은 원인(요청 가중치)과 결과(그 사이 주문이 전부 실패)가
+    //   둘 다 중요해서 나중에 반드시 되짚게 된다
+    log("API_BANNED", { level: "error", until: _bannedUntil,
+      seconds: Math.ceil((_bannedUntil - Date.now()) / 1000), weight: _lastWeight });
   }
 }
 
 async function syncServerTime() {
   try {
     const { data } = await axios.get(`${BASE}/fapi/v1/time`);
+    const prev = _timeOffset;
     _timeOffset = data.serverTime - Date.now();
     console.log(`[시간동기화] 오프셋: ${_timeOffset}ms`);
+    // ⚠ 시계 오차는 **트리거가 안 맞을 때 첫 용의자다.** 오차가 recvWindow(5초)에
+    //   가까워지면 요청이 통째로 거절되기 시작한다 — 그 전에 기록이 있어야 원인을 짚는다
+    log("CLOCK_SYNC", { offsetMs: _timeOffset, prevOffsetMs: prev,
+      level: Math.abs(_timeOffset) > 2000 ? "warn" : "info" });
   } catch (e) {
     console.warn("[시간동기화] 실패 (오프셋 0 유지):", e.message);
+    log("CLOCK_SYNC_FAILED", { level: "warn", err: errOf(e) });
   }
 }
 
@@ -56,7 +78,7 @@ async function binance(method, path, params = {}) {
   p.recvWindow = 5000;
   p.signature  = sign(p);
   try {
-    return await axios({
+    const res = await axios({
       method,
       url: `${BASE}${path}`,
       ...(method === "GET" ? { params: p } : { data: new URLSearchParams(p).toString() }),
@@ -65,10 +87,27 @@ async function binance(method, path, params = {}) {
         ...(method !== "GET" && { "Content-Type": "application/x-www-form-urlencoded" }),
       },
     });
+    noteWeight(res);
+    return res;
   } catch (e) {
     parseBan(e);
     throw e;
   }
+}
+
+/** 응답 헤더의 1분 누적 가중치를 읽어 둔다 — 한도에 다가갈 때만 기록 */
+function noteWeight(res) {
+  try {
+    const w = Number(res?.headers?.["x-mbx-used-weight-1m"]);
+    if (!Number.isFinite(w)) return;
+    _lastWeight = w;
+    const now = Date.now();
+    if (w >= WEIGHT_WARN_AT && now - _lastWeightLogAt > 60_000) {
+      _lastWeightLogAt = now;
+      log("API_WEIGHT_HIGH", { level: "warn", weight: w, limit: WEIGHT_LIMIT,
+        pct: Math.round(w / WEIGHT_LIMIT * 100) });
+    }
+  } catch {}
 }
 
 function roundPrice(p) {

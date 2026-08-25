@@ -79,8 +79,11 @@ export function useKeyboardShortcuts({
 
       if (match(e, "opacityDown") || match(e, "opacityUp")) {
         if (!sel?.item) return;
-        const delta = match(e, "opacityDown") ? -0.25 : 0.25;
-        const clamp = v => Math.min(1, Math.max(0.25, Math.round((v + delta) * 4) / 4));
+        // ⚠ 폭·하한은 **투명도 슬라이더와 같아야 한다** (LineOpacityPopup) —
+        //   2026-08-25에 둘 다 25% → 10%, 하한 25% → 10%로 내렸다.
+        //   한쪽만 바꾸면 슬라이더 눈금에 없는 값이 만들어진다
+        const delta = match(e, "opacityDown") ? -0.1 : 0.1;
+        const clamp = v => Math.min(1, Math.max(0.1, Math.round((v + delta) * 10) / 10));
         sel.setOpacity(sel.id, clamp(sel.item.opacity));
         return;
       }

@@ -52,11 +52,9 @@ export const TrendLines = memo(function TrendLines({ lines, selectedLineId, line
         const Bp  = isLog ? vis[vis.length - 1] : { x: seg.x2, y: seg.y2 };
         return (
           <g key={ln.id}>
-            {(alert || selected) && (
-              isLog
-                ? <polyline points={pts} fill="none" stroke={color} strokeWidth={6} opacity={0.18} />
-                : <line x1={A.x} y1={A.y} x2={Bp.x} y2={Bp.y} stroke={color} strokeWidth={6} opacity={0.18} />
-            )}
+            {/* ※ 알림·선택 글로우(굵기 6 / 투명도 0.18)는 2026-08-25 사용자 요청으로 제거했다.
+                되살리지 말 것 — 채널·원에는 애초에 없어서 추세선만 혼자 번져 보였다.
+                알림은 **호박색 + 점선 + 굵기 1.5**, 선택은 **금색 + 굵기 1.5**로 충분히 갈린다 */}
             {isLog
               ? <polyline points={pts} fill="none" stroke={color}
                   strokeWidth={selected ? 1.5 : alert ? 1.5 : 1}

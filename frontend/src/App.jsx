@@ -72,6 +72,14 @@ export default function App() {
     longPendingExists, shortPendingExists, hasPending, drawLocked,
   } = derivePositionFlags(position);
 
+  // ── 토스트 ────────────────────────────────────────────────────────────────
+  // ⚠ **토스트는 한 종류뿐이다** (2026-08-25 사용자 지정) — 알림 종류별로 다른 함수를
+  //   쓰지 않는다. RSI·봉마감·CHoCH·근접·포지션 종료·백엔드 notice가 전부 `addToast`다
+  // ⚠ 여기가 **useRealtimeData보다 위여야 한다**. 백엔드 경보 중 급하지 않은 것을
+  //   토스트로 내려보내는데, 그 콜백을 useRealtimeData가 인자로 받는다.
+  //   아래로 내리면 undefined가 넘어가고 **그 경보들이 아무 데도 안 뜬다**(에러도 안 난다)
+  const { toasts, addToast, removeToast } = useToast();
+
   // ── 폴링 / 실시간 ────────────────────────────────────────────────────────
   // 리플레이 중에는 실계좌를 읽지 않는다 — 폴링이 돌면 페이퍼 잔고·포지션을
   // 실계좌 값으로 덮어써서, 연습 중이던 포지션이 몇 초마다 화면에서 사라진다.
@@ -79,7 +87,7 @@ export default function App() {
   useBalance(!replayOn);
   usePosition(!replayOn);
   useTpsl(!replayOn);
-  useRealtimeData();
+  useRealtimeData(addToast);
 
   // ── 지표 파라미터 ─────────────────────────────────────────────────────────
   // showStruct가 struct.tfs를 봐야 해서 지표 표시 여부보다 먼저 로드한다.
@@ -213,7 +221,6 @@ export default function App() {
     structs.setSelectedStructId(null);
   }, [replayOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { toasts, addToast, addLineAlert, removeToast } = useToast();
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
   // 리플레이 중에는 끈다 — 재생 시점에서는 알 수 없는 "현재 시각의 RSI"가 울리면
   // 그 자체가 미래 정보다
@@ -277,7 +284,7 @@ export default function App() {
   // ── 포지션 진입 스크린샷 ─────────────────────────────────────────────────
 
   useTrendLineAlert(
-    trendLines.lines,    candles, addLineAlert, trendLines.setLineAlertOff,
+    trendLines.lines,    candles, addToast, trendLines.setLineAlertOff,
     trendLines.channels, trendLines.setChannelAlertOff,
     trendLines.circles,  trendLines.setCircleAlertOff,
     isLog,
@@ -287,12 +294,12 @@ export default function App() {
   );
   // 실계좌 포지션 종료 알림 — 리플레이 중에는 억누른다. 페이퍼 화면 위로 실거래
   // 알림이 뜨면 어느 쪽 포지션이 닫힌 건지 구분이 안 된다
-  usePositionCloseAlert(replayOn ? null : position, addLineAlert);
+  usePositionCloseAlert(replayOn ? null : position, addToast);
 
-  // CHoCH 발생 알림 — 자동 ZZ + 수동 구조. 둘 다 기본 ON,
-  // 자동 ZZ는 indicatorParams.zz.alert_choch / 수동 구조는 구조별 alertChoch로 끈다.
-  // sticky(addLineAlert)가 아니라 일반 토스트 — CHoCH는 "확인이 필요한 경보"가 아니라
-  // 지나가는 이벤트이고, 자주 뜨는 편이라 확인 버튼을 강제하면 화면을 막는다.
+  // CHoCH 발생 알림 — 자동 ZZ + 수동 구조. 둘 다 기본 OFF,
+  // 자동 ZZ는 indicatorParams.zz.alert_choch / 수동 구조는 구조별 alertChoch로 켠다.
+  // ※ 예전엔 "sticky가 아니라 일반 토스트"라는 구분이 여기 있었다 —
+  //   2026-08-25에 토스트가 한 종류로 합쳐지면서 그 구분 자체가 없어졌다.
   useChochAlert({
     structures: structs.structures,
     zzAlertOn:  showZZ && indicatorParams.zz?.alert_choch === true,

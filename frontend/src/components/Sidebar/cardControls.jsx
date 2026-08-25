@@ -13,7 +13,14 @@ export function usePersistedPct(storageKey, defaultPct = 50) {
   return [pct, setPct];
 }
 
-// 0~100% 슬라이더 (5% 단위, 최소 5%) + 상단 라벨/값 + 하단 0~100 가이드
+// 0~100% 슬라이더 (**1% 단위, 최소 1%**) + 상단 라벨/값 + 하단 0~100 가이드
+//
+// ⚠ 2026-08-25 사용자 요청으로 5% → **1%**로 바꿨다 (추가 진입·분할 TP·분할 SL 공용).
+//   포지션 카드의 `청산 비율` 슬라이더도 **같이** 바꿨다 — 카드 안 네 슬라이더는
+//   성격이 같아서 단위가 갈리면 안 된다 (`PositionCard.jsx`).
+//   ⚠ 하한도 5 → **1**이다. step만 1로 내리고 `Math.max(5, …)`를 두면 1~4%가
+//     **끌리는데 선택되지 않는 죽은 구간**이 된다 (하한이 5였던 건 그때 최소 눈금이
+//     5였기 때문이지, 5% 미만을 막으려던 게 아니다)
 export function PercentSlider({ pct, onChange, color, label, secondaryText }) {
   const { theme } = useTheme();
   return (
@@ -23,8 +30,8 @@ export function PercentSlider({ pct, onChange, color, label, secondaryText }) {
         <span style={{ fontSize: "12px", color, fontWeight: "600" }}>{secondaryText}</span>
       </div>
       <input
-        type="range" min={0} max={100} step={5} value={pct}
-        onChange={e => onChange(Math.max(5, Number(e.target.value)))}
+        type="range" min={0} max={100} step={1} value={pct}
+        onChange={e => onChange(Math.max(1, Number(e.target.value)))}
         style={{ width: "100%", accentColor: color, cursor: "pointer", height: "3px" }}
       />
       <div style={{ display: "flex", justifyContent: "space-between",

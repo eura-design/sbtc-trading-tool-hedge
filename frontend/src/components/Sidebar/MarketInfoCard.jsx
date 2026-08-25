@@ -2,7 +2,7 @@ import { useTheme } from "../../ThemeContext";
 import { useMarketInfo } from "../../hooks/useMarketInfo";
 import { useStore } from "../../store";
 import { useAccordion } from "../../hooks/useAccordion";
-import { SECTION_HEADER, headerArrow } from "../sidebarBtn";
+import { SECTION_HEADER, headerArrow, sectionBox } from "../sidebarBtn";
 
 export function MarketInfoCard() {
   const { theme } = useTheme();
@@ -24,7 +24,7 @@ export function MarketInfoCard() {
   );
 
   return (
-    <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
+    <div style={{ padding:"8px 16px", ...sectionBox(theme, open), flexShrink:0 }}>
       <button
         onClick={toggle}
         style={SECTION_HEADER}

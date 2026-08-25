@@ -150,9 +150,13 @@ export function PositionCard({
               </span>
             </span>
           </div>
+          {/* ⚠ **1% 단위, 최소 1%** (2026-08-25 사용자 요청 — 5%에서 내렸다).
+              카드 안 네 슬라이더(청산·추가 진입·분할 TP·분할 SL)는 성격이 같아서
+              단위가 갈리면 안 된다 — 나머지 셋은 `cardControls.PercentSlider`가 갖는다.
+              한쪽만 5로 되돌리지 말 것 */}
           <input
-            type="range" min={0} max={100} step={5} value={closePct}
-            onChange={e => { handleClosePct(Math.max(5, Number(e.target.value))); setConfirming(false); }}
+            type="range" min={0} max={100} step={1} value={closePct}
+            onChange={e => { handleClosePct(Math.max(1, Number(e.target.value))); setConfirming(false); }}
             style={{ width:"100%", accentColor:posColor, cursor:"pointer", height:"3px" }}
           />
           <div style={{ display:"flex", justifyContent:"space-between", fontSize:"11px", color:theme.textBare }}>

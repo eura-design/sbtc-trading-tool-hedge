@@ -74,7 +74,10 @@ const ZZ_COLOR   = CANVAS_C.NEUTRAL;      // #888888
 const BULL_COLOR = CANVAS_C.BULL_DARK;    // #0ecb81
 const BEAR_COLOR = CANVAS_C.BEAR_DARK;    // #f6465d
 const SEL_COLOR  = "#f0b90b";           // 구조 전체 선택 = 금색
-// 알림 ON = 호박색 + 점선 + 굵기 1.5 + 글로우 — **트렌드라인/채널/원과 같은 규칙**
+// 알림 ON = 호박색 + 점선 + 굵기 1.5 + 글로우
+// ⚠ **글로우는 여기만 남았다** (2026-08-25) — 추세선은 그날 사용자 요청으로 뺐고
+//   채널·원에는 처음부터 없었다. 맞추려고 여기서도 빼지 말 것 (지정 범위가 추세선뿐이었다).
+//   호박색·점선·굵기 1.5는 여전히 네 종류가 같다
 // (TrendLines.jsx의 alert 스타일을 그대로 옮긴 것. 한쪽만 바꾸면 같은 알림인데
 //  선 종류마다 다르게 보인다. 뜻만 다르다 — 선·채널·원 = 근접 알림 / 구조·ZZ = CHoCH 발생 알림)
 // ※ 예전엔 여기에 🔔 아이콘도 달렸다 — 2026-08-14 사용자 요청으로 **네 종류 모두** 제거.
@@ -272,7 +275,7 @@ export const Structures = memo(function Structures({
 
         return (
           <g key={st.id}>
-            {/* 알림/선택 글로우 — 트렌드라인과 같은 굵기 6 / 불투명도 0.18 */}
+            {/* 알림/선택 글로우 — 굵기 6 / 불투명도 0.18 (2026-08-25부터 이 지표에만 남아 있다) */}
             {(alert || selected) && vis.length >= 2 && (
               <polyline points={poly} fill="none" stroke={color} strokeWidth={6} opacity={0.18} />
             )}

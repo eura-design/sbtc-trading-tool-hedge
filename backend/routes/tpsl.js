@@ -3,6 +3,7 @@ const { binance, roundPrice, cancelOrder, assertCancelKind } = require("../servi
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
 const { isLiveLimit, isCloseDir, isFullClose, orderQtyOf } = require("../utils/orderKind");
+const { log, errOf } = require("../store/logStore");
 const router  = express.Router();
 
 // SPLIT_TP를 store에서 지우기 전 두는 유예 — 등록 직후 낡은 openOrders 스냅샷에
@@ -203,6 +204,8 @@ router.put("/", async (req, res) => {
       }
     }
 
+    log("TPSL_UPDATED", { posSide: side, tp: newOrders.tp?.price ?? null,
+      sl: newOrders.sl?.price ?? null, noSl: !!noSl });
     res.json({ success: true, tp: newOrders.tp, sl: newOrders.sl, noSl });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
@@ -219,6 +222,7 @@ router.delete("/", async (req, res) => {
   try {
     await assertCancelKind(orderId, "TPSL");   // 엉뚱한 주문 취소 방지 (2026-08-23 감사)
     await cancelOrder({ orderId, algoId: orderId, isAlgo });
+    log("ORDER_CANCELED", { kindOf: "TPSL", orderIds: [String(orderId)], count: 1 });
     res.json({ success: true });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
@@ -245,6 +249,8 @@ router.post("/split", async (req, res) => {
       status: "SPLIT_TP", price: parseFloat(roundPrice(price)),
       qty: parseFloat(qty), pct: pct ?? null, side: closeSide, positionSide: side,
     });
+    log("SPLIT_TP_PLACED", { posSide: side, qty: parseFloat(qty),
+      price: parseFloat(price), orderId: String(data.orderId) });
     res.json({ success: true, orderId: String(data.orderId),
       price: parseFloat(roundPrice(price)), qty: parseFloat(qty) });
   } catch (err) {
@@ -260,6 +266,7 @@ router.delete("/split", async (req, res) => {
     await assertCancelKind(orderId, "SPLIT_TP");   // 엉뚱한 주문 취소 방지
     await cancelOrder({ orderId });
     store.delete(String(orderId));
+    log("ORDER_CANCELED", { kindOf: "SPLIT_TP", orderIds: [String(orderId)], count: 1 });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.response?.data?.msg || err.message });
@@ -291,6 +298,8 @@ router.post("/partial-sl", async (req, res) => {
       type: "STOP_MARKET", triggerPrice: roundPrice(price),
       quantity: parseFloat(qty).toFixed(3), workingType: "CONTRACT_PRICE",
     });
+    log("PARTIAL_SL_PLACED", { posSide: side, qty: parseFloat(qty),
+      price: parseFloat(price), orderId: String(data.algoId) });
     res.json({ success: true, orderId: String(data.algoId),
       price: parseFloat(roundPrice(price)), qty: parseFloat(qty) });
   } catch (err) {
@@ -312,6 +321,7 @@ router.delete("/partial-sl", async (req, res) => {
     // ⚠ 전량 손절을 여기로 지우지 못하게 막는다 (그 반대도 `DELETE /`가 막는다)
     await assertCancelKind(orderId, "PARTIAL_SL");
     await cancelOrder({ orderId, algoId: orderId, isAlgo: true });
+    log("ORDER_CANCELED", { kindOf: "PARTIAL_SL", orderIds: [String(orderId)], count: 1 });
     res.json({ success: true });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });

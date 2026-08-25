@@ -135,7 +135,9 @@ export const createOrderSlice = (set, get) => ({
       setOrderStatus({ type: "success", msg: `${side} ${label} 제거 완료` });
       setTimeout(() => { _refetchTpsl(); }, 500);
     } catch (e) {
-      setOrderStatus({ type: "error", msg: `${label} 제거 실패: ${e.message}` });
+      // 성공 쪽(`${side} ${label} 제거 완료`)과 같이 **사이드를 밝힌다** — 헷지모드라
+      // 롱·숏 카드가 나란히 있어서, 사이드가 없으면 어느 쪽 손절이 안 지워졌는지 모른다
+      setOrderStatus({ type: "error", msg: `${side} ${label} 제거 실패: ${e.message}` });
     }
   },
 
@@ -222,7 +224,12 @@ export const createOrderSlice = (set, get) => ({
       setOrderStatus({ type: "success", msg: "추가 진입 주문 취소 완료" });
       setTimeout(() => { _refetchPos(); }, 500);
     } catch (e) {
-      setOrderStatus({ type: "error", msg: `취소 실패: ${e.message}` });
+      // ⚠ **실패 문구에도 무엇을 취소하려던 것인지 적는다** (2026-08-25 사용자 요청).
+      //   취소는 네 군데(추가 진입·분할 TP·분할 SL·미체결 주문)에서 부르는데
+      //   예전엔 전부 `취소 실패: …`라 **배너만 보고는 어느 카드를 열어야 할지 알 수 없었다**.
+      //   성공 쪽은 이미 넷이 다 다른 이름이었다 — 정작 확인이 필요한 실패만 뭉뚱그려져 있었다.
+      //   다시 `취소 실패:`로 합치지 말 것 (넷 다 같은 규칙으로 유지)
+      setOrderStatus({ type: "error", msg: `추가 진입 주문 취소 실패: ${e.message}` });
     }
   },
 
@@ -284,7 +291,7 @@ export const createOrderSlice = (set, get) => ({
       setOrderStatus({ type: "success", msg: "분할 SL 취소 완료" });
       setTimeout(() => { _refetchTpsl(); }, 500);
     } catch (e) {
-      setOrderStatus({ type: "error", msg: `취소 실패: ${e.message}` });
+      setOrderStatus({ type: "error", msg: `분할 SL 취소 실패: ${e.message}` });
     }
   },
 
@@ -330,7 +337,7 @@ export const createOrderSlice = (set, get) => ({
       setOrderStatus({ type: "success", msg: "분할 TP 취소 완료" });
       setTimeout(() => { _refetchTpsl(); }, 500);
     } catch (e) {
-      setOrderStatus({ type: "error", msg: `취소 실패: ${e.message}` });
+      setOrderStatus({ type: "error", msg: `분할 TP 취소 실패: ${e.message}` });
     }
   },
 
@@ -363,7 +370,12 @@ export const createOrderSlice = (set, get) => ({
       setOrderStatus({ type: "success", msg: partial ? "부분 청산 완료" : "포지션 청산 완료" });
       setTimeout(() => { _refetchBal(); _refetchPos(); _refetchTpsl(); }, 1000);
     } catch (e) {
-      setOrderStatus({ type: "error", msg: `청산 실패: ${e.message}` });
+      // ⚠ 실패에는 **사이드와 부분/전량을 함께** 적는다 (2026-08-25 사용자 요청).
+      //   성공은 `부분 청산 완료`/`포지션 청산 완료`로 갈리는데 실패만 `청산 실패:`
+      //   하나였다 — 롱·숏을 둘 다 들고 있으면 **어느 쪽이 안 닫혔는지 모른다**.
+      //   청산 실패는 곧 "아직 포지션이 살아 있다"는 뜻이라 가장 급한 실패다
+      setOrderStatus({ type: "error",
+        msg: `${side} ${partial ? "부분 청산" : "포지션 청산"} 실패: ${e.message}` });
     }
   },
 
@@ -390,7 +402,7 @@ export const createOrderSlice = (set, get) => ({
         await api("DELETE", "/api/orders", { side, orderId: position.pending[sideKey].orderId });
         setOrderStatus({ type: "success", msg: "미체결 주문 취소 완료" });
       } catch (e) {
-        setOrderStatus({ type: "error", msg: `취소 실패: ${e.message}` }); return;
+        setOrderStatus({ type: "error", msg: `미체결 주문 취소 실패: ${e.message}` }); return;
       }
     }
     // 취소한 사이드의 박스만 지운다 — 반대쪽 플랜은 그대로 둔다

@@ -11,6 +11,7 @@
 // 편의를 위해 마지막으로 고른 **시작 날짜만** 저장한다.
 
 import { setReplayGuard } from "../api/client";
+import { clientLog } from "../api/clientLog";
 import { swapDrawingStorage } from "./uiSlice";
 import { swapTradeSettings } from "./settingsSlice";
 
@@ -63,6 +64,9 @@ export const createReplaySlice = (set, get) => ({
     const on = typeof v === "function" ? v(get().replayOn) : !!v;
     // 실주문 차단은 **상태보다 먼저** 건다 — 렌더 타이밍에 기대지 않기 위해서다
     setReplayGuard(on);
+    // ⚠ 모드 전환을 기록한다 — 나중에 로그를 볼 때 **"그때 연습 중이었나"**가
+    //   자주 답이다 (주문이 왜 안 나갔는지, 왜 알림이 안 떴는지)
+    if (on !== get().replayOn) clientLog("MODE_CHANGED", { replay: on });
     // 켤 때 balError를 지운다 — 페이퍼 계좌는 백엔드와 무관한데, 서버가 죽어 있으면
     // 그 에러 배너가 잔고 카드 자리를 계속 차지해 연습 잔고가 아예 안 보인다
     // 끌 때 시계를 비운다 — 남아 있으면 실거래로 돌아온 뒤에도 지표가
@@ -88,7 +92,7 @@ export const createReplaySlice = (set, get) => ({
           //   syncPaper가 연습 계좌를 실계좌와 **같은 슬롯**에 써 넣으므로, 안 지우면
           //   실계좌 응답이 도착할 때까지 페이퍼 값이 남는다. 그 사이에
           //   usePositionCloseAlert이 "페이퍼 → 실계좌" 교체를 청산으로 오인해
-          //   `롱/숏 포지션 종료`를 sticky 알림(빨강 + 3초 소리 반복)으로 띄웠다.
+          //   `롱/숏 포지션 종료` 토스트를 띄웠다.
           //   연습에서 매매를 안 해도 떴다 — 리플레이 진입 전 실계좌에 포지션이 있으면
           //   그게 기준선으로 얼어붙고, 나갈 때 **빈 페이퍼 스냅샷**과 비교되기 때문.
           //

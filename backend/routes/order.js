@@ -6,7 +6,7 @@ const { checkDailyLoss } = require("./dailyloss");
 const { sideToPosition } = require("../utils/side");
 const { verifyImmediateFill } = require("../services/orderWatcher");
 const push     = require("../services/pushService");
-const tradeLog = require("../store/tradeLog");
+const { log } = require("../store/logStore");
 
 const router  = express.Router();
 
@@ -59,21 +59,23 @@ router.post("/", validateOrder, async (req, res) => {
 
       const tpsl       = await placeTPSL(orderInfo);
       const hasFailure = tpsl.failed.length > 0;
-      tradeLog.append({ event: "FILLED", orderId, side, qty: quantity, fillPrice, tp, sl });
+      // ⚠ 어휘 고정: `orderSide`(BUY/SELL) ↔ `posSide`(LONG/SHORT)를 섞지 말 것 (logStore 참고)
+      log("ENTRY_FILLED", { orderId, orderSide: side, posSide: positionSide,
+        orderType: "MARKET", qty: quantity, price: fillPrice, tp, sl,
+        plannedPrice: entry ?? null, slippagePct: +slippagePct.toFixed(3) });
       // 실패 시 store에 저장 → reconcileWithBinance가 재시도
       if (hasFailure) {
         store.set(orderId, { ...orderInfo, status: "TPSL_PARTIAL", tpsl, fillPrice, filledAt: Date.now() });
         console.error(`[MARKET] TP/SL 실패 → store 저장 (reconcile 재시도 대기) orderId=${orderId}`,
           tpsl.failed.map(f => `${f.type}: ${f.error}`).join(" / "));
-        tradeLog.append({
-          event: "TPSL_PARTIAL", orderId, failed: tpsl.failed.map(f => f.type).join(", "),
-          errors: tpsl.failed.map(f => `${f.type}: ${f.error}`), side, tp, sl,
-        });
+        log("TPSL_PARTIAL", { level: "error", orderId, orderSide: side, posSide: positionSide,
+          failed: tpsl.failed.map(f => f.type),
+          errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })), tp, sl });
         if (tpsl.failed.some(f => f.type === "SL")) {
           push.pushAlert("critical", `⚠ 시장가 체결됐으나 SL 등록 실패 (orderId=${orderId})`);
         }
       } else {
-        tradeLog.append({ event: "TPSL_PLACED", orderId, tp, sl });
+        log("TPSL_PLACED", { orderId, posSide: positionSide, tp, sl });
       }
 
       // ⚠ 프론트에 TP/SL 갱신을 **반드시 알릴 것.** 없으면 거래소엔 0.2초 만에 걸려 있는데
@@ -112,12 +114,11 @@ router.post("/", validateOrder, async (req, res) => {
 
       const presetFailed = preset.failed.map(f => f.type).join(", ");
       if (presetFailed) {
-        tradeLog.append({
-          event: "TPSL_PRESET_FAILED", orderId, failed: presetFailed,
-          errors: preset.failed.map(f => `${f.type}: ${f.error}`), side, tp, sl,
-        });
+        log("TPSL_PRESET_FAILED", { level: "error", orderId, orderSide: side, posSide: positionSide,
+          failed: preset.failed.map(f => f.type),
+          errors: preset.failed.map(f => ({ type: f.type, msg: f.error })), tp, sl });
       } else {
-        tradeLog.append({ event: "TPSL_PRESET", orderId, tp, sl });
+        log("TPSL_PRESET", { orderId, posSide: positionSide, tp, sl });
       }
 
       // 지정가가 호가를 먹어 즉시 체결된 경우(박스를 현재가 너머로 올린 경우)

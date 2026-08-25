@@ -2,6 +2,7 @@ const express = require("express");
 const { binance, cancelOrder, cancelPresetTPSL } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { isLiveLimit, limitKind } = require("../utils/orderKind");
+const { log, errOf } = require("../store/logStore");
 const router  = express.Router();
 
 // DELETE /api/orders — 바이낸스 미체결 LIMIT 진입 주문 취소 (source of truth: Binance)
@@ -83,6 +84,8 @@ router.delete("/", async (req, res) => {
       store.delete(id);
     }
 
+    log("ORDER_CANCELED", { kindOf: "ENTRY", posSide: side ?? null,
+      orderIds: entryOrders.map(o => String(o.orderId)), count: entryOrders.length });
     res.json({ success: true, cancelled: entryOrders.length });
   } catch (err) {
     res.status(500).json({ error: err.response?.data?.msg || err.message });

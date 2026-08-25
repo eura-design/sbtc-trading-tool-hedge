@@ -1,10 +1,19 @@
 require("dotenv").config();
+
+// ⚠ **다른 require보다 먼저.** 콘솔 출력과 구조화 이벤트를 `logs/<날짜>.jsonl`에
+//   남기는데, 이 줄 앞에서 찍힌 것은 파일에 안 남는다
+//   (모듈은 require 되는 순간 로그를 찍을 수 있다)
+const logStore = require("./store/logStore");
+logStore.install();
+
 const express = require("express");
 const cors    = require("cors");
 
 const { recoverPendingOrders }   = require("./services/recoveryService");
 const { stop: stopWatcher }      = require("./services/orderWatcher");
 const { syncServerTime }         = require("./services/binanceClient");
+const incomeLogger               = require("./services/incomeLogger");
+const dailySummary               = require("./services/dailySummary");
 const store                      = require("./store/pendingOrders");
 const push                       = require("./services/pushService");
 
@@ -92,6 +101,8 @@ app.use("/api/scale-in",   require("./routes/scalein"));
 app.use("/api/indicator-params", require("./routes/indicatorparams"));
 app.use("/api/leverage",         require("./routes/leverage"));
 app.use("/api/daily-loss",       require("./routes/dailyloss"));
+// 화면에서 일어난 일 — "왜 이 주문이 나갔나"의 절반은 프론트에 있다 (routes/log.js)
+app.use("/api/log",              require("./routes/log"));
 
 // ── 서버 시작 ─────────────────────────────────────────────────────────────────
 const server = app.listen(PORT, async () => {
@@ -103,6 +114,11 @@ const server = app.listen(PORT, async () => {
     console.log("[서버] API 키 확인됨\n");
     await syncServerTime();
     await recoverPendingOrders();
+    // 손익·수수료·펀딩비를 로그에 남긴다 (10분 주기) — 이게 있어야 로그 하나로
+    // 수익 곡선을 그릴 수 있다. API 키가 있을 때만 의미가 있으므로 여기서 시작한다
+    incomeLogger.start();
+    // 하루가 끝나면 그날치를 한 줄로 요약한다 — "지난달 어땠어?"에 30줄만 읽고 답하기 위해
+    dailySummary.start();
   }
 });
 
@@ -110,13 +126,18 @@ const server = app.listen(PORT, async () => {
 async function shutdown() {
   console.log("\n[서버] 종료 중...");
   stopWatcher();
+  incomeLogger.stop();
+  dailySummary.stop();
   await store.flush();
   server.close(() => {
     console.log("[서버] 종료 완료");
+    logStore.close(); // 버퍼에 남은 줄을 흘려보낸다 — 안 하면 마지막 몇 줄이 사라진다
     process.exit(0);
   });
   // 5초 후 강제 종료
-  setTimeout(() => process.exit(1), 5000);
+  // ⚠ 이 경로로 죽어도 **종료 기록은 남겨야 한다** — 재시작 경계를 잃으면
+  //   "그 사이 꺼져 있었나"를 로그로 알 수 없다 (close는 두 번 불려도 안전하다)
+  setTimeout(() => { logStore.close("forced"); process.exit(1); }, 5000);
 }
 
 process.on("SIGINT",  shutdown);

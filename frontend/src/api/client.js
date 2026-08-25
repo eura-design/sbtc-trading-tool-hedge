@@ -1,4 +1,5 @@
 import { API_BASE } from "../constants";
+import { clientLog } from "./clientLog";
 
 // ── 리플레이 안전장치 ─────────────────────────────────────────────────────
 // 리플레이 모드에서는 **상태를 바꾸는 요청을 여기서 전부 막는다.**
@@ -25,20 +26,47 @@ const ALLOW_IN_REPLAY = ["/api/indicator-params"];
 export function setReplayGuard(on) { _replayGuard = on; }
 
 export async function api(method, path, body) {
+  // ⚠ **상태를 바꾸는 요청은 전부 여기서 기록한다** (2026-08-25).
+  //   주문 액션이 12개가 넘는데 각각에 로그를 넣으면 하나씩 빠뜨린다 —
+  //   **모든 경로가 반드시 지나는 이 한 곳**에 두면 새 액션이 생겨도 저절로 남는다
+  //   (리플레이 가드를 여기 둔 것과 같은 이유)
+  // ⚠ GET은 기록하지 않는다 — 폴링이 초당 여러 번이라 로그가 조회로 뒤덮인다
+  const logged = method !== "GET";
+  const t0 = logged ? Date.now() : 0;
+
   if (_replayGuard && method !== "GET" && !ALLOW_IN_REPLAY.some(p => path.startsWith(p))) {
+    // 거래소에 닿지도 못한 요청 — **백엔드 로그에는 흔적이 없다.** 여기서만 남는다
+    clientLog("API_BLOCKED", { level: "warn", method, path, reason: "replay" });
     throw new Error("리플레이 모드에서는 실제 주문을 보낼 수 없습니다 (연습 계좌로 처리됩니다)");
   }
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let msg;
-    try { msg = JSON.parse(text).error || text; }
-    catch { msg = text || `HTTP ${res.status}`; }
-    throw new Error(msg);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let msg;
+      try { msg = JSON.parse(text).error || text; }
+      catch { msg = text || `HTTP ${res.status}`; }
+      if (logged) clientLog("API_CALL", { level: "error", method, path, body: body ?? null,
+        status: res.status, ok: false, msg, ms: Date.now() - t0 });
+      const err = new Error(msg);
+      err._logged = true;   // 아래 catch가 **같은 실패를 두 번 남기지 않게**
+      throw err;
+    }
+    const json = await res.json();
+    if (logged) clientLog("API_CALL", { method, path, body: body ?? null,
+      status: res.status, ok: true, ms: Date.now() - t0 });
+    return json;
+  } catch (e) {
+    // fetch 자체가 실패한 경우(백엔드 꺼짐·네트워크 끊김) — 응답이 아예 없어서
+    // 위 `!res.ok` 분기를 안 탄다. 백엔드 로그에도 흔적이 없으므로 여기서만 남는다
+    if (logged && !e._logged) {
+      clientLog("API_CALL", { level: "error", method, path, body: body ?? null,
+        status: null, ok: false, msg: String(e.message || e), ms: Date.now() - t0 });
+    }
+    throw e;
   }
-  return res.json();
 }

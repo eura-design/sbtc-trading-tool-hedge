@@ -39,14 +39,18 @@ export const INDICATOR_DEFAULTS = {
   //   ⚠ **alert_choch·show_legvol 둘 다 기본 false**다 (2026-08-24 사용자 요청).
   //     수동 구조(`alertChoch`/`showLegVol`)와 초기값을 맞춘 것이다 — 한쪽만 바꾸지 말 것.
   //     읽는 쪽은 `=== true`로 본다 (App.jsx) — `!== false`로 되돌리면 저장값이 없을 때 켜진다
-  //   opacity — 2026-08-24 사용자 요청으로 1.0 → 0.25.
+  //   opacity — 2026-08-25 사용자 요청으로 0.25 → **0.3** (1.0 → 0.25는 2026-08-24).
   //     수동 구조의 STRUCT_DEFAULT_OPACITY와 **같은 값이어야 한다** (초기 수치 통일).
   //     한쪽만 바꾸지 말 것
+  //     ※ 0.3인 이유는 슬라이더 눈금(10% 단위)에 맞추기 위해서다 — 0.25는 그전
+  //       슬라이더의 최소값이었는데 같은 날 눈금이 바뀌며 그 위의 값이 아니게 됐다
+  //     ⚠ 이건 **서버에 저장되는 값**이라 기본값을 바꿔도 이미 저장된 쪽이 이긴다 —
+  //       `backend/indicator_params.json`도 같이 봐야 한다
   //   ※ alert_choch는 일부러 **다르게 둔다** — 자동 ZZ는 ON, 수동 구조는 OFF.
   //     수동 구조는 알림을 켜면 선이 호박색 점선이 되어, 기본 ON이면 모든 구조가
   //     그 색이 되어 색으로 알림 여부를 구분할 수 없게 된다 (Structures.jsx [R10]).
   //     자동 ZZ는 그 스타일이 없어 ON이어도 같은 문제가 생기지 않는다
-  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.25 },
+  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.3 },
   // 수동 구조(Custom Structure Zigzag)
   //   tfs — 표시할 타임프레임 (중복 선택 가능, 기본 1h). **여기 있는 건 이것뿐이다.**
   //   ※ CHoCH 표시 on/off·개수는 구조마다 localStorage에 있다 (st.showChoch / st.maxChoch,

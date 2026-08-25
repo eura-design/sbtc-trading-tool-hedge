@@ -2,6 +2,7 @@ const express = require("express");
 const { binance, roundPrice, cancelOrder, cancelPresetTPSL, assertCancelKind } = require("../services/binanceClient");
 const store = require("../store/pendingOrders");
 const { sideToPosition } = require("../utils/side");
+const { log, errOf } = require("../store/logStore");
 const router = express.Router();
 
 // POST /api/scale-in — 포지션 추가 진입 (TP/SL 없음)
@@ -27,6 +28,8 @@ router.post("/", async (req, res) => {
     if (orderType === "LIMIT") {
       store.set(String(data.orderId), { status: "SCALE_IN", price: parseFloat(roundPrice(price)), side });
     }
+    log("SCALE_IN_PLACED", { posSide: side, orderType, qty: parseFloat(quantity),
+      price: price ? parseFloat(price) : null, orderId: String(data.orderId) });
     res.json({ success: true, orderId: data.orderId, status: data.status,
       fillPrice: orderType === "MARKET" ? parseFloat(data.avgPrice || 0) : null });
   } catch (err) {
@@ -51,6 +54,7 @@ router.delete("/", async (req, res) => {
         .catch(e => console.warn("[scale-in] 사전 TPSL 취소 실패:", e.message));
     }
     store.delete(String(orderId));
+    log("ORDER_CANCELED", { kindOf: "SCALE_IN", orderIds: [String(orderId)], count: 1 });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.response?.data?.msg || err.message });

@@ -4,7 +4,7 @@ const { isStopOrder, isFullClose, coversPosition, orderQtyOf, triggerPriceOf,
   isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES } = require("../utils/orderKind");
 const store          = require("../store/pendingOrders");
 const push           = require("./pushService");
-const tradeLog       = require("../store/tradeLog");
+const { log, errOf } = require("../store/logStore");
 const statsCache     = require("./statsCache");
 const { closeToPosition, sideToPosition } = require("../utils/side");
 const { checkDailyLoss } = require("../routes/dailyloss");
@@ -79,7 +79,7 @@ const nakedMsg = (side, partialQty = 0, posAmt = null) =>
 //   되살리려면 `pushService.pushNotice`와 프론트 `useRealtimeData`의 `notice` 처리가
 //   함께 필요하다 (같이 지웠다)
 //
-// ⚠ 대신 **`trade_log.json`에는 남긴다** — 화면에 안 띄우는 것과 기록을 안 남기는 것은
+// ⚠ 대신 **로그에는 남긴다**(`NAKED_RESOLVED`) — 화면에 안 띄우는 것과 기록을 안 남기는 것은
 //   다르다. "그때 몇 초나 없었나"는 나중에 돌아볼 값이다
 //
 // ⚠ **없어진 원인은 적지 않는다** (2026-08-24 사용자 확정). 이 환경에서는 계정 스트림이
@@ -92,8 +92,7 @@ function resolveNaked(side, reason = "sl", detail = {}) {
   push.pushAlertClear(warned.msg);
 
   const seconds = Math.max(0, Math.round((Date.now() - warned.at) / 1000));
-  tradeLog.append({ event: "NAKED_RESOLVED", side, reason, seconds,
-    price: detail.price ?? null });
+  log("NAKED_RESOLVED", { posSide: side, reason, seconds, price: detail.price ?? null });
   console.log(`[안전망] ${side} 경보 해제 (${reason === "closed" ? "포지션 종료" : "손절 복구"}` +
     `${detail.price ? " @" + detail.price : ""}, 없던 시간 ${seconds}초)`);
 }
@@ -234,7 +233,8 @@ async function onFilled(orderId, executionData) {
   store.set(orderId, { ...info, status: "FILLED", fillPrice, filledAt: Date.now() });
 
   // 거래 로그 기록
-  tradeLog.append({ event: "FILLED", orderId, side: info.side, qty: info.qty, fillPrice, tp: info.tp, sl: info.sl });
+  log("ENTRY_FILLED", { orderId, orderSide: info.side, posSide: sideToPosition(info.side),
+    orderType: "LIMIT", qty: info.qty, price: fillPrice, tp: info.tp, sl: info.sl });
 
   // 일일 손실 한도 재검증 — 주문 등록 시점엔 OK였지만 체결까지 대기 중 한도 초과 가능
   // 체결 자체는 막을 수 없으므로 critical alert로 사용자에게 즉시 알림 (수동 청산 판단)
@@ -265,11 +265,9 @@ async function onFilled(orderId, executionData) {
     store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
     // ⚠ 거부 **사유**를 남길 것 — 예전엔 실패 타입만 남겨서, 나중에 로그를 봐도
     //   바이낸스가 왜 거절했는지 알 수 없었다 (콘솔은 이미 사라진 뒤다)
-    tradeLog.append({
-      event: "TPSL_PARTIAL", orderId, failed: failedTypes,
-      errors: tpsl.failed.map(f => `${f.type}: ${f.error}`),
-      side: info.side, tp: info.tp, sl: info.sl,
-    });
+    log("TPSL_PARTIAL", { level: "error", orderId, orderSide: info.side,
+      posSide: sideToPosition(info.side), failed: tpsl.failed.map(f => f.type),
+      errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })), tp: info.tp, sl: info.sl });
 
     if (slFailed) {
       const msg = `⚠ SL 등록 5회 실패 (orderId=${orderId})`;
@@ -277,12 +275,14 @@ async function onFilled(orderId, executionData) {
       push.pushAlert("critical", msg);
     }
     if (tpFailed) {
-      push.pushAlert("warning", `TP 등록 실패 (orderId=${orderId}) — 수동 설정 필요`);
+      // notice = 금색 토스트 — SL은 걸렸고 익절만 빠진 상태다 (pushService 참고).
+      // 바로 위 SL 실패는 critical이라 빨간 배너로 남는다
+      push.pushAlert("notice", `TP 등록 실패 (orderId=${orderId}) — 수동 설정 필요`);
     }
   } else {
     console.log(`[UDS] TP/SL 등록 완료 orderId=${orderId}`);
     store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
-    tradeLog.append({ event: "TPSL_PLACED", orderId, tp: info.tp, sl: info.sl });
+    log("TPSL_PLACED", { orderId, posSide: sideToPosition(info.side), tp: info.tp, sl: info.sl });
   }
 
   push.pushUpdate(["position", "balance", "tpsl"]);
@@ -499,10 +499,9 @@ async function runReconcile() {
               console.error(`[RECONCILE] TPSL 재시도도 실패 (${failed}) orderId=${orderId}`,
                 tpsl.failed.map(f => `${f.type}: ${f.error}`).join(" / "));
               store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
-              tradeLog.append({
-                event: "TPSL_RETRY_FAILED", orderId, failed,
-                errors: tpsl.failed.map(f => `${f.type}: ${f.error}`),
-              });
+              log("TPSL_RETRY_FAILED", { level: "error", orderId,
+                failed: tpsl.failed.map(f => f.type),
+                errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })) });
               if (tpsl.failed.some(f => f.type === "SL")) {
                 push.pushAlert("critical", `⚠ SL 재등록 실패 (orderId=${orderId})`);
               }
@@ -554,8 +553,8 @@ async function runReconcile() {
       const msg = nakedMsg(side, second.slPartialQty, second.posAmt);
       nakedWarned.set(side, { msg, at: Date.now() });
       console.error(`[안전망] ${msg}`);
-      tradeLog.append({ event: "NAKED_POSITION", side,
-        slPartialQty: second.slPartialQty, posAmt: second.posAmt });
+      log("NAKED_POSITION", { level: "error", posSide: side, detectedBy: "reconcile",
+        slPartialQty: second.slPartialQty ?? 0, posAmt: second.posAmt ?? null });
       push.pushAlert("critical", msg);
     }
 
@@ -693,6 +692,33 @@ async function watchAccount() {
     lastAccountSig = sig;
     acct.changes++; acct.lastChangeAt = Date.now();
     console.log("[ACCOUNT] 변화 감지 → 화면 갱신 + 체결 확인");
+
+    // ── 상태 스냅샷 (2026-08-25) ──────────────────────────────────────────────
+    // ⚠ **사건 기록만으로는 "언제부터 이랬나"를 못 짚는다.** "무엇을 했다"는 줄만
+    //   있으면 그 사이의 상태를 되짚을 수 없다 — 특히 밖에서 낸 주문이나 서버가
+    //   꺼져 있던 구간은 사건 자체가 안 남는다.
+    //   이 감시는 어차피 3초마다 포지션·미체결을 읽고 있으므로, **바뀔 때만** 한 줄
+    //   남기면 거의 공짜로 "그 시점의 계좌"가 기록된다
+    // ⚠ 원본 응답을 통째로 넣지 말 것 — 한 줄이 수 KB가 되어 읽을 수 없다.
+    //   포지션·주문 **요약**만 넣는다 (자족적이되 짧게)
+    try {
+      const posSummary = posR.value.data
+        .filter(p => parseFloat(p.positionAmt) !== 0)
+        .map(p => ({ posSide: p.positionSide, qty: Math.abs(parseFloat(p.positionAmt)),
+                     entry: parseFloat(p.entryPrice), lev: parseInt(p.leverage) || null,
+                     liq: parseFloat(p.liquidationPrice) || null }));
+      const ordSummary = ordR.value.data.map(o => ({
+        orderId: String(o.orderId), type: o.type, orderSide: o.side,
+        posSide: o.positionSide, price: parseFloat(o.price) || null,
+        stop: parseFloat(o.stopPrice) || null, qty: parseFloat(o.origQty) || null,
+      }));
+      const algoSummary = algos.map(o => ({
+        orderId: String(o.algoId), type: o.orderType, orderSide: o.side,
+        posSide: o.positionSide, stop: parseFloat(o.triggerPrice) || null,
+        qty: parseFloat(o.quantity) || null,
+      }));
+      log("ACCOUNT_STATE", { positions: posSummary, orders: ordSummary, algos: algoSummary });
+    } catch { /* 스냅샷 실패가 감시를 멈추면 안 된다 */ }
     push.pushUpdate(["position", "balance", "tpsl"]);
     // 우리 주문이 체결됐을 수도 있다 — TP/SL 등록 경로를 바로 태운다
     // (UDS가 죽어 있으면 이게 아니면 reconcile 60초까지 기다린다)
@@ -714,6 +740,11 @@ async function watchAccount() {
       const gone = [lastSides.long && !hasLong && "LONG", lastSides.short && !hasShort && "SHORT"].filter(Boolean).join("+");
       console.log(`[ACCOUNT] ${gone} 포지션 사라짐 → 뒷정리 즉시 실행`);
       reconcileWithBinance().catch(e => console.warn("[ACCOUNT] reconcile 실패:", e.message));
+      // 손익을 **바로** 로그에 남긴다 — 안 그러면 10분 주기까지 기다린다.
+      // 거래소가 정산할 시간을 조금 준다 (밖에서 낸 청산도 여기서 잡힌다)
+      setTimeout(() => {
+        require("./incomeLogger").pollIncome().catch(() => {});
+      }, 3000);
     }
     lastSides = { long: hasLong, short: hasShort };
   } catch (e) {
@@ -810,7 +841,8 @@ function checkNakedFast(positions, regular, algos) {
       push.pushAlertClear(warned.msg);
       nakedWarned.set(side, { msg, at: warned.at });   // 시작 시각은 처음 그대로 둔다
       console.error(`[안전망/즉시] 문구 갱신 -> ${msg}`);
-      tradeLog.append({ event: "NAKED_CHANGED", side, slPartialQty: partialQty, posAmt: amt });
+      log("NAKED_CHANGED", { level: "error", posSide: side, detectedBy: "watch",
+        slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
       push.pushAlert("critical", msg);
       continue;
     }
@@ -836,7 +868,8 @@ function checkNakedFast(positions, regular, algos) {
 
     nakedWarned.set(side, { msg, at: since });   // 띄운 시각이 아니라 **처음 본 시각**
     console.error(`[안전망/즉시] ${msg}`);
-    tradeLog.append({ event: "NAKED_POSITION", side, slPartialQty: partialQty, posAmt: amt, fast: true });
+    log("NAKED_POSITION", { level: "error", posSide: side, detectedBy: "watch",
+      slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
     push.pushAlert("critical", msg);
   }
 }

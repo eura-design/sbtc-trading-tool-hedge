@@ -8,8 +8,8 @@ frontend/dist/
 # Environment variables (API keys)
 backend/.env
 
-# Logs
-backend/trade_log.json
+# Logs — backend/logs/<날짜>.jsonl (구조화 이벤트 + 콘솔, 30일 보존)
+backend/logs/
 backend/pending_orders.json
 backend/indicator_params.json
 

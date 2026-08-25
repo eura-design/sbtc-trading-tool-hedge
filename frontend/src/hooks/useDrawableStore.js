@@ -7,7 +7,7 @@ const load = (key) => {
 
 /**
  * 트렌드라인/채널/원 등 도형 데이터를 localStorage에 영구 저장하는 제네릭 훅
- * 공통 필드: id, opacity (0.25~1.0), locked (boolean), alert (boolean)
+ * 공통 필드: id, opacity (0.1~1.0, 0.1 단위), locked (boolean), alert (boolean)
  *
  * @param storageKey 리플레이 모드에서는 다른 키가 들어온다 (연습용 도형을 실거래
  *   차트와 섞지 않기 위해서다 — replay/drawingKeys.js 참고). **키가 바뀌면 그 키의

@@ -20,7 +20,7 @@ import { PlanCard } from "./PlanCard";
 import { StatsCard }    from "./StatsCard";
 import { ReplayStatsCard } from "./ReplayStatsCard";
 import { computePaperDailyLoss } from "../../replay/dailyLoss";
-import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow } from "../sidebarBtn";
+import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow, sectionBox } from "../sidebarBtn";
 
 
 export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
@@ -200,7 +200,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           [isExceeded ? "한도 초과" : "잔여 한도", isExceeded ? `리셋 ${resetStr}` : `${dailyLoss.remaining.toFixed(1)}`, isExceeded ? "#f6465d" : "#94a3b8"],
         ];
         return (
-          <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0,
+          <div style={{ padding:"8px 16px", ...sectionBox(theme, dailyLossOpen), flexShrink:0,
             background: isExceeded ? theme.bgError : "transparent" }}>
             <button
               onClick={toggleDailyLoss}
@@ -225,7 +225,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       })()}
 
       {/* 거래 통계 */}
-      <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
+      <div style={{ padding:"8px 16px", ...sectionBox(theme, statsOpen), flexShrink:0 }}>
         <button
           onClick={toggleStats}
           style={SECTION_HEADER}
@@ -245,7 +245,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       </div>
 
       {/* 설정 — 리스크% + 레버리지 */}
-      <div style={{ padding:"8px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
+      <div style={{ padding:"8px 16px", ...sectionBox(theme, settingsOpen), flexShrink:0 }}>
         <button
           onClick={toggleSettings}
           style={{ ...SECTION_HEADER, marginBottom: settingsOpen ? "8px" : 0 }}
