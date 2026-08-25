@@ -18,7 +18,6 @@ router.post("/", async (req, res) => {
     res.json({ success: true, leverage: data.leverage, maxNotionalValue: data.maxNotionalValue });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
-    console.error("[POST /api/leverage]", msg);
     log("LEVERAGE_FAILED", { level: "error", leverage: lev, err: errOf(err) });
     res.status(500).json({ error: msg });
   }

@@ -1,5 +1,6 @@
 const fs   = require("fs");
 const path = require("path");
+const { log, errOf } = require("./logStore");
 
 const FILE = path.join(__dirname, "../indicator_params.json");
 
@@ -68,7 +69,7 @@ function load() {
     }
     return result;
   } catch (e) {
-    console.error("[IndicatorParamsStore] 로드 실패:", e.message);
+    log("STORE_IO_FAILED", { level: "error", store: "indicatorParams", op: "load", err: errOf(e) });
     return DEFAULTS;
   }
 }
@@ -77,7 +78,7 @@ function save(params) {
   try {
     fs.writeFileSync(FILE, JSON.stringify(params), "utf-8");
   } catch (e) {
-    console.error("[IndicatorParamsStore] 저장 실패:", e.message);
+    log("STORE_IO_FAILED", { level: "error", store: "indicatorParams", op: "save", err: errOf(e) });
   }
 }
 

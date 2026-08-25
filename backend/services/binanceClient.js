@@ -34,7 +34,6 @@ function parseBan(e) {
   const m = msg.match(/banned until (\d+)/);
   if (m) {
     _bannedUntil = Number(m[1]);
-    console.error(`[BAN] Binance IP 밴 — ${new Date(_bannedUntil).toLocaleTimeString()} 해제`);
     // ⚠ 밴은 **콘솔 문장이 아니라 이벤트로** 남긴다 (2026-08-25) — 문장이면 몇 번
     //   당했는지 셀 수가 없다. 밴은 원인(요청 가중치)과 결과(그 사이 주문이 전부 실패)가
     //   둘 다 중요해서 나중에 반드시 되짚게 된다
@@ -48,13 +47,11 @@ async function syncServerTime() {
     const { data } = await axios.get(`${BASE}/fapi/v1/time`);
     const prev = _timeOffset;
     _timeOffset = data.serverTime - Date.now();
-    console.log(`[시간동기화] 오프셋: ${_timeOffset}ms`);
     // ⚠ 시계 오차는 **트리거가 안 맞을 때 첫 용의자다.** 오차가 recvWindow(5초)에
     //   가까워지면 요청이 통째로 거절되기 시작한다 — 그 전에 기록이 있어야 원인을 짚는다
     log("CLOCK_SYNC", { offsetMs: _timeOffset, prevOffsetMs: prev,
       level: Math.abs(_timeOffset) > 2000 ? "warn" : "info" });
   } catch (e) {
-    console.warn("[시간동기화] 실패 (오프셋 0 유지):", e.message);
     log("CLOCK_SYNC_FAILED", { level: "warn", err: errOf(e) });
   }
 }
@@ -164,13 +161,19 @@ async function cancelExistingAlgoTPSL(positionSide) {
       o.positionSide === positionSide && !toCancel.includes(o)
     );
     if (kept.length > 0) {
-      console.log(`[TPSL] 부분 청산 트리거 ${kept.length}건은 보존 (${positionSide}): ` +
-        kept.map(o => `${o.orderType} ${o.quantity}@${o.triggerPrice} #${o.algoId}`).join(", "));
+      log("PARTIAL_TRIGGER_KEPT", { posSide: positionSide, count: kept.length,
+        orders: kept.map(o => ({ type: o.orderType, qty: o.quantity,
+          price: o.triggerPrice, orderId: o.algoId })) });
     }
     await Promise.allSettled(toCancel.map(o => cancelOrder({ algoId: o.algoId, isAlgo: true })));
-    if (toCancel.length > 0) console.log(`[TPSL] 기존 알고리즘 TP/SL ${toCancel.length}건 취소 완료 (${positionSide})`);
+    if (toCancel.length > 0) {
+      log("ORDER_CANCELED", { kindOf: "TPSL_ALGO", posSide: positionSide,
+        orderIds: toCancel.map(o => String(o.algoId)), count: toCancel.length,
+        ctx: "replaceTpsl" });
+    }
   } catch (e) {
-    console.warn("[TPSL] 기존 알고리즘 TP/SL 조회/취소 실패:", e.message);
+    log("ORDER_CANCEL_FAILED", { level: "warn", kind: "TPSL_ALGO", ctx: "cancelExistingAlgo",
+      posSide: positionSide, err: errOf(e) });
   }
 }
 
@@ -189,7 +192,8 @@ async function placeTPSL({ closeSide, tp, sl }) {
       } catch (e) {
         const msg = e.response?.data?.msg || e.message;
         const delay = 1000 * Math.pow(2, i); // 1s, 2s, 4s, 8s, 16s
-        console.error(`${type} 등록 시도 ${i+1}/${RETRY} 실패: ${msg}`);
+        log("TPSL_PLACE_FAILED", { level: "error", type, attempt: i + 1, attempts: RETRY,
+          posSide: positionSide, nextRetryMs: i < RETRY - 1 ? delay : null, err: errOf(e) });
         if (i < RETRY - 1) await new Promise(r => setTimeout(r, delay));
         else return { error: msg };
       }
@@ -262,7 +266,8 @@ async function preplaceTPSL({ closeSide, tp, sl, qty }) {
       return { orderId: r.data.algoId, status: r.data.algoStatus };
     } catch (e) {
       const msg = e.response?.data?.msg || e.message;
-      console.error(`[사전 TPSL] ${label} 등록 실패: ${msg}`);
+      log("TPSL_PRESET_FAILED", { level: "error", type: label, posSide: positionSide,
+        price, qty: quantity, err: errOf(e) });
       out.failed.push({ type: label, error: msg });
       return null;
     }
@@ -286,7 +291,8 @@ async function cancelPresetTPSL(preset) {
   if (!ids.length) return 0;
   const r = await Promise.allSettled(ids.map(id => cancelOrder({ algoId: id, isAlgo: true })));
   const ok = r.filter(x => x.status === "fulfilled").length;
-  console.log(`[사전 TPSL] 취소 ${ok}/${ids.length}건`);
+  log("PRESET_TPSL_CANCELED", { ok, total: ids.length,
+    level: ok < ids.length ? "warn" : "info" });
   return ok;
 }
 
@@ -367,7 +373,8 @@ async function checkExistingTPSL(positionSide) {
         regularRes.status === "rejected" && `openOrders: ${regularRes.reason?.response?.data?.msg || regularRes.reason?.message}`,
         algoRes.status    === "rejected" && `openAlgoOrders: ${algoRes.reason?.response?.data?.msg || algoRes.reason?.message}`,
       ].filter(Boolean).join(" / ");
-      console.warn(`[TPSL조회] 일부 실패 → 결과 신뢰 불가 (${positionSide || "전체"}): ${why}`);
+      log("QUERY_FAILED", { level: "warn", what: "tpslCheck", ctx: "partial",
+        posSide: positionSide || null, err: { code: null, msg: why } });
     }
 
     // 헤지 모드: positionSide 지정 시 해당 방향 주문만 확인
@@ -411,7 +418,8 @@ async function checkExistingTPSL(positionSide) {
     // 2차: 부분 주문뿐이라 판단 불가(null)일 때만 포지션 수량을 물어본다
     if (positionSide && (hasSL === null || hasTP === null)) {
       const posRes = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" })
-        .catch(e => { console.warn("[TPSL조회] 포지션 수량 조회 실패:", e.response?.data?.msg || e.message); return null; });
+        .catch(e => { log("QUERY_FAILED", { level: "warn", what: "positionRisk",
+          ctx: "tpslCheck", posSide: positionSide, err: errOf(e) }); return null; });
       posAmt = posRes
         ? Math.abs(parseFloat(posRes.data.find(p => p.positionSide === positionSide)?.positionAmt ?? 0))
         : null;
@@ -434,7 +442,8 @@ async function checkExistingTPSL(positionSide) {
       posAmt,
     };
   } catch (e) {
-    console.warn("[TPSL조회] 실패 → 결과 신뢰 불가:", e.response?.data?.msg || e.message);
+    log("QUERY_FAILED", { level: "warn", what: "tpslCheck", ctx: "all",
+      posSide: positionSide || null, err: errOf(e) });
     return { hasTP: false, hasSL: false, ok: false };
   }
 }

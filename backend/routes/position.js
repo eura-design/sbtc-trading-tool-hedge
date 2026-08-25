@@ -4,6 +4,7 @@ const store   = require("../store/pendingOrders");
 const { resolveOrphans } = require("../services/orderWatcher");
 const { resolveEntryInfo } = require("../services/entryTime");
 const { isLiveLimit, limitKind } = require("../utils/orderKind");
+const { log, errOf } = require("../store/logStore");
 const router  = express.Router();
 
 router.get("/", async (req, res) => {
@@ -84,7 +85,8 @@ router.get("/", async (req, res) => {
       !(info.createdAt && now - info.createdAt < GRACE_PERIOD)
     );
     // fire-and-forget — 폴링 응답을 주문 조회만큼 늦추지 않는다
-    if (orphans.length) resolveOrphans(orphans).catch(e => console.warn("[POSITION] 고아 주문 처리 실패:", e.message));
+    if (orphans.length) resolveOrphans(orphans)
+      .catch(e => log("ORPHAN_RESOLVE_FAILED", { level: "warn", count: orphans.length, err: errOf(e) }));
 
     // 추가 진입 목록 — 위에서 판정한 것을 그대로 쓴다 (외부 주문도 여기 들어온다)
     const scaleInOrders = scaleIns

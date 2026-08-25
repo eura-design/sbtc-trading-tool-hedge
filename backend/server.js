@@ -1,4 +1,6 @@
-require("dotenv").config();
+// `quiet: true` — dotenv가 부팅마다 찍는 광고 줄(`injecting env … 🔐 encrypt with Dotenvx`)을
+// 막는다. 이 줄은 logStore 설치 **전에** 나가서 파일에도 안 남고 터미널만 어지럽힌다
+require("dotenv").config({ quiet: true });
 
 // ⚠ **다른 require보다 먼저.** 콘솔 출력과 구조화 이벤트를 `logs/<날짜>.jsonl`에
 //   남기는데, 이 줄 앞에서 찍힌 것은 파일에 안 남는다
@@ -78,13 +80,17 @@ setInterval(() => {
   lastGap  = now - lastTick;
   lastTick = now;
   if (lastGap > FREEZE_MS) {
-    console.warn(`[멈춤감지] 백엔드가 ${(lastGap / 1000).toFixed(1)}초간 멈춰 있었습니다 — 그 사이 쌓인 요청은 거절됩니다`);
+    // ⚠ 구조화 이벤트로 남긴다 — 예전엔 `console.warn` 한 줄이 **유일한 기록**이라
+    //   나중에 "그때 몇 초 멈췄었나"를 셀 수 없었다 (92분 사고가 바로 그 경우다)
+    logStore.log("FREEZE_DETECTED", { level: "warn", gapMs: lastGap, thresholdMs: FREEZE_MS });
   }
 }, TICK_MS).unref();
 
 app.use((req, res, next) => {
   if (req.method === "GET" || lastGap <= FREEZE_MS) return next();
-  console.warn(`[멈춤감지] ${req.method} ${req.originalUrl} 거절 (${(lastGap / 1000).toFixed(1)}초간 멈춰 있었음)`);
+  logStore.log("FREEZE_REJECTED", {
+    level: "warn", method: req.method, path: req.originalUrl, gapMs: lastGap,
+  });
   res.status(503).json({ error: "백엔드가 잠시 멈춰서 주문이 취소됐습니다 — 다시 시도하세요" });
 });
 
@@ -107,11 +113,11 @@ app.use("/api/log",              require("./routes/log"));
 // ── 서버 시작 ─────────────────────────────────────────────────────────────────
 const server = app.listen(PORT, async () => {
   push.init(server); // WebSocket push 서버 초기화
-  console.log(`\n[서버] 실행중 -> http://localhost:${PORT}\n`);
-  if (!process.env.BINANCE_API_KEY || !process.env.BINANCE_API_SECRET) {
-    console.warn("[서버] 경고: .env 파일에 API 키가 없습니다!\n");
+  const hasKey = !!(process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET);
+  logStore.log("SERVER_LISTENING", { port: PORT, url: `http://localhost:${PORT}`, apiKey: hasKey });
+  if (!hasKey) {
+    logStore.log("API_KEY_MISSING", { level: "warn", hint: ".env 에 BINANCE_API_KEY/SECRET 이 없다" });
   } else {
-    console.log("[서버] API 키 확인됨\n");
     await syncServerTime();
     await recoverPendingOrders();
     // 손익·수수료·펀딩비를 로그에 남긴다 (10분 주기) — 이게 있어야 로그 하나로
@@ -124,13 +130,14 @@ const server = app.listen(PORT, async () => {
 
 // ── 그레이스풀 셧다운 ──────────────────────────────────────────────────────────
 async function shutdown() {
-  console.log("\n[서버] 종료 중...");
+  logStore.log("SERVER_STOPPING");
   stopWatcher();
   incomeLogger.stop();
   dailySummary.stop();
   await store.flush();
   server.close(() => {
-    console.log("[서버] 종료 완료");
+    // ※ 완료 기록은 `logStore.close()`의 SERVER_STOP 한 줄이다 — 여기서 또 찍으면
+    //   같은 사실이 두 줄이 된다 (재시작 경계를 셀 때 두 배로 잡힌다)
     logStore.close(); // 버퍼에 남은 줄을 흘려보낸다 — 안 하면 마지막 몇 줄이 사라진다
     process.exit(0);
   });

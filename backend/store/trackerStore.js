@@ -1,5 +1,6 @@
 const fs   = require("fs");
 const path = require("path");
+const { log, errOf } = require("./logStore");
 
 // ⚠ 저장 위치가 backend/가 아니라 **기타/**다 (2026-08-22 사용자 요청).
 //   monthly_tracker.html이 그 폴더에 있고, 사용자가 데이터도 같은 자리에서 보길 원했다.
@@ -17,7 +18,7 @@ function load() {
       entries: Array.isArray(saved.entries) ? saved.entries : [],
     };
   } catch (e) {
-    console.error("[TrackerStore] 로드 실패:", e.message);
+    log("STORE_IO_FAILED", { level: "error", store: "tracker", op: "load", err: errOf(e) });
     return { ...DEFAULTS };
   }
 }
@@ -32,7 +33,7 @@ function save(data) {
     fs.renameSync(tmp, FILE);
     return true;
   } catch (e) {
-    console.error("[TrackerStore] 저장 실패:", e.message);
+    log("STORE_IO_FAILED", { level: "error", store: "tracker", op: "save", err: errOf(e) });
     try { fs.existsSync(tmp) && fs.unlinkSync(tmp); } catch {}
     return false;
   }

@@ -81,7 +81,7 @@ router.post("/", async (req, res) => {
                        price: o.triggerPrice, origQty: String(orderQtyOf(o)) })),
       ].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
     } catch (e) {
-      console.warn("[close] 분할 TP 사전 조회 실패:", e.message);
+      log("QUERY_FAILED", { level: "warn", what: "splitTp", ctx: "closePrepare", posSide: side, err: errOf(e) });
     }
 
     // ⚠ **포지션 크기를 못 읽었으면 취소하지 않는다** (2026-08-19).
@@ -93,12 +93,13 @@ router.post("/", async (req, res) => {
       await Promise.allSettled(
         splitTpOrders.map(o =>
           cancelOrder({ orderId: o.orderId })
-            .catch(e => console.warn(`[close] 분할 TP 사전 취소 실패 ${o.orderId}:`, e.response?.data?.msg))
+            .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.orderId, kind: "SPLIT_TP", ctx: "closePrepare", err: errOf(e) }))
         )
       );
       splitTpOrders.forEach(o => store.delete(String(o.orderId)));
     } else if (splitTpOrders.length > 0) {
-      console.warn("[close] 포지션 크기 조회 실패 — 분할 TP를 건드리지 않고 청산만 진행");
+      log("SPLIT_TP_UNTOUCHED", { level: "warn", posSide: side, orders: splitTpOrders.length,
+        reason: "포지션 크기를 못 읽어 비율을 다시 계산할 수 없다" });
       // notice = 금색 토스트 (pushService 참고) — 익절 쪽이라 손절은 그대로 살아 있다
       push.pushAlert("notice", "포지션 크기를 읽지 못해 분할 TP를 조정하지 못했습니다 — 분할 TP 카드에서 수량을 확인하세요");
       splitTpOrders = [];   // 취소한 적이 없으므로 재등록·롤백 대상에서도 뺀다
@@ -140,10 +141,11 @@ router.post("/", async (req, res) => {
     ]);
     scaleInToCancel.forEach(o => {
       store.delete(String(o.orderId));
-      console.log(`[close] SCALE_IN 주문 취소: orderId=${o.orderId}`);
+      log("ORDER_CANCELED", { kindOf: "SCALE_IN", orderIds: [String(o.orderId)], count: 1,
+        posSide: side, ctx: "close" });
     });
   } catch (e) {
-    console.warn("[close] TP/SL/SCALE_IN 취소 중 오류 (청산 계속):", e.message);
+    log("ORDER_CANCEL_FAILED", { level: "warn", kind: "TPSL_SCALE_IN", ctx: "closeAll", posSide: side, err: errOf(e) });
   }
 
   // 2) 시장가 청산
@@ -181,10 +183,10 @@ router.post("/", async (req, res) => {
             // 판정은 utils/orderKind.js가 주문 방향으로 한다. 진단·복구용으로 남긴다
             positionSide: side,
           });
-          console.log(`[close] 분할 TP 재등록: ${o.price} × ${qty} BTC`);
+          log("SPLIT_TP_REPLACED", { posSide: side, price: o.price, qty });
         } catch (e) {
           anyFailed = true;
-          console.warn(`[close] 분할 TP 재등록 실패 ${o.price}:`, e.response?.data?.msg);
+          log("SPLIT_TP_REPLACE_FAILED", { level: "warn", posSide: side, price: o.price, qty, err: errOf(e) });
         }
       }
       if (anyFailed) push.pushAlert("notice", "분할 TP 재등록 일부 실패 — 분할 TP 카드에서 수동 확인 필요");
@@ -223,19 +225,20 @@ router.post("/", async (req, res) => {
           });
           await cancelOrder({ orderId: o.id, algoId: o.id, isAlgo: o.isAlgo })
             .catch(e => { anyFailed = true;
-              console.warn(`[close] 분할 SL 옛 주문 취소 실패 ${o.id} (겹쳐도 무해):`,
-                e.response?.data?.msg); });
-          console.log(`[close] 분할 SL 재조정: ${o.price} ${o.origQty} → ${qty}`);
+              log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.id, kind: "PARTIAL_SL",
+                ctx: "rescaleOld", note: "겹쳐도 무해", err: errOf(e) }); });
+          log("PARTIAL_SL_RESCALED", { posSide: side, price: o.price, fromQty: o.origQty, toQty: qty });
         } catch (e) {
           anyFailed = true;
-          console.warn(`[close] 분할 SL 재조정 실패 ${o.price} — 기존 주문을 그대로 둔다:`,
-            e.response?.data?.msg);
+          log("PARTIAL_SL_RESCALE_FAILED", { level: "warn", posSide: side, price: o.price, qty,
+            kept: true, err: errOf(e) });
         }
       }
       const kept = new Set(items.map(x => x.order.id));
       const dropped = partialSlOrders.filter(o => !kept.has(o.id));
       if (dropped.length) {
-        console.log(`[close] 분할 SL ${dropped.length}건은 잔여가 최소 수량 미만 → 그대로 둔다`);
+        log("PARTIAL_SL_KEPT", { posSide: side, count: dropped.length,
+          reason: "잔여가 최소 수량 미만이라 다시 걸 수 없다" });
       }
       if (anyFailed) {
         // ⚠ 여기만 **빨간 배너**다 (위 세 줄은 notice). 분할 SL은 손절이라,
@@ -257,13 +260,12 @@ router.post("/", async (req, res) => {
     res.json({ success: true, orderId: data.orderId, status: data.status });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
-    console.error("[POST /api/close]", msg);
     log("POSITION_CLOSE_FAILED", { level: "error", posSide: side, partial: !!partial,
       qty: parseFloat(quantity), err: errOf(err) });
 
     // 부분 청산 실패 시 사전 취소했던 분할 TP 롤백
     if (partial && splitTpOrders.length > 0) {
-      console.warn("[close] 청산 실패 — 분할 TP 롤백 시도");
+      log("SPLIT_TP_ROLLBACK", { level: "warn", posSide: side, orders: splitTpOrders.length });
       for (const o of splitTpOrders) {
         try {
           const { data: restored } = await binance("POST", "/fapi/v1/order", {
@@ -279,9 +281,10 @@ router.post("/", async (req, res) => {
             side:   o.side,
             positionSide: side,   // 재등록과 같은 이유 (진단·복구용 메타)
           });
-          console.log(`[close] 분할 TP 롤백 완료: ${o.price} × ${o.origQty} BTC`);
+          log("SPLIT_TP_ROLLED_BACK", { posSide: side, price: o.price, qty: o.origQty });
         } catch (re) {
-          console.error(`[close] 분할 TP 롤백 실패 ${o.price}:`, re.response?.data?.msg);
+          log("SPLIT_TP_ROLLBACK_FAILED", { level: "error", posSide: side, price: o.price,
+            qty: o.origQty, err: errOf(re) });
         }
       }
       push.pushUpdate(["tpsl"]);

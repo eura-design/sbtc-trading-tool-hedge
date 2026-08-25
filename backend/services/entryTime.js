@@ -28,6 +28,7 @@
 //   SHORT 0.046 → 08-13 13:02 SELL 0.066 부터 8건
 //     → 계단 4개, 마지막 avg 63647.09 (바이낸스 63647.08566650742) ✓
 const { binance } = require("./binanceClient");
+const { log, errOf } = require("../store/logStore");
 
 // 수량 비교 오차 — BTCUSDT 최소 단위가 0.001이라 이보다 훨씬 작게 잡아도 안전하다
 const EPS = 1e-8;
@@ -103,7 +104,7 @@ async function resolveEntryInfo(pos) {
   } catch (e) {
     // 조회 실패는 치명적이지 않다 — 진입선이 전 폭 직선으로 그려질 뿐이다.
     // 캐시에 남기지 않으므로 다음 폴링에서 다시 시도한다
-    console.warn("[ENTRY] userTrades 조회 실패:", e.response?.data?.msg || e.message);
+    log("QUERY_FAILED", { level: "warn", what: "userTrades", ctx: "entryTime", err: errOf(e) });
     return out;
   }
 

@@ -1151,23 +1151,80 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 
 | 무리 | 이벤트 |
 |---|---|
-| 수명 | `SERVER_BOOT` `SERVER_STOP` |
-| 진입·체결 | `ENTRY_FILLED` `SCALE_IN_PLACED` |
-| TP/SL | `TPSL_PLACED` `TPSL_UPDATED` `TPSL_PARTIAL` `TPSL_PRESET` `TPSL_PRESET_FAILED` `TPSL_RETRY_FAILED` |
-| 분할 | `SPLIT_TP_PLACED` `PARTIAL_SL_PLACED` |
-| 취소·청산 | `ORDER_CANCELED`(`kindOf`로 종류 구분) `POSITION_CLOSED` `POSITION_CLOSE_FAILED` |
-| 레버리지 | `LEVERAGE_CHANGED` `LEVERAGE_FAILED` |
-| 안전망 | `NAKED_POSITION` `NAKED_CHANGED` `NAKED_RESOLVED` |
-| 상태 | `ACCOUNT_STATE` |
-| 돈 | `INCOME`(REALIZED_PNL / COMMISSION / FUNDING_FEE) `INCOME_POLL_FAILED` `TRADE_SETTLED` `TRADE_SETTLE_FAILED` |
+| 수명 | `SERVER_BOOT` `SERVER_LISTENING` `SERVER_STOPPING` `SERVER_STOP` `API_KEY_MISSING` |
+| 멈춤 | `FREEZE_DETECTED` `FREEZE_REJECTED` |
+| 진입·체결 | `ENTRY_FILLED` `SCALE_IN_PLACED` `SCALE_IN_FILLED` `SPLIT_TP_FILLED` `FILL_DETECTED`(`by`) `ORDER_FAILED` `EXTERNAL_ORDER` |
+| TP/SL | `TPSL_PLACED`(`ctx`) `TPSL_UPDATED` `TPSL_UPDATE_FAILED` `TPSL_PARTIAL` `TPSL_PLACE_FAILED` `TPSL_RETRY` `TPSL_RETRY_FAILED` `TPSL_ALREADY_PRESENT` `TPSL_PLACE_SKIPPED` `TPSL_MISSING_INFO` |
+| 사전 등록 | `TPSL_PRESET` `TPSL_PRESET_FAILED` `PRESET_TPSL_CANCELED` `PRESET_TPSL_CANCEL_FAILED` `PRESET_TPSL_ORPHANED` |
+| 분할 | `SPLIT_TP_PLACED` `SPLIT_TP_REPLACED` `SPLIT_TP_REPLACE_FAILED` `SPLIT_TP_ROLLBACK` `SPLIT_TP_ROLLED_BACK` `SPLIT_TP_ROLLBACK_FAILED` `SPLIT_TP_UNTOUCHED` `PARTIAL_SL_PLACED` `PARTIAL_SL_RESCALED` `PARTIAL_SL_RESCALE_FAILED` `PARTIAL_SL_KEPT` `PARTIAL_TRIGGER_KEPT` |
+| 취소·청산 | `ORDER_CANCELED`(`kindOf`로 종류 구분) `ORDER_CANCEL_FAILED`(`kind`+`ctx`) `ORDER_GONE`(`by`) `ORDER_KEPT`(`by`) `STALE_TRIGGER_CANCELED` `POSITION_CLOSED` `POSITION_CLOSE_FAILED` `POSITION_CLOSE_DETECTED` `POSITION_GONE` `POSITION_OBSERVED` |
+| 레버리지 | `LEVERAGE_CHANGED` `LEVERAGE_FAILED` `LEVERAGE_SKIPPED` |
+| 안전망 | `NAKED_POSITION` `NAKED_CHANGED` `NAKED_RESOLVED` `NAKED_CHECK_FAILED` `NAKED_REPAIR_ATTEMPT` `NAKED_RECOVERY_MATCH` `NAKED_RECOVERED` `NAKED_RECOVERY_PARTIAL` `NAKED_RECOVERY_FAILED` `NAKED_NO_CANDIDATE` |
+| 복구 | `RECOVERY_ORDER_KEPT` `RECOVERY_ORDER_RESTORED` `RECOVERY_ORDER_NO_TPSL` `RECOVERY_FILL_DETECTED` `RECOVERY_FILL_NO_TPSL` `RECOVERY_NONE` `RECOVERY_FAILED` `ORPHAN_RESOLVE_FAILED` |
+| 감시·조회 | `ACCOUNT_STATE` `ACCOUNT_WATCH_FAILED` `RECONCILE_FAILED` `POLL_FILLS_FAILED` `QUERY_FAILED`(`what`+`ctx`) |
+| 체결 스트림 | `UDS_CONNECTED` `UDS_DISCONNECTED` `UDS_RECONNECTING` `UDS_LISTENKEY_FAILED` `UDS_MESSAGE_FAILED` `UDS_START_FAILED` `UDS_ERROR` `UDS_POLLING_MODE` |
+| 돈 | `INCOME`(REALIZED_PNL / COMMISSION / FUNDING_FEE) `INCOME_POLL_FAILED` `TRADE_SETTLED` `TRADE_SETTLE_FAILED` `DAILY_LOSS_CHECK_FAILED` |
 | 거래소 상태 | `API_BANNED` `API_WEIGHT_HIGH` `CLOCK_SYNC` `CLOCK_SYNC_FAILED` |
+| 저장소·푸시 | `STORE_IO_FAILED`(`store`+`op`) `PUSH_SERVER_STARTED` `PUSH_SEND_FAILED` `CLIENT_CONNECTED` |
 | 요약 | `DAILY_SUMMARY` (하루 한 줄) |
 | 화면(`kind:"client"`) | `API_CALL` `API_BLOCKED` `CLIENT_ERROR` `MODE_CHANGED` |
+
+- ⚠ **백엔드에 `console` 호출이 하나도 없다** (2026-08-25에 135곳을 전부 옮겼다 —
+  경고·오류 86곳 + 평상시 기록 49곳). 기록을 **문장으로 적지 말 것** — 다음 세 가지가
+  조용히 무너진다:
+  ① 문구를 다듬는 순간 과거 기록과 끊긴다 ② `event`로 셀 수가 없다
+  ③ 값이 문장 안에 녹아 있어 `posSide`·`orderId`로 거를 수 없다
+  - 이름을 새로 만들기 전에 **위 표에 이미 있는지 볼 것.** 자리마다 새 이름을 만들면
+    이름이 수백 개가 되어 표 자체가 쓸모없어진다. 같은 사건이면 **필드로 가른다**:
+    `QUERY_FAILED`는 `what`(무엇을 조회했나) + `ctx`(어느 경로였나),
+    `ORDER_CANCEL_FAILED`는 `kind` + `ctx`, `STORE_IO_FAILED`는 `store` + `op`
+  - ⚠ **같은 사실을 두 줄로 남기지 말 것.** 옮기면서 `console.error` 바로 아래에 이미
+    같은 뜻의 이벤트가 있던 자리 6곳을 지웠다 (`LEVERAGE_FAILED`·`POSITION_CLOSE_FAILED`·
+    `CLOCK_SYNC_FAILED`·`API_BANNED`·`TPSL_PARTIAL`×2). 두 줄이면 셀 때 두 배로 잡힌다
+  - ⚠ **`=====` 배너처럼 여러 줄로 쪼개 찍지 말 것** (`recoveryService`에 있었다).
+    grep으로 한 줄만 뽑으면 방향도 수량도 안 딸려온다 — 한 사건은 **한 줄**이다
+  - ⚠ 넣기 전에 **변수가 그 자리에서 보이는지** 확인할 것. `node --check`는 이것을
+    못 잡는다 — 실제로 `catch` 밖에서 선언된 변수를 참조해 두 번 틀렸다.
+    `frontend/node_modules/.bin/eslint`로 `no-undef`를 돌리면 잡힌다
+- ※ 그래도 `console.*`을 감싸는 장치(`writeConsole`)는 **남겨 둔다** — 라이브러리가
+  찍는 줄이나 앞으로 실수로 들어올 줄을 놓치지 않기 위해서다. `kind:"console"`로 남는다
 
 - ⚠ **`ACCOUNT_STATE`가 이 로그의 뼈대다.** 사건 기록만으로는 **"언제부터 이랬나"를 못
   짚는다** — 밖에서 낸 주문이나 서버가 꺼져 있던 구간은 사건 자체가 안 남기 때문이다.
   `watchAccount`가 어차피 3초마다 읽고 있으므로 **바뀔 때만** 한 줄 남긴다 (거의 공짜)
 - ⚠ **원본 응답을 통째로 넣지 말 것** — 한 줄이 수 KB가 되면 읽을 수 없다. 요약만
+
+#### 터미널 출력 — **여기도 사람이 아니라 Claude가 읽는 자리다** (2026-08-25 사용자 지정)
+
+`cmd` 창은 원래 개발하며 찍던 `console.log`가 그대로 남은 것이었다 — 시각도 심각도도
+없고 태그가 한글·영어 뒤죽박죽에, 눈에 띄라고 빈 줄까지 넣어 뒀다. 지금은 **파일에
+남긴 그 기록을 한 줄로 렌더링**한다 (`logStore.toTerm`):
+
+```
+15:26:22.821  INFO   SERVER_BOOT       node=v24.13.0 pid=16040
+15:26:22.822  WARN   NAKED_POSITION    posSide=LONG qty=0.004 entryPrice=82344
+15:26:22.822  ERROR  TPSL_RETRY_FAILED  posSide=SHORT attempts=5 code=-2021 msg="…"
+```
+
+- **시각 · 심각도 · 어느 부품(또는 이벤트 이름) · 무슨 일 · 값들**이 늘 같은 자리에 온다
+- ⚠ **꾸미지 말 것** — 빈 줄·강조·이모지를 넣지 말 것. 읽는 쪽이 grep이다
+- ⚠ **터미널에는 `warn`/`error`만 낸다.** `info`는 파일에만
+  - 파일이 완전한 기록이라 터미널이 되풀이할 이유가 없다
+  - 출력이 줄면 **빠른 편집 모드 사고가 일어날 여지도 준다** — 그 사고는 프로세스가
+    stdout에 쓰려다 막히는 것이라, 쓰지 않으면 막힐 일이 없다 (92분 멈춤)
+  - 예외는 `TERM_INFO` 넷뿐이다 (`SERVER_BOOT`/`SERVER_LISTENING`/`SERVER_STOPPING`/
+    `SERVER_STOP`) — 서버가 떴는지 죽었는지는 창만 보고 알아야 한다
+- ⚠ **구조화 이벤트도 터미널에 낸다.** 예전엔 아무리 심각해도 안 떴다 —
+  `NAKED_POSITION`(손절이 없다)조차 파일에만 남아 창을 보고 있어도 몰랐다
+- ⚠ **터미널 문구를 따로 만들지 말 것** — 파일에 남긴 내용을 그대로 렌더링한다.
+  둘이 갈리면 터미널에서 본 줄을 파일에서 찾을 수 없다
+- ⚠ 태그 정렬 폭(`TAG_W`)을 넘겨도 **자르지 말 것** — 잘리면 grep이 조용히 빗나간다.
+  한글은 폭이 2칸이라 글자 수로 맞추면 열이 어긋난다(`padTag`)
+- ⚠ `dotenv`는 `{ quiet: true }`로 부른다 — 부팅마다 찍던 광고 줄은 `logStore` 설치
+  **전에** 나가서 파일에도 안 남고 터미널만 어지럽혔다
+- ※ 남은 `console.*` 호출 143곳은 **그대로 둔다** — 파일에는 `kind:"console"`로 남고
+  터미널에는 `warn`/`error`만 나온다. 자유 문장이라 아직 `event`로 셀 수는 없다
+  (구조화 이벤트로 옮기는 것은 별개 작업)
 - ⚠ **`SERVER_STOP` 없이 `boot`만 바뀌었으면 비정상 종료다** (창 닫기·강제 종료).
   정상 종료와 구분되는 게 이 설계의 덕이니 없애지 말 것
 - ⚠ **`INCOME`이 수익 곡선·승률·수수료·펀딩비의 유일한 출처다** (`services/incomeLogger.js`,

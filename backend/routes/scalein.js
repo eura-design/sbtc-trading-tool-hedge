@@ -51,7 +51,7 @@ router.delete("/", async (req, res) => {
     const info = store.get(String(orderId));
     if (info?.presetTpsl) {
       await cancelPresetTPSL(info.presetTpsl)
-        .catch(e => console.warn("[scale-in] 사전 TPSL 취소 실패:", e.message));
+        .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "scaleInCancel", err: errOf(e) }));
     }
     store.delete(String(orderId));
     log("ORDER_CANCELED", { kindOf: "SCALE_IN", orderIds: [String(orderId)], count: 1 });

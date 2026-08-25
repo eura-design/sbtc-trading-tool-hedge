@@ -1,4 +1,5 @@
 const fs   = require("fs");
+const { log, errOf } = require("./logStore");
 const path = require("path");
 
 const PENDING_FILE = path.join(__dirname, "../pending_orders.json");
@@ -17,7 +18,7 @@ class PendingOrderStore {
         this.#map.set(k, v);
       }
     } catch (e) {
-      console.error("pending_orders.json 로드 실패:", e.message);
+      log("STORE_IO_FAILED", { level: "error", store: "pendingOrders", op: "load", err: errOf(e) });
     }
   }
 
@@ -58,7 +59,7 @@ class PendingOrderStore {
       const snapshot = JSON.stringify(Object.fromEntries(this.#map), null, 2);
       await fs.promises.writeFile(PENDING_FILE, snapshot);
     } catch (e) {
-      console.error("pending_orders.json 저장 실패:", e.message);
+      log("STORE_IO_FAILED", { level: "error", store: "pendingOrders", op: "save", err: errOf(e) });
     }
   }
 

@@ -2,6 +2,7 @@ const { binance, placeTPSL, checkExistingTPSL } = require("./binanceClient");
 const store = require("../store/pendingOrders");
 const { startUserDataStream } = require("./orderWatcher");
 const { closeToPosition, positionToSide } = require("../utils/side");
+const { log, errOf } = require("../store/logStore");
 
 async function recoverPendingOrders() {
   // store.load()는 모듈 로드 시점에 호출됨 (pendingOrders.js 모듈 레벨)
@@ -18,7 +19,7 @@ async function recoverPendingOrders() {
 
       // SCALE_IN, SPLIT_TP은 진입 주문이 아님 → 기존 상태 그대로 유지
       if (saved?.status === "SCALE_IN" || saved?.status === "SPLIT_TP") {
-        console.log(`[복구] ${saved.status} 주문 유지: orderId=${o.orderId}`);
+        log("RECOVERY_ORDER_KEPT", { orderId: o.orderId, kindOf: saved.status });
         continue;
       }
 
@@ -36,7 +37,8 @@ async function recoverPendingOrders() {
           pct:    saved?.pct ?? null,
           createdAt: saved?.createdAt ?? Date.now(),
         });
-        console.log(`[복구] SPLIT_TP 주문 복구: orderId=${o.orderId} price=${o.price}`);
+        log("RECOVERY_ORDER_RESTORED", { orderId: o.orderId, kindOf: "SPLIT_TP",
+          price: o.price, qty: o.origQty });
         continue;
       }
 
@@ -50,9 +52,11 @@ async function recoverPendingOrders() {
       };
       store.set(o.orderId, orderInfo);
       if (saved?.tp && saved?.sl) {
-        console.log(`[복구] 미체결 주문 복구 (TP/SL 보존): orderId=${o.orderId}`);
+        log("RECOVERY_ORDER_RESTORED", { orderId: o.orderId, kindOf: "ENTRY",
+          price: o.price, qty: o.origQty, tp: saved.tp, sl: saved.sl });
       } else {
-        console.warn(`[복구] 미체결 주문 복구 (TP/SL 없음!): orderId=${o.orderId}`);
+        log("RECOVERY_ORDER_NO_TPSL", { level: "warn", orderId: o.orderId,
+          orderSide: o.side, qty: o.origQty, price: o.price });
       }
     }
 
@@ -72,7 +76,8 @@ async function recoverPendingOrders() {
         const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
 
         if (data.status === "FILLED" && info.tp && info.sl) {
-          console.log(`[복구] 서버 다운 중 체결된 주문: orderId=${orderId}`);
+          log("RECOVERY_FILL_DETECTED", { orderId,
+            note: "서버가 꺼져 있던 사이에 체결됐다" });
           const { data: posData } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
           const orderPosSide = closeToPosition(info.closeSide);
           // 헷지모드: 주문 사이드와 매칭되는 포지션이 있어야만 TP/SL 등록 시도
@@ -89,7 +94,8 @@ async function recoverPendingOrders() {
               if (tpsl.failed.length > 0) {
                 store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
               } else {
-                console.log(`[복구] TP/SL 등록 완료: orderId=${orderId}`);
+                log("TPSL_PLACED", { orderId, posSide: orderPosSide, ctx: "recovery",
+                  tp: info.tp ?? null, sl: info.sl ?? null });
                 store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
               }
             } else {
@@ -97,13 +103,14 @@ async function recoverPendingOrders() {
             }
           }
         } else if (data.status === "FILLED") {
-          console.error(`[복구] 체결됐으나 TP/SL 정보 없음: orderId=${orderId} — 수동 확인 필요!`);
+          log("RECOVERY_FILL_NO_TPSL", { level: "error", orderId,
+            note: "서버가 꺼진 사이 체결됐는데 걸 TP/SL을 모른다 — 수동 확인" });
         } else if (data.status === "CANCELED" || data.status === "EXPIRED") {
-          console.log(`[복구] 서버 다운 중 취소된 주문: orderId=${orderId} (${data.status}) → store 제거`);
+          log("ORDER_GONE", { orderId, status: data.status, by: "recovery" });
           store.delete(orderId);
         }
       } catch (e) {
-        console.warn(`[복구] 주문 조회 실패 (orderId=${orderId}):`, e.response?.data?.msg || e.message);
+        log("QUERY_FAILED", { level: "warn", what: "order", ctx: "recovery", orderId, err: errOf(e) });
       }
     }
 
@@ -121,11 +128,11 @@ async function recoverPendingOrders() {
       const { hasTP, hasSL } = await checkExistingTPSL(openPosSide);
       if (!(hasTP && hasSL)) {
         const posEntry = parseFloat(openPos.entryPrice);
-        console.error("==================================================");
-        console.error(`[안전망] 포지션이 열려 있지만 ${!hasSL && !hasTP ? "TP/SL이" : !hasSL ? "SL이" : "TP가"} 없습니다!`);
-        console.error(`  방향: ${openPosSide}`);
-        console.error(`  수량: ${Math.abs(parseFloat(openPos.positionAmt))} BTC`);
-        console.error(`  진입가: ${posEntry}`);
+        // ⚠ `=====` 배너로 다섯 줄 찍던 것을 이벤트 한 줄로 바꿨다 (2026-08-25).
+        //   줄이 나뉘어 있으면 grep으로 한 줄만 뽑았을 때 방향도 수량도 안 딸려온다
+        log("NAKED_POSITION", { level: "error", ctx: "boot", posSide: openPosSide,
+          qty: Math.abs(parseFloat(openPos.positionAmt)), entryPrice: posEntry,
+          hasTP: !!hasTP, hasSL: !!hasSL });
 
         // 해당 사이드의 TP/SL 정보가 있는 주문 중 현재 진입가 근접 + 최신 항목만 신뢰
         const entrySide = positionToSide(openPosSide);
@@ -144,35 +151,37 @@ async function recoverPendingOrders() {
         if (recoverable) {
           const [recoverId, recoverInfo] = recoverable;
           usedRecoverIds.add(recoverId);
-          console.log(`[안전망] ${openPosSide} 매칭 entry 발견 (orderId=${recoverId}, fillPrice=${recoverInfo.fillPrice}) → 자동 등록 시도`);
+          log("NAKED_RECOVERY_MATCH", { posSide: openPosSide, orderId: recoverId,
+            fillPrice: recoverInfo.fillPrice });
           try {
             const tpsl = await placeTPSL(recoverInfo);
             if (tpsl.failed.length === 0) {
-              console.log(`[안전망] ${openPosSide} TP/SL 자동 복구 성공!`);
+              log("NAKED_RECOVERED", { posSide: openPosSide, orderId: recoverId });
               store.set(recoverId, { ...recoverInfo, status: "TPSL_PLACED", tpsl });
             } else {
-              const failed = tpsl.failed.map(f => f.type).join(", ");
-              console.error(`[안전망] ${openPosSide} TP/SL 자동 복구 부분 실패: ${failed} → 수동 설정 필요!`);
+              log("NAKED_RECOVERY_PARTIAL", { level: "error", posSide: openPosSide,
+                orderId: recoverId, failed: tpsl.failed.map(f => f.type) });
             }
           } catch (e) {
-            console.error(`[안전망] ${openPosSide} TP/SL 자동 복구 실패:`, e.message);
+            log("NAKED_RECOVERY_FAILED", { level: "error", posSide: openPosSide,
+              orderId: recoverId, err: errOf(e) });
           }
         } else {
-          console.error(`  ${openPosSide} store에 신뢰 가능한 TP/SL 정보 없음 (진입가 ±${PRICE_TOLERANCE*100}% 매칭 실패)`);
-          console.error(`  → Binance에서 수동으로 TP/SL 설정하세요!`);
+          log("NAKED_NO_CANDIDATE", { level: "error", posSide: openPosSide,
+            tolerancePct: PRICE_TOLERANCE * 100,
+            note: "store에 믿을 만한 TP/SL이 없다 — 거래소에서 직접 걸어야 한다" });
         }
-        console.error("==================================================");
       }
     }
 
     await store.flush();
 
     if (limitOrders.length === 0 && store.size === 0) {
-      console.log("[복구] 복구할 주문 없음");
+      log("RECOVERY_NONE", {});
     }
 
   } catch (e) {
-    console.warn("[복구] 복구 실패:", e.response?.data?.msg || e.message);
+    log("RECOVERY_FAILED", { level: "warn", err: errOf(e) });
   }
 
   // try 밖에서 호출 — 복구 실패해도 체결 감지는 반드시 시작

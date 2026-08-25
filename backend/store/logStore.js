@@ -148,6 +148,9 @@ function log(event, fields = {}) {
     kind: "event", level, event, symbol: rest.symbol || SYMBOL,
     ...rest,
   });
+  // ⚠ 구조화 이벤트도 터미널에 낸다 — 예전엔 **아무리 심각해도 안 떴다**.
+  //   `NAKED_POSITION`(손절이 없다)조차 파일에만 남아, 창을 보고 있어도 몰랐다
+  toTerm(level, event, "", rest);
 }
 
 /** 거래소 오류를 `err: { code, msg }`로 — 원인을 요약하지 말 것 */
@@ -184,11 +187,79 @@ function writeConsole(level, args) {
       ts: now, iso: new Date(now).toISOString(), boot: BOOT,
       kind: "console", level, tag, msg,
     });
+    // 파일에 남긴 **그 내용 그대로** 터미널 형식으로 (문구를 따로 만들지 않는다 —
+    // 둘이 갈리면 터미널에서 본 줄을 파일에서 찾을 수 없다)
+    toTerm(level === "log" ? "info" : level, tag, msg, null);
   } catch {}
 }
 
+/* ── 터미널 출력 ────────────────────────────────────────────────────────────
+ *
+ * ⚠ **터미널도 사람이 아니라 Claude가 읽는 자리다** (2026-08-25 사용자 지정).
+ *   그래서 "눈에 띄게" 꾸미지 않는다 — 빈 줄·강조·이모지를 넣지 말 것.
+ *   한 줄에 **시각 · 심각도 · 어느 부품 · 무슨 일**이 늘 같은 자리에 온다:
+ *
+ *     14:57:32.118  WARN   close       분할 TP 재등록 실패  price=82344 code=-2021
+ *     14:57:32.120  INFO   server      SERVER_BOOT  node=v24.13.0 pid=1272
+ *
+ * ⚠ **터미널에는 warn/error만 낸다** (info는 파일에만).
+ *   ① 파일이 완전한 기록이라 터미널이 그것을 되풀이할 이유가 없다
+ *   ② 출력이 줄면 **빠른 편집 모드 사고가 일어날 여지도 준다** — 그 사고는
+ *      프로세스가 stdout에 쓰려다 막히는 것이라, 쓰지 않으면 막힐 일이 없다
+ *      (92분 멈춤. `server.js`의 멈춤 감지 주석 참고)
+ *   예외는 `TERM_INFO`뿐이다 — 서버가 떴는지/죽었는지는 창만 보고 알아야 한다
+ *
+ * ⚠ **정렬 폭을 늘릴 때는 자르지 말 것** — 태그가 잘리면 grep이 조용히 빗나간다.
+ *   길면 그 줄만 밀리게 둔다
+ */
+const LEVEL_W = 5;   // INFO / WARN / ERROR
+const TAG_W   = 18;  // 이벤트 이름 기준 (`SERVER_LISTENING` 16, `POSITION_CLOSED` 15)
+
+// 이 셋만 info인데도 터미널에 낸다 — 창만 보고 서버 상태를 알 수 있어야 한다
+const TERM_INFO = new Set([
+  "SERVER_BOOT", "SERVER_LISTENING", "SERVER_STOPPING", "SERVER_STOP",
+]);
+
+function hhmmss(d) {
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
+// 한글은 폭이 2칸이라 글자 수로 맞추면 열이 어긋난다 (사이드바 라벨과 같은 함정)
+function padTag(t) {
+  const s = t || "-";
+  let w = 0;
+  for (const ch of s) w += ch.charCodeAt(0) > 0x2000 ? 2 : 1;
+  return s + " ".repeat(Math.max(2, TAG_W - w));   // 최소 2칸은 띄운다
+}
+
+// { orderId: 1, code: -2021 } → `orderId=1 code=-2021`
+// null·undefined는 뺀다 — 값이 없다는 걸 파일이 이미 null로 들고 있다
+function kv(fields) {
+  const out = [];
+  for (const [k, v] of Object.entries(fields || {})) {
+    if (v === null || v === undefined || k === "level" || k === "symbol") continue;
+    if (k === "err" && typeof v === "object") {
+      if (v.code !== null && v.code !== undefined) out.push(`code=${v.code}`);
+      if (v.msg) out.push(`msg=${JSON.stringify(String(v.msg))}`);
+      continue;
+    }
+    out.push(`${k}=${typeof v === "object" ? JSON.stringify(v) : v}`);
+  }
+  return out.length ? "  " + out.join(" ") : "";
+}
+
+function toTerm(level, tag, msg, fields) {
+  const wanted = level === "warn" || level === "error" || TERM_INFO.has(tag);
+  if (!wanted) return;
+  // 이벤트는 msg가 비어 있고 console 줄은 fields가 없다 — 있는 것만 이어 붙인다
+  const body = [msg, kv(fields)].map(x => (x || "").trim()).filter(Boolean).join("  ");
+  const line = `${hhmmss(new Date())}  ${level.toUpperCase().padEnd(LEVEL_W)}  ${padTag(tag)}${body}`;
+  (level === "error" ? orig.error : level === "warn" ? orig.warn : orig.log)(line);
+}
+
 /**
- * console.log/warn/error를 감싼다. **기존 호출부(144곳)는 한 줄도 고치지 않는다.**
+ * console.log/warn/error를 감싼다. **기존 호출부는 한 줄도 고치지 않는다.**
  * ⚠ `server.js` 맨 위에서, 다른 모듈을 require 하기 **전에** 부를 것
  */
 function install() {
@@ -197,12 +268,12 @@ function install() {
   openStream();
   sweep();
 
-  // ⚠ **파일에 먼저 쓰고 콘솔은 그다음이다.** 순서를 뒤집지 말 것 —
-  //   콘솔 창이 막히면(빠른 편집 모드) `orig.log`에서 멈춰 서서
+  // ⚠ **파일에 먼저 쓰고 터미널은 그다음이다.** 순서를 뒤집지 말 것 —
+  //   콘솔 창이 막히면(빠른 편집 모드) 출력에서 멈춰 서서
   //   **정작 그 사고를 기록해야 할 줄이 파일에 안 남는다**
-  console.log   = (...a) => { writeConsole("log",   a); orig.log(...a);   };
-  console.warn  = (...a) => { writeConsole("warn",  a); orig.warn(...a);  };
-  console.error = (...a) => { writeConsole("error", a); orig.error(...a); };
+  console.log   = (...a) => writeConsole("log",   a);
+  console.warn  = (...a) => writeConsole("warn",  a);
+  console.error = (...a) => writeConsole("error", a);
 
   log("SERVER_BOOT", { node: process.version, pid: process.pid });
 }

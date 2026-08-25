@@ -6,7 +6,7 @@ const { checkDailyLoss } = require("./dailyloss");
 const { sideToPosition } = require("../utils/side");
 const { verifyImmediateFill } = require("../services/orderWatcher");
 const push     = require("../services/pushService");
-const { log } = require("../store/logStore");
+const { log, errOf } = require("../store/logStore");
 
 const router  = express.Router();
 
@@ -30,7 +30,8 @@ router.post("/", validateOrder, async (req, res) => {
         p.positionSide === oppositeSide && parseFloat(p.positionAmt) !== 0
       );
       if (hasOppositePos) {
-        console.log(`[ORDER] 반대쪽 ${oppositeSide} 포지션 있음 → 레버리지 변경 생략 (요청값: ${leverage}x)`);
+        log("LEVERAGE_SKIPPED", { requested: leverage, oppositeSide,
+        reason: "반대쪽 포지션이 있어 그쪽 청산가가 움직인다" });
       } else {
         await binance("POST", "/fapi/v1/leverage", {
           symbol: "BTCUSDT", leverage: parseInt(leverage),
@@ -66,8 +67,6 @@ router.post("/", validateOrder, async (req, res) => {
       // 실패 시 store에 저장 → reconcileWithBinance가 재시도
       if (hasFailure) {
         store.set(orderId, { ...orderInfo, status: "TPSL_PARTIAL", tpsl, fillPrice, filledAt: Date.now() });
-        console.error(`[MARKET] TP/SL 실패 → store 저장 (reconcile 재시도 대기) orderId=${orderId}`,
-          tpsl.failed.map(f => `${f.type}: ${f.error}`).join(" / "));
         log("TPSL_PARTIAL", { level: "error", orderId, orderSide: side, posSide: positionSide,
           failed: tpsl.failed.map(f => f.type),
           errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })), tp, sl });
@@ -148,7 +147,9 @@ router.post("/", validateOrder, async (req, res) => {
     const msg = err.response?.data?.msg || err.message;
     // M1: 레버리지는 변경됐지만 주문 실패한 경우 사용자에게 알림
     const fullMsg = leverageChanged ? `${msg} (레버리지 ${leverage}x 변경됨)` : msg;
-    console.error("[POST /api/order]", fullMsg, err.response?.data);
+    // ⚠ `positionSide`는 try 안에서 선언돼 여기서는 안 보인다 — side로 다시 구한다
+    log("ORDER_FAILED", { level: "error", orderSide: side, posSide: sideToPosition(side),
+      orderType, qty: quantity, leverageChanged, err: errOf(err) });
     res.status(err.status || 500).json({ error: fullMsg });
   }
 });
@@ -178,7 +179,8 @@ router.patch("/", async (req, res) => {
     // 아직 체결 전이라 그 사이에 지킬 포지션도 없어 위험 창이 없다
     let preset = existing.presetTpsl ?? null;
     if (existing.status === "WATCHING" && preset) {
-      await cancelPresetTPSL(preset).catch(e => console.warn("[PATCH] 사전 TPSL 취소 실패:", e.message));
+      await cancelPresetTPSL(preset)
+        .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "patchOrder", err: errOf(e) }));
       preset = await preplaceTPSL({
         closeSide: existing.closeSide, tp: updated.tp, sl: updated.sl, qty: existing.qty,
       });

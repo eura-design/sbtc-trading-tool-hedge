@@ -1,4 +1,5 @@
 const WebSocket = require("ws");
+const { log, errOf } = require("../store/logStore");
 
 let wss = null;
 const clients = new Set();
@@ -9,9 +10,9 @@ function init(server) {
     clients.add(ws);
     ws.on("close", () => clients.delete(ws));
     ws.on("error", () => clients.delete(ws));
-    console.log(`[PUSH] 프론트엔드 연결됨 (총 ${clients.size}개)`);
+    log("CLIENT_CONNECTED", { clients: clients.size });
   });
-  console.log("[PUSH] WebSocket 서버 시작됨");
+  log("PUSH_SERVER_STARTED", {});
 }
 
 /**
@@ -30,7 +31,7 @@ function broadcast(type, data) {
     try {
       client.send(msg);
     } catch (e) {
-      console.warn("[PUSH] 전송 실패 → 클라이언트 제거:", e.message);
+      log("PUSH_SEND_FAILED", { level: "warn", clients: clients.size, err: errOf(e) });
       clients.delete(client);
     }
   }

@@ -23,7 +23,7 @@ const placingTpsl = new Set();
 
 async function safePlaceTPSL(orderId, info) {
   if (placingTpsl.has(String(orderId))) {
-    console.log(`[TPSL] orderId=${orderId} 이미 등록 진행 중 → 중복 호출 스킵`);
+    log("TPSL_PLACE_SKIPPED", { orderId, reason: "이미 등록이 진행 중이다 (중복 호출)" });
     return null;
   }
   placingTpsl.add(String(orderId));
@@ -93,8 +93,6 @@ function resolveNaked(side, reason = "sl", detail = {}) {
 
   const seconds = Math.max(0, Math.round((Date.now() - warned.at) / 1000));
   log("NAKED_RESOLVED", { posSide: side, reason, seconds, price: detail.price ?? null });
-  console.log(`[안전망] ${side} 경보 해제 (${reason === "closed" ? "포지션 종료" : "손절 복구"}` +
-    `${detail.price ? " @" + detail.price : ""}, 없던 시간 ${seconds}초)`);
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -114,11 +112,11 @@ async function verifyImmediateFill(orderId, entryOrder) {
     if (store.get(orderId)?.status !== "WATCHING") return;
     const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
     if (data.status === "FILLED") {
-      console.log(`[즉시체결] UDS가 놓친 체결 감지 orderId=${orderId} → TP/SL 등록`);
+      log("FILL_DETECTED", { orderId, by: "verifyImmediate" });
       await onFilled(orderId, data);
     }
   } catch (e) {
-    console.warn(`[즉시체결] 확인 실패 orderId=${orderId}:`, e.response?.data?.msg || e.message);
+    log("QUERY_FAILED", { level: "warn", what: "order", ctx: "verifyImmediateFill", orderId, err: errOf(e) });
   }
 }
 
@@ -136,7 +134,7 @@ async function dropPreset(orderId) {
   const info = store.get(String(orderId));
   if (!info?.presetTpsl) return;
   await cancelPresetTPSL(info.presetTpsl)
-    .catch(e => console.warn(`[사전 TPSL] 취소 실패 orderId=${orderId}:`, e.message));
+    .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "dropPreset", err: errOf(e) }));
 }
 
 async function resolveOrphans(entries) {
@@ -147,19 +145,20 @@ async function resolveOrphans(entries) {
     try {
       const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
       if (data.status === "FILLED") {
-        console.log(`[고아] 체결됐는데 감지 못한 주문 발견 orderId=${orderId} → TP/SL 등록`);
+        log("FILL_DETECTED", { orderId, by: "orphan" });
         if (store.get(orderId)?.status === "WATCHING") await onFilled(orderId, data);
       } else if (data.status === "CANCELED" || data.status === "EXPIRED" || data.status === "REJECTED") {
-        console.log(`[고아] 주문 ${orderId} ${data.status} → store 제거`);
+        log("ORDER_GONE", { orderId, status: data.status, by: "orphan" });
         await dropPreset(orderId);
         store.delete(orderId);
         push.pushUpdate(["position"]);
       } else {
-        console.log(`[고아] 주문 ${orderId} 상태 ${data.status} → 유지 (openOrders 응답 지연)`);
+        log("ORDER_KEPT", { orderId, status: data.status, by: "orphan",
+          reason: "openOrders 응답 지연일 뿐 아직 살아 있다" });
       }
     } catch (e) {
       // 조회 실패 시엔 **지우지 않는다** — 못 지운 항목은 다음 사이클에 다시 본다
-      console.warn(`[고아] orderId=${orderId} 조회 실패:`, e.response?.data?.msg || e.message);
+      log("QUERY_FAILED", { level: "warn", what: "order", ctx: "resolveOrphans", orderId, err: errOf(e) });
     } finally {
       resolvingOrphans.delete(key);
     }
@@ -205,9 +204,10 @@ async function keepAliveListenKey(listenKey) {
     listenKeyFailCount = 0; // 성공 시 초기화
   } catch (e) {
     listenKeyFailCount++;
-    console.warn(`[UDS] listenKey 갱신 실패 (${listenKeyFailCount}/${MAX_LISTENKEY_FAILURES}):`, e.response?.data?.msg || e.message);
+    log("UDS_LISTENKEY_FAILED", { level: "warn", fails: listenKeyFailCount,
+      max: MAX_LISTENKEY_FAILURES, err: errOf(e) });
     if (listenKeyFailCount >= MAX_LISTENKEY_FAILURES) {
-      console.error("[UDS] listenKey 갱신 연속 실패 → 새 listenKey로 재연결");
+      log("UDS_RECONNECTING", { level: "error", reason: "listenKey 갱신 연속 실패" });
       listenKeyFailCount = 0;
       // 기존 WS 종료 후 재시작
       if (userDataWS) { try { userDataWS.terminate(); } catch {} userDataWS = null; }
@@ -229,7 +229,6 @@ async function onFilled(orderId, executionData) {
   const fillPrice = parseFloat(
     executionData.avgPrice || executionData.ap || executionData.L || executionData.price || 0
   );
-  console.log(`[UDS] 진입 체결됨 orderId=${orderId} fillPrice=${fillPrice} → TP/SL 등록 시작`);
   store.set(orderId, { ...info, status: "FILLED", fillPrice, filledAt: Date.now() });
 
   // 거래 로그 기록
@@ -242,12 +241,13 @@ async function onFilled(orderId, executionData) {
     await checkDailyLoss();
   } catch (e) {
     const msg = `⚠ 체결됨 (orderId=${orderId}) — ${e.message}. 수동 청산 검토 필요`;
-    console.error(`[경고] ${msg}`);
+    log("DAILY_LOSS_CHECK_FAILED", { level: "error", orderId, err: errOf(e) });
     push.pushAlert("critical", msg);
   }
 
   if (!info.tp || !info.sl) {
-    console.error(`[경고] TP/SL 가격 없음 (orderId=${orderId}) — 수동 설정 필요!`);
+    log("TPSL_MISSING_INFO", { level: "error", orderId,
+      note: "체결됐는데 걸 TP/SL 가격이 store에 없다 — 수동 설정 필요" });
     store.set(orderId, { ...info, status: "TPSL_MISSING" });
     push.pushAlert("critical", `⚠ 주문 ${orderId} 체결됨 — TP/SL 가격 없음`);
     push.pushUpdate(["position", "balance"]);
@@ -260,8 +260,7 @@ async function onFilled(orderId, executionData) {
   const tpFailed = tpsl.failed.some(f => f.type === "TP");
 
   if (tpsl.failed.length > 0) {
-    const failedTypes = tpsl.failed.map(f => f.type).join(", ");
-    console.error(`[경고] TP/SL 부분 실패 orderId=${orderId}: ${failedTypes}`);
+
     store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
     // ⚠ 거부 **사유**를 남길 것 — 예전엔 실패 타입만 남겨서, 나중에 로그를 봐도
     //   바이낸스가 왜 거절했는지 알 수 없었다 (콘솔은 이미 사라진 뒤다)
@@ -271,8 +270,7 @@ async function onFilled(orderId, executionData) {
 
     if (slFailed) {
       const msg = `⚠ SL 등록 5회 실패 (orderId=${orderId})`;
-      console.error(`[긴급] ${msg}`);
-      push.pushAlert("critical", msg);
+      push.pushAlert("critical", msg);   // 이벤트는 위 TPSL_PARTIAL이 이미 남겼다
     }
     if (tpFailed) {
       // notice = 금색 토스트 — SL은 걸렸고 익절만 빠진 상태다 (pushService 참고).
@@ -280,7 +278,6 @@ async function onFilled(orderId, executionData) {
       push.pushAlert("notice", `TP 등록 실패 (orderId=${orderId}) — 수동 설정 필요`);
     }
   } else {
-    console.log(`[UDS] TP/SL 등록 완료 orderId=${orderId}`);
     store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
     log("TPSL_PLACED", { orderId, posSide: sideToPosition(info.side), tp: info.tp, sl: info.sl });
   }
@@ -296,13 +293,13 @@ async function pollForFills() {
       const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
       if (data.status === "FILLED")                                     await onFilled(orderId, data);
       else if (data.status === "CANCELED" || data.status === "EXPIRED") {
-        console.log(`[POLL] 주문 ${orderId} 상태: ${data.status} → store 제거`);
+        log("ORDER_GONE", { orderId, status: data.status, by: "poll" });
         await dropPreset(orderId);   // 다른 취소 경로와 같은 처리 (2026-08-23 감사에서 누락 발견)
         store.delete(orderId);
         push.pushUpdate(["position"]);
       }
     } catch (e) {
-      console.warn(`[POLL] orderId=${orderId} 조회 실패:`, e.response?.data?.msg || e.message);
+      log("QUERY_FAILED", { level: "warn", what: "order", ctx: "pollForFills", orderId, err: errOf(e) });
     }
   }
 }
@@ -361,9 +358,8 @@ async function runReconcile() {
       //   실제로 매매를 안 한 날 "오후 5시 00분 00초"가 찍혀 오해를 샀다.
       //   차트 진입선이 이 값을 쓰지 않는 이유와 같다 (services/entryTime.js 참고)
       const firstObservation = prevHasLong === null && prevHasShort === null;
-      console.log(firstObservation
-        ? `[RECONCILE] 시작 시점 포지션 확인 (새 진입 아님) — 기준시각 ${new Date(currentEntryFilledAt).toLocaleString("ko-KR")}`
-        : `[RECONCILE] 포지션 진입 감지, filledAt=${currentEntryFilledAt}`);
+      log("POSITION_OBSERVED", { first: firstObservation, entryFilledAt: currentEntryFilledAt,
+        note: firstObservation ? "서버 시작 시점에 이미 있던 포지션 (새 진입 아님)" : "새 진입 감지" });
     }
 
     // ── 포지션 클로즈 → stats 캐시 무효화 신호 (한쪽만 닫혀도 즉시 갱신) ──
@@ -371,7 +367,7 @@ async function runReconcile() {
     const shortJustClosed = prevHasShort === true && !hasShort;
     if (longJustClosed || shortJustClosed) {
       const closedSide = longJustClosed && shortJustClosed ? "LONG+SHORT" : longJustClosed ? "LONG" : "SHORT";
-      console.log(`[RECONCILE] ${closedSide} 포지션 종료 감지 → stats 갱신 push`);
+      log("POSITION_CLOSE_DETECTED", { posSide: closedSide, by: "reconcile" });
       statsCache.invalidateCache();
       push.pushUpdate(["stats"]);
       if (!hasPos) currentEntryFilledAt = null; // 양쪽 모두 닫혔을 때만 진입 시각 초기화
@@ -396,9 +392,10 @@ async function runReconcile() {
       if (openIds.has(String(orderId))) continue;             // 진입 주문이 아직 살아 있다
       const posSide = closeToPosition(info.closeSide);
       if (posSide === "LONG" ? hasLong : hasShort) continue;   // 포지션이 있으면 유효한 TP/SL이다
-      console.warn("[RECONCILE] 주인 없는 사전 TP/SL → 취소 orderId=" + orderId);
+      log("PRESET_TPSL_ORPHANED", { level: "warn", orderId, posSide,
+        note: "진입 주문도 포지션도 없는데 사전 TP/SL만 남아 있다 → 취소" });
       await cancelPresetTPSL(info.presetTpsl)
-        .catch(e => console.warn("[RECONCILE] 사전 TPSL 취소 실패:", e.message));
+        .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "reconcile", err: errOf(e) }));
       store.set(orderId, { ...info, presetTpsl: null });
       push.pushUpdate(["tpsl"]);
     }
@@ -448,8 +445,8 @@ async function runReconcile() {
       if (targets.length) {
         const algoRaw = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" })
           .then(r => r.data)
-          .catch(e => { console.warn("[RECONCILE] 알고주문 조회 실패 → 찌꺼기 정리 스킵:",
-            e.response?.data?.msg || e.message); return null; });
+          .catch(e => { log("QUERY_FAILED", { level: "warn", what: "algoOrders",
+            ctx: "staleTriggerSweep", err: errOf(e) }); return null; });
         if (algoRaw) {
           const algos = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
           const stale = [
@@ -458,10 +455,11 @@ async function runReconcile() {
           ].filter(({ o }) => o.positionSide && targets.includes(o.positionSide)
             && isCloseDir(o) && !isFullClose(o));
           for (const { o, id, isAlgo } of stale) {
-            console.warn(`[RECONCILE] 주인 없는 부분 청산 트리거 → 취소 ${o.positionSide} ` +
-              `${orderQtyOf(o)}@${triggerPriceOf(o)} id=${id}`);
+            log("STALE_TRIGGER_CANCELED", { level: "warn", orderId: id, posSide: o.positionSide,
+              qty: orderQtyOf(o), price: triggerPriceOf(o) });
             await cancelOrder({ orderId: id, algoId: id, isAlgo })
-              .catch(e => console.warn("[RECONCILE] 취소 실패:", e.response?.data?.msg || e.message));
+              .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: id,
+                kind: "STALE_TRIGGER", ctx: "reconcile", err: errOf(e) }));
           }
           if (stale.length) push.pushUpdate(["tpsl"]);
         }
@@ -485,19 +483,17 @@ async function runReconcile() {
           if (hasTP && hasSL) {
             // TP/SL이 이미 등록돼 있으면 PLACED로 전환
             store.set(orderId, { ...info, status: "TPSL_PLACED" });
-            console.log(`[RECONCILE] TP/SL 이미 존재 → TPSL_PLACED 전환 orderId=${orderId}`);
+            log("TPSL_ALREADY_PRESENT", { orderId, posSide: orderPosSide });
           } else {
-            console.log(`[RECONCILE] TPSL 재시도 orderId=${orderId} (status=${info.status}, TP=${hasTP} SL=${hasSL})`);
+            log("TPSL_RETRY", { orderId, posSide: orderPosSide, fromStatus: info.status, hasTP, hasSL });
             const tpsl = await safePlaceTPSL(orderId, info);
             if (!tpsl) continue; // 다른 호출자가 진행 중 → 다음 reconcile 사이클에 재확인
             if (tpsl.failed.length === 0) {
               store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
-              console.log(`[RECONCILE] TPSL 재등록 완료 orderId=${orderId}`);
+              log("TPSL_PLACED", { orderId, posSide: orderPosSide, ctx: "reconcile",
+                tp: info.tp ?? null, sl: info.sl ?? null });
               push.pushUpdate(["tpsl"]);
             } else {
-              const failed = tpsl.failed.map(f => f.type).join(", ");
-              console.error(`[RECONCILE] TPSL 재시도도 실패 (${failed}) orderId=${orderId}`,
-                tpsl.failed.map(f => `${f.type}: ${f.error}`).join(" / "));
               store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
               log("TPSL_RETRY_FAILED", { level: "error", orderId,
                 failed: tpsl.failed.map(f => f.type),
@@ -546,13 +542,13 @@ async function runReconcile() {
       //   사이클(60초)에 다시 본다. 통신이 한 번 튄 것을 SL 사고로 알리면 안 된다
       //   (binanceClient.checkExistingTPSL의 `ok` 주석)
       if (!second.ok) {
-        console.warn(`[안전망] ${side} SL 확인 실패 → 경보 보류 (다음 사이클에 재확인)`);
+        log("NAKED_CHECK_FAILED", { level: "warn", posSide: side,
+          note: "조회가 실패해 경보 보류 — 다음 사이클에 재확인" });
         continue;
       }
 
       const msg = nakedMsg(side, second.slPartialQty, second.posAmt);
       nakedWarned.set(side, { msg, at: Date.now() });
-      console.error(`[안전망] ${msg}`);
       log("NAKED_POSITION", { level: "error", posSide: side, detectedBy: "reconcile",
         slPartialQty: second.slPartialQty ?? 0, posAmt: second.posAmt ?? null });
       push.pushAlert("critical", msg);
@@ -585,10 +581,11 @@ async function runReconcile() {
       try {
         await cancelOrder({ orderId });
       } catch (e) {
-        console.warn(`[RECONCILE] SCALE_IN 취소 실패 orderId=${orderId}:`, e.response?.data?.msg);
+        log("ORDER_CANCEL_FAILED", { level: "warn", orderId, kind: "SCALE_IN", ctx: "reconcile", err: errOf(e) });
       }
       store.delete(orderId);
-      console.log(`[RECONCILE] ${posSide} 포지션 없음 → SCALE_IN 주문 취소 orderId=${orderId}`);
+      log("ORDER_CANCELED", { kindOf: "SCALE_IN", orderIds: [String(orderId)], count: 1,
+        posSide, ctx: "reconcile", reason: "그 사이드에 포지션이 없다" });
     }
     if (scaleIns.length) push.pushUpdate(["position"]);
 
@@ -603,7 +600,9 @@ async function runReconcile() {
         const [orderId, info] = toCheck[i];
         const result = results[i];
         if (result.status === "rejected") {
-          console.warn(`[RECONCILE] orderId=${orderId} 조회 실패:`, result.reason?.response?.data?.msg || result.reason?.message);
+          log("QUERY_FAILED", { level: "warn", what: "order", ctx: "reconcile", orderId,
+            err: { code: result.reason?.response?.data?.code ?? null,
+                   msg:  result.reason?.response?.data?.msg ?? result.reason?.message ?? null } });
           continue;
         }
         const data = result.value;
@@ -611,27 +610,28 @@ async function runReconcile() {
           if (info.status === "WATCHING") {
             await onFilled(orderId, data);
           } else if (info.status === "SCALE_IN") {
-            console.log(`[RECONCILE] 추가 진입 체결됨 orderId=${orderId}`);
+            log("SCALE_IN_FILLED", { orderId, by: "reconcile" });
             store.delete(orderId);
             push.pushUpdate(["position", "balance"]);
           } else if (info.status === "SPLIT_TP") {
-            console.log(`[RECONCILE] 분할 TP 체결됨 orderId=${orderId}`);
+            log("SPLIT_TP_FILLED", { orderId, by: "reconcile" });
             store.delete(orderId);
             push.pushUpdate(["position", "balance", "tpsl"]);
           }
         } else if (data.status === "CANCELED" || data.status === "EXPIRED" || data.status === "REJECTED") {
-          console.log(`[RECONCILE] 주문 ${orderId} 상태: ${data.status} → store 제거`);
+          log("ORDER_GONE", { orderId, status: data.status, by: "reconcile" });
           await dropPreset(orderId);
           store.delete(orderId);
           push.pushUpdate(["position"]);
         } else {
           // NEW / PARTIALLY_FILLED 등 아직 살아있는 상태 — openOrders 응답 지연일 뿐
-          console.log(`[RECONCILE] 주문 ${orderId} 상태: ${data.status} → 유지 (openOrders 응답 지연)`);
+          log("ORDER_KEPT", { orderId, status: data.status, by: "reconcile",
+            reason: "openOrders 응답 지연일 뿐 아직 살아 있다" });
         }
       }
     }
   } catch (e) {
-    console.warn("[RECONCILE] openOrders 조회 실패:", e.response?.data?.msg || e.message);
+    log("QUERY_FAILED", { level: "warn", what: "openOrders", ctx: "reconcile", err: errOf(e) });
   }
 }
 
@@ -691,7 +691,6 @@ async function watchAccount() {
     if (sig === lastAccountSig) return;
     lastAccountSig = sig;
     acct.changes++; acct.lastChangeAt = Date.now();
-    console.log("[ACCOUNT] 변화 감지 → 화면 갱신 + 체결 확인");
 
     // ── 상태 스냅샷 (2026-08-25) ──────────────────────────────────────────────
     // ⚠ **사건 기록만으로는 "언제부터 이랬나"를 못 짚는다.** "무엇을 했다"는 줄만
@@ -722,7 +721,7 @@ async function watchAccount() {
     push.pushUpdate(["position", "balance", "tpsl"]);
     // 우리 주문이 체결됐을 수도 있다 — TP/SL 등록 경로를 바로 태운다
     // (UDS가 죽어 있으면 이게 아니면 reconcile 60초까지 기다린다)
-    pollForFills().catch(e => console.warn("[ACCOUNT] pollForFills 실패:", e.message));
+    pollForFills().catch(e => log("POLL_FILLS_FAILED", { level: "warn", ctx: "watchAccount", err: errOf(e) }));
 
     // ── 포지션이 사라졌으면 **즉시** 뒷정리 (2026-08-23) ────────────────────
     //
@@ -738,8 +737,8 @@ async function watchAccount() {
     //   조회가 실패해 lastSides를 못 갱신한 사이에 닫히면 이 경로가 놓친다
     if (lastSides && ((lastSides.long && !hasLong) || (lastSides.short && !hasShort))) {
       const gone = [lastSides.long && !hasLong && "LONG", lastSides.short && !hasShort && "SHORT"].filter(Boolean).join("+");
-      console.log(`[ACCOUNT] ${gone} 포지션 사라짐 → 뒷정리 즉시 실행`);
-      reconcileWithBinance().catch(e => console.warn("[ACCOUNT] reconcile 실패:", e.message));
+      log("POSITION_GONE", { posSide: gone, action: "reconcile 즉시 실행" });
+      reconcileWithBinance().catch(e => log("RECONCILE_FAILED", { level: "warn", ctx: "positionGone", err: errOf(e) }));
       // 손익을 **바로** 로그에 남긴다 — 안 그러면 10분 주기까지 기다린다.
       // 거래소가 정산할 시간을 조금 준다 (밖에서 낸 청산도 여기서 잡힌다)
       setTimeout(() => {
@@ -748,7 +747,7 @@ async function watchAccount() {
     }
     lastSides = { long: hasLong, short: hasShort };
   } catch (e) {
-    console.warn("[ACCOUNT] 감시 실패:", e.response?.data?.msg || e.message);
+    log("ACCOUNT_WATCH_FAILED", { level: "warn", err: errOf(e) });
   }
 }
 
@@ -840,7 +839,6 @@ function checkNakedFast(positions, regular, algos) {
       if (warned.msg === msg) continue;
       push.pushAlertClear(warned.msg);
       nakedWarned.set(side, { msg, at: warned.at });   // 시작 시각은 처음 그대로 둔다
-      console.error(`[안전망/즉시] 문구 갱신 -> ${msg}`);
       log("NAKED_CHANGED", { level: "error", posSide: side, detectedBy: "watch",
         slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
       push.pushAlert("critical", msg);
@@ -857,8 +855,8 @@ function checkNakedFast(positions, regular, algos) {
     //    retryable 경로다. 한 무방비 구간에 **한 번만** 부른다 — 3초마다 부르지 않는다
     if (n >= NAKED_STRIKES && !repaired) {
       repaired = true;
-      console.log(`[안전망] ${side} 손절이 포지션을 안 덮는다 → 조용히 수리 시도`);
-      reconcileWithBinance().catch(e => console.warn("[안전망] reconcile 실패:", e.message));
+      log("NAKED_REPAIR_ATTEMPT", { posSide: side, strikes: n });
+      reconcileWithBinance().catch(e => log("RECONCILE_FAILED", { level: "warn", ctx: "nakedRepair", err: errOf(e) }));
     }
     nakedStrikes.set(side, { n, since, repaired });
 
@@ -867,7 +865,6 @@ function checkNakedFast(positions, regular, algos) {
     if (n < NAKED_ALARM_STRIKES) continue;
 
     nakedWarned.set(side, { msg, at: since });   // 띄운 시각이 아니라 **처음 본 시각**
-    console.error(`[안전망/즉시] ${msg}`);
     log("NAKED_POSITION", { level: "error", posSide: side, detectedBy: "watch",
       slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
     push.pushAlert("critical", msg);
@@ -878,7 +875,8 @@ function accountStatus() { return { ...acct, intervalMs: ACCOUNT_WATCH_MS }; }
 
 function startPolling() {
   if (pollTimer) return;
-  console.warn("[UDS] 폴링 모드 시작 (30초 간격)");
+  log("UDS_POLLING_MODE", { level: "warn", intervalMs: 30000,
+    note: "체결 감지 WebSocket이 죽어 폴링으로 대신한다" });
   pollTimer = setInterval(pollForFills, 30000);
 }
 
@@ -898,7 +896,7 @@ function connectUserDataStream(listenKey) {
     stopPolling();
     reconnectDelay = 5000;
     uds.connectedAt = Date.now();
-    console.log("[UDS] User Data Stream 연결됨");
+    log("UDS_CONNECTED", { reconnects: uds.reconnects });
     // ⚠ **연결된 순간 화면을 한 번 갱신시킨다** (2026-08-23).
     //   UDS가 끊겨 있던 동안의 체결은 **아무도 안 잡는다** — `pollForFills`는 store에
     //   있는 주문만 보므로 **밖에서 낸 주문은 백엔드 폴링으로도 안 걸린다.**
@@ -922,7 +920,7 @@ function connectUserDataStream(listenKey) {
       //   store 항목이 필요한 뒷처리(TP/SL 등록 등)는 아래 분기가 그대로 맡는다
       if (!store.has(o.i)) {
         if (o.X === "FILLED" || o.X === "CANCELED" || o.X === "EXPIRED") {
-          console.log(`[UDS] 외부 주문 ${o.i} ${o.X} → 화면 갱신`);
+          log("EXTERNAL_ORDER", { orderId: o.i, status: o.X });
           push.pushUpdate(["position", "balance", "tpsl"]);
         }
         return;
@@ -931,37 +929,37 @@ function connectUserDataStream(listenKey) {
       if (o.X === "FILLED" && o.o === "LIMIT") {
         const info = store.get(o.i);
         if (info?.status === "SPLIT_TP") {
-          console.log(`[UDS] 분할 TP 체결됨 orderId=${o.i}`);
+          log("SPLIT_TP_FILLED", { orderId: o.i, by: "uds" });
           store.delete(o.i);
           push.pushUpdate(["position", "balance", "tpsl"]);
         } else if (info?.status === "SCALE_IN") {
-          console.log(`[UDS] 추가 진입 체결됨 orderId=${o.i}`);
+          log("SCALE_IN_FILLED", { orderId: o.i, by: "uds" });
           store.delete(o.i);
           push.pushUpdate(["position", "balance"]);
         } else {
           await onFilled(o.i, o);
         }
       } else if (o.X === "CANCELED" || o.X === "EXPIRED") {
-        console.log(`[UDS] 주문 ${o.i} ${o.X} → store 제거`);
+        log("ORDER_GONE", { orderId: o.i, status: o.X, by: "uds" });
         await dropPreset(o.i);
         store.delete(o.i);
         push.pushUpdate(["position"]);
       }
     } catch (e) {
-      console.error("[UDS] 메시지 처리 오류:", e.message);
+      log("UDS_MESSAGE_FAILED", { level: "error", err: errOf(e) });
     }
   });
 
   userDataWS.on("close", () => {
     uds.reconnects++;
-    console.warn(`[UDS] 연결 끊김, ${reconnectDelay / 1000}초 후 재연결...`);
+    log("UDS_DISCONNECTED", { level: "warn", reconnectInMs: reconnectDelay, reconnects: uds.reconnects });
     startPolling();
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(() => { reconnectTimer = null; startUserDataStream(); }, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT);
   });
 
-  userDataWS.on("error", e => console.error("[UDS] 오류:", e.message));
+  userDataWS.on("error", e => log("UDS_ERROR", { level: "error", err: errOf(e) }));
 }
 
 async function startUserDataStream() {
@@ -972,7 +970,7 @@ async function startUserDataStream() {
     if (listenKeyTimer) clearInterval(listenKeyTimer);
     listenKeyTimer = setInterval(() => keepAliveListenKey(listenKey), 25 * 60 * 1000);
   } catch (e) {
-    console.error("[UDS] 시작 실패:", e.response?.data?.msg || e.message);
+    log("UDS_START_FAILED", { level: "error", err: errOf(e) });
     startPolling();
   }
 

@@ -102,13 +102,14 @@ router.get("/", async (req, res) => {
           //   분할 TP 목록에서 사라지고 "외부 미체결 주문" 카드가 대신 떴다 (실제 신고).
           //   position.js의 고아 판정이 GRACE_PERIOD를 두는 것과 같은 이유다
           if (info.createdAt && now - info.createdAt < SPLIT_TP_GRACE_MS) continue;
-          console.log(`[TPSL] SPLIT_TP ${orderId}이 바이낸스에 없음 → 제거`);
+          log("ORDER_GONE", { orderId, status: "NOT_ON_EXCHANGE", by: "splitTpSweep" });
           store.delete(orderId);
         }
       }
     } else {
-      console.warn("[TPSL] openOrders 조회 실패 → SPLIT_TP 정리 스킵:",
-        regularRes.reason?.response?.data?.msg || regularRes.reason?.message);
+      log("QUERY_FAILED", { level: "warn", what: "openOrders", ctx: "splitTpSweep",
+        err: { code: regularRes.reason?.response?.data?.code ?? null,
+               msg:  regularRes.reason?.response?.data?.msg ?? regularRes.reason?.message ?? null } });
     }
 
     // ⚠ **분할 TP도 store가 아니라 주문 방향으로 가른다** (2026-08-23, position.js와 같은 이유).
@@ -153,7 +154,8 @@ router.put("/", async (req, res) => {
 
   const cancelExisting = (isAlgo, id) =>
     cancelOrder({ orderId: id, algoId: id, isAlgo })
-      .catch(e => console.warn(`기존 주문 취소 실패 (id=${id}):`, e.response?.data?.msg));
+      .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: id, kind: "TPSL",
+        ctx: "tpslReplace", err: errOf(e) }));
 
   // ⚠ **단일 TP와 분할 TP는 공존한다 — 서로 취소하지 않는다** (2026-08-23 사용자 확정,
   //   실계좌 검증). 2026-08-19~23에는 "나중에 건 쪽이 이긴다"는 배타 규칙이 있었고
@@ -198,8 +200,8 @@ router.put("/", async (req, res) => {
         const r = await placeAlgo("STOP_MARKET", sl);
         newOrders.sl = { orderId: r.data.algoId, price: parseFloat(roundPrice(sl)), isAlgo: true };
       } catch (e) {
-        const msg = e.response?.data?.msg || e.message;
-        console.error(`[tpsl] SL 등록 실패: ${msg}`);
+        log("TPSL_PLACE_FAILED", { level: "error", type: "SL", ctx: "putTpsl",
+          posSide: positionSide, price: sl, err: errOf(e) });
         noSl = true;
       }
     }
@@ -209,7 +211,7 @@ router.put("/", async (req, res) => {
     res.json({ success: true, tp: newOrders.tp, sl: newOrders.sl, noSl });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
-    console.error("[PUT /api/tpsl]", msg);
+    log("TPSL_UPDATE_FAILED", { level: "error", posSide: positionSide, err: errOf(err) });
     res.status(500).json({ error: msg });
   }
 });
@@ -226,7 +228,7 @@ router.delete("/", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
-    console.error("[DELETE /api/tpsl]", msg);
+    log("ORDER_CANCEL_FAILED", { level: "error", orderId, kind: "TPSL", ctx: "deleteTpsl", err: errOf(err) });
     res.status(500).json({ error: msg });
   }
 });

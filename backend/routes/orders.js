@@ -39,7 +39,11 @@ router.delete("/", async (req, res) => {
     } : null;
     if (!hasPosFor) {
       const why = posRes.reason?.response?.data?.msg || posRes.reason?.message;
-      console.warn("[orders] 포지션 조회 실패 →", orderId ? "orderId 지정분만 취소" : "취소 거절", why);
+      log("QUERY_FAILED", {
+        level: "warn", what: "position", ctx: "cancelOrders",
+        fallback: orderId ? "orderId 지정분만 취소" : "취소 거절",
+        err: { code: posRes.reason?.response?.data?.code ?? null, msg: why ?? null },
+      });
       if (!orderId) {
         return res.status(503).json({
           error: "포지션 상태를 읽지 못해 취소를 중단했습니다 — 잠시 후 다시 시도하세요",
@@ -59,14 +63,14 @@ router.delete("/", async (req, res) => {
 
     for (const o of entryOrders) {
       await cancelOrder({ orderId: o.orderId })
-        .catch(e => console.warn(`주문 취소 실패 (orderId=${o.orderId}):`, e.response?.data?.msg));
+        .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.orderId, kind: "ENTRY", err: errOf(e) }));
       // ⚠ **사전 등록해 둔 TP/SL도 같이 내린다** (2026-08-23). 안 내리면 진입 주문만
       //   사라지고 트리거 주문이 거래소에 남는다 — 나중에 그 사이드에 포지션이 생기면
       //   엉뚱한 가격에 발동한다 (수량 지정이라 그만큼 잘려 나간다)
       const info = store.get(String(o.orderId));
       if (info?.presetTpsl) {
         await cancelPresetTPSL(info.presetTpsl)
-          .catch(e => console.warn(`사전 TPSL 취소 실패 (orderId=${o.orderId}):`, e.message));
+          .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId: o.orderId, ctx: "cancelOrders", err: errOf(e) }));
       }
       store.delete(String(o.orderId));
     }
