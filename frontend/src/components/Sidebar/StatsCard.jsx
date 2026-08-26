@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useTheme } from "../../ThemeContext";
 import { useStats } from "../../hooks/useStats";
 import { iconBtn } from "../sidebarBtn";
+import { lsGet, lsRemove, lsSet } from "../../utils/storage";
 
 // 두 날짜 칸이 **같은 모양**이어야 한다 — 하나만 리터럴로 두면 나중에 갈린다
 //
@@ -34,8 +35,8 @@ const fieldRow = { display:"flex", alignItems:"center", gap:"4px", flex:1, margi
 //   일주일치였다 (routes/stats.js 실측 주석)
 export function StatsCard() {
   const { theme } = useTheme();
-  const [startDate, setStartDate] = useState(() => localStorage.getItem("statsStartDate") || "");
-  const [endDate,   setEndDate]   = useState(() => localStorage.getItem("statsEndDate")   || "");
+  const [startDate, setStartDate] = useState(() => lsGet("statsStartDate") || "");
+  const [endDate,   setEndDate]   = useState(() => lsGet("statsEndDate")   || "");
   const { stats, loading, error, refetch } = useStats(startDate, endDate);
 
   // ⚠ 날짜 칸이 서로의 `min`/`max`가 된다 — 시작 > 종료라는 상태를 **애초에 못 만든다**.
@@ -43,8 +44,8 @@ export function StatsCard() {
   const mkChange = (setter, key) => e => {
     const v = e.target.value;
     setter(v);
-    if (v) localStorage.setItem(key, v);
-    else localStorage.removeItem(key);
+    if (v) lsSet(key, v);
+    else lsRemove(key);
   };
 
   const fmt  = v => `$${d3.format(",.2f")(Math.abs(v))}`;

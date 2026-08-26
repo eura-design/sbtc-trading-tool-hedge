@@ -8,7 +8,6 @@
 import { tsToIdx } from "./scales";
 import { normalizeStructurePoints } from "./deriveStructure";
 import { legPeakVolume, fmtVol, volChangePct, LEG_VOL_METRICS } from "./legVolume";
-import { getStructLiveSegment } from "./structRenderState";
 import { getZzSegments } from "./structureZigzag";
 
 // 화면과 같은 규칙으로 한 레그를 판정한다 (useChartInteraction의 pick/side와 동일)
@@ -80,22 +79,9 @@ export function legDebug(structures, candles) {
     for (const r of bad) lines.push(`  #${r["#"]} ${r.방향} ${r.등락률}  ${r.봉범위}  → ${r.판정}`);
   }
 
-  // 진행 중 레그(점선) — 구조를 통틀어 하나뿐
-  const live = getStructLiveSegment();
-  if (live) {
-    const r = judge(
-      candles, tsToIdx(live.t1, candles), tsToIdx(live.t2, candles),
-      live.prev
-        ? { i1: tsToIdx(live.prev.t1, candles), i2: tsToIdx(live.prev.t2, candles) }
-        : null,
-      ((live.p2 - live.p1) / live.p1) * 100,
-    );
-    console.log("%c진행 중 레그(점선)", "color:#f0b90b;font-weight:700");
-    console.table([r]);
-    lines.push(`진행 중 레그 ${r.방향} ${r.등락률}  ${r.봉범위}  → ${r.판정}`);
-  } else {
-    lines.push("진행 중 레그 없음 (getStructLiveSegment() = null)");
-  }
+  // ※ 여기 있던 `진행 중 레그(점선)` 항목은 2026-08-26에 그 기능과 함께 삭제됐다
+  //   (Structures.jsx [R3]). 자동 이어그리기 구간의 레그는 아직 hover 대상이 아니라
+  //   이 도구에도 안 나온다 — 붙이려면 hitDetection.findHoveredLeg부터 손봐야 한다.
 
   lines.push(`자동 ZZ 세그먼트 ${getZzSegments().length}개 / 캔들 ${candles.length}봉`);
 

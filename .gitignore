@@ -16,6 +16,15 @@ backend/indicator_params.json
 # 월별 수익 결산 데이터 (실제 잔고·손익이라 저장소에 남기지 않는다)
 기타/tracker_data.json
 
+# 백업 — 브라우저 저장소 + 월별 결산이 통째로 들어 있다 (실제 잔고·손익)
+# ⚠ 저장소에 절대 올리지 말 것. API 키는 백업에 담지 않지만 나머지는 전부 들어 있다
+backend/backups/
+# 되돌리기 전 원본 사본 (tools/backup.js --restore-files 가 남긴다)
+*.before-restore
+# 하루 요약 (30일 청소와 무관하게 오래 남는다) + 손익 조회 커서
+backend/daily_summary.jsonl
+backend/income_cursor.json
+
 # Screenshots (자동 캡처된 진입/청산 PNG)
 ScreenShot/
 

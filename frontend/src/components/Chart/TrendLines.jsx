@@ -3,6 +3,7 @@ import { useTheme } from "../../ThemeContext";
 import { SEL_HANDLE_R } from "../../constants";
 import { tsToIdx } from "../../chart/scales";
 import { clipPolylineX, clipSegmentX, VIEW_PAD } from "../../chart/svgGeom";
+import { LockMark } from "./LockMark";
 
 // 로그 모드: bar index 기반 지수 보간 폴리라인 → [{ x, y }]
 // (문자열이 아니라 좌표 배열로 낸다 — 그려지기 전에 뷰포트로 잘라야 하므로)
@@ -70,6 +71,8 @@ export const TrendLines = memo(function TrendLines({ lines, selectedLineId, line
                 알림 여부는 **호박색 + 점선**만으로 나타낸다 (채널/원/수동 구조도 동일 —
                 한쪽만 되살리면 같은 🔔인데 도형 종류마다 다르게 보인다).
                 켜고 끄는 곳은 더블클릭 팝업의 🔔 토글이다 — 그건 그대로 있다 */}
+            {/* 잠금 표시 — 다섯 도형이 같은 것을 쓴다 (LockMark.jsx) */}
+            {ln.locked && <LockMark pts={isLog ? vis : [A, Bp]} IW={IW} />}
             {selected && <>
               <circle cx={a.x} cy={a.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />
               <circle cx={b.x} cy={b.y} r={SEL_HANDLE_R} fill="#f0b90b" opacity={0.9} />

@@ -4,6 +4,7 @@ import { SEL_HANDLE_R } from "../../constants";
 import { tsToIdx } from "../../chart/scales";
 import { clipSegmentX, VIEW_PAD } from "../../chart/svgGeom";
 import { FIB_COLOR, FIB_DEFAULT_LEVELS, fibPrice, fmtFibRatio, fibLevelsOf } from "../../chart/fib";
+import { LockMark } from "./LockMark";
 
 /**
  * 레벨 가로선 하나 + 비율 라벨. 화면 밖이면 null.
@@ -89,6 +90,10 @@ export const Fibs = memo(function Fibs({
 
         return (
           <g key={fb.id}>
+            {/* 자물쇠는 **앵커 대각선**에 붙인다 — 레벨선은 전부 끌 수 있지만
+                대각선은 항상 그려지므로 (chart/fib.js [F1]) */}
+            {fb.locked && conn && <LockMark
+              pts={[{ x: conn.x1, y: conn.y1 }, { x: conn.x2, y: conn.y2 }]} IW={IW} />}
             {conn && (
               <line x1={conn.x1} y1={conn.y1} x2={conn.x2} y2={conn.y2}
                 stroke={color} strokeWidth={1} opacity={opacity * 0.45}

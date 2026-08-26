@@ -7,13 +7,14 @@
 // 실제 동작과 어긋난 설명을 하게 된다.
 
 import { deriveStructure, normalizeStructurePoints } from "./deriveStructure";
+import { lsGet } from "../utils/storage";
 
 const fmtT = t => new Date(t).toLocaleString("ko-KR", {
   month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
 });
 
 function readStructures() {
-  try { return JSON.parse(localStorage.getItem("structures") || "[]"); }
+  try { return JSON.parse(lsGet("structures") || "[]"); }
   catch { return []; }
 }
 
@@ -32,7 +33,7 @@ export function structDebug(id = null) {
   for (const st of list) {
     const pts = normalizeStructurePoints(st.points ?? []);
     const trace = [];
-    const { chochs } = deriveStructure(pts, null, trace);   // 확정분만 — 라이브는 캔들이 필요
+    const { chochs } = deriveStructure(pts, trace);
 
     const head = `구조 ${st.id} — 꼭짓점 ${pts.length}개, 확정 CHoCH ${chochs.length}개`
       + `${st.showChoch === false ? "  ⚠ CHoCH 표시 OFF" : ""}`;

@@ -1,4 +1,6 @@
 // Module-level timer: riskPct/leverage 변경 시 pending 주문 재등록 debounce
+import { lsGet, lsSet } from "../utils/storage";
+
 let _replaceTimer = null;
 // 이 debounce 창 안에서 값이 바뀐 **사이드**. 리스크는 한쪽만 바꾸므로,
 // 롱 리스크를 만졌다고 숏 미체결 주문까지 재등록하면 안 된다.
@@ -52,11 +54,11 @@ const num = (v, fb) => Number(v) || fb;
 //   옛 키를 지우거나 무시하면 업데이트 직후 첫 실행에 리스크가 조용히 기본값(2%)으로
 //   되돌아간다 — replay/session.js가 구버전 세션을 계속 읽는 것과 같은 이유다.
 const readRiskFrom = (keys, isLong) =>
-  num(localStorage.getItem(isLong ? keys.riskLong : keys.riskShort)
-      ?? localStorage.getItem(keys.legacyRisk), DEFAULT_RISK);
+  num(lsGet(isLong ? keys.riskLong : keys.riskShort)
+      ?? lsGet(keys.legacyRisk), DEFAULT_RISK);
 
 const readRisk = (isLong) => readRiskFrom(_keys, isLong);
-const readLev  = () => num(localStorage.getItem(_keys.lev), DEFAULT_LEV);
+const readLev  = () => num(lsGet(_keys.lev), DEFAULT_LEV);
 
 function scheduleReplace(get, sides) {
   sides.forEach(s => _replaceSides.add(s));
@@ -101,16 +103,16 @@ export function swapTradeSettings(replayOn) {
   // ⚠ 씨앗은 **연습의 옛 값(사이드 분리 이전)이 있으면 그쪽이 우선**이다.
   //   실거래 값으로 덮으면 리스크를 롱·숏으로 나눈 그날 연습 설정이 한 번 날아간다.
   if (replayOn) {
-    const legacy = localStorage.getItem(REPLAY_KEYS.legacyRisk);
+    const legacy = lsGet(REPLAY_KEYS.legacyRisk);
     const seed = (key, isLong) => {
-      if (localStorage.getItem(key) !== null) return;
-      localStorage.setItem(key, legacy !== null ? num(legacy, DEFAULT_RISK)
+      if (lsGet(key) !== null) return;
+      lsSet(key, legacy !== null ? num(legacy, DEFAULT_RISK)
                                                 : readRiskFrom(LIVE_KEYS, isLong));
     };
     seed(REPLAY_KEYS.riskLong,  true);
     seed(REPLAY_KEYS.riskShort, false);
-    if (localStorage.getItem(REPLAY_KEYS.lev) === null) {
-      localStorage.setItem(REPLAY_KEYS.lev, localStorage.getItem(LIVE_KEYS.lev) ?? DEFAULT_LEV);
+    if (lsGet(REPLAY_KEYS.lev) === null) {
+      lsSet(REPLAY_KEYS.lev, lsGet(LIVE_KEYS.lev) ?? DEFAULT_LEV);
     }
   }
 
@@ -131,34 +133,34 @@ export const createSettingsSlice = (set, get) => ({
   riskPctLong:  readRisk(true),
   riskPctShort: readRisk(false),
   leverage:   readLev(),
-  interval_:  localStorage.getItem("interval") || "1h",
+  interval_:  lsGet("interval") || "1h",
   indicators: (() => {
-    try { return JSON.parse(localStorage.getItem("indicators") || "{}"); }
+    try { return JSON.parse(lsGet("indicators") || "{}"); }
     catch { return {}; }
   })(),
 
   setRiskPct: (isLong, riskPct) => {
-    localStorage.setItem(isLong ? _keys.riskLong : _keys.riskShort, riskPct);
+    lsSet(isLong ? _keys.riskLong : _keys.riskShort, riskPct);
     set(isLong ? { riskPctLong: riskPct } : { riskPctShort: riskPct });
     scheduleReplace(get, [isLong ? "long" : "short"]);
   },
 
   setLeverage: (leverage) => {
-    localStorage.setItem(_keys.lev, leverage);
+    lsSet(_keys.lev, leverage);
     set({ leverage });
     // 레버리지는 심볼 단위라 양쪽 다 영향을 받는다 (바이낸스가 사이드별로 안 받는다)
     scheduleReplace(get, ["long", "short"]);
   },
 
   setInterval_: (interval_) => {
-    localStorage.setItem("interval", interval_);
+    lsSet("interval", interval_);
     set({ interval_ });
   },
 
   toggleIndicator: (key) => {
     const cur = get().indicators;
     const indicators = { ...cur, [key]: cur[key] !== false ? false : true };
-    localStorage.setItem("indicators", JSON.stringify(indicators));
+    lsSet("indicators", JSON.stringify(indicators));
     set({ indicators });
   },
 });

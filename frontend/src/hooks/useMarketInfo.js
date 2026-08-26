@@ -31,13 +31,36 @@ function lastAtOrBefore(arr, t, key) {
   return found;
 }
 
+// 펀딩 정산 간격 — BTCUSDT 무기한은 8시간 고정(00:00 / 08:00 / 16:00 UTC)
+const FUNDING_INTERVAL = 8 * 3_600_000;
+
+/**
+ * 정산 시각이 이미 지났으면 **다음 정산 시각으로 굴린다** (2026-08-26에 고친 버그).
+ *
+ * `nextFundingTime`은 60초 폴링으로만 갱신된다. 그래서 카운트다운이 0에 닿은 뒤
+ * **다음 폴링이 올 때까지 화면이 `00:00:00`에 멈춰 있었다** — 폴링 주기 중 어디서
+ * 0이 되느냐에 따라 0~60초. 사용자가 10~20초로 관찰한 것이 이것이다.
+ *
+ * 거래소에 다시 묻지 않고 화면에서 굴린다 — 간격이 8시간 고정이라 계산으로 정확하고,
+ * 정산 직후는 조회가 몰리는 시점이라 요청을 하나 더 얹을 이유가 없다.
+ * ⚠ **반복문으로 더하지 말 것** — 값이 이상하면(0·NaN) 영영 도는 자리가 된다. 나눗셈으로 한 번에.
+ * ※ 폴링이 곧 진짜 값을 물어오므로 이건 그 사이를 메우는 것이다. 어긋나도 1분 안에 맞춰진다.
+ */
+function rollForward(t, now) {
+  if (!Number.isFinite(t) || t > now) return t;
+  return t + Math.floor((now - t) / FUNDING_INTERVAL + 1) * FUNDING_INTERVAL;
+}
+
 function useFundingCountdown(nextFundingTime, nowOverride) {
   const [text, setText] = useState("");
   useEffect(() => {
     // ⚠ 리플레이는 **재생 시각** 기준이라 타이머가 필요 없다 — 아래에서 직접 만든다.
     //   벽시계 1초 타이머를 돌리면 일시정지 중에도 카운트다운만 혼자 줄어든다
     if (!nextFundingTime || nowOverride != null) return;
-    const tick = () => setText(fmtCountdown(nextFundingTime - Date.now()));
+    const tick = () => {
+      const now = Date.now();
+      setText(fmtCountdown(rollForward(nextFundingTime, now) - now));
+    };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);

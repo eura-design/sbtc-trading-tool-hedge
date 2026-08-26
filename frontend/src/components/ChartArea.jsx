@@ -73,7 +73,7 @@ export function ChartArea({
   structures, structMode, structDraft, structPreview, setStructPreview,
   selectedStructId, setSelectedStructId,
   cancelStructDraw, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-  moveStructPoint, normalizeStruct, commitLiveStructPoint,
+  moveStructPoint, normalizeStruct, commitStructPoints,
   structPart, selectStructPart, clearStructPart,   // 꼭짓점/선분 부분 선택 (Delete 대상)
   // 도형 통합 인터페이스 (App.jsx에서 구성)
   drawables,
@@ -308,7 +308,7 @@ export function ChartArea({
       structures: visibleStructures, selectedStructId, setSelectedStructId,
       addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
       moveStructPoint, normalizeStruct, structPart, selectStructPart, clearStructPart,
-      commitLiveStructPoint,
+      commitStructPoints,
       drawables,
       overlaysRef,
     });

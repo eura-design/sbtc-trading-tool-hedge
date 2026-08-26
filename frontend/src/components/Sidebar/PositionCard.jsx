@@ -7,6 +7,7 @@ import { SplitTPCard } from "./SplitTPCard";
 import { SplitSLCard } from "./SplitSLCard";
 import { unrealizedFor } from "../../utils/equity";
 import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow } from "../sidebarBtn";
+import { lsGet, lsSet } from "../../utils/storage";
 
 function AccordionSection({ label, badge, isOpen, onToggle, theme, posColor, children }) {
   return (
@@ -47,8 +48,8 @@ export function PositionCard({
   onAddPartialSl, onCancelPartialSl,
 }) {
   const { theme } = useTheme();
-  const [closePct, setClosePct] = useState(() => Number(localStorage.getItem("closePct")) || 100);
-  const handleClosePct = v => { setClosePct(v); localStorage.setItem("closePct", v); };
+  const [closePct, setClosePct] = useState(() => Number(lsGet("closePct")) || 100);
+  const handleClosePct = v => { setClosePct(v); lsSet("closePct", v); };
   const [confirming, setConfirming] = useState(false);
   // ⚠ 세 아코디언(시장가 청산·추가 진입·분할 TP)은 **한 번에 하나만 열린다**
   //   (2026-08-22 사용자 요청). 열린 것을 상태 하나로 들고 있으므로 다른 것을 열면

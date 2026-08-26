@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { lsGet, lsSet } from "../utils/storage";
 
 const DEFAULT = {
   "5m":  { rsiOB: false, rsiOS: false, close: false },
@@ -13,7 +14,7 @@ const DEFAULT = {
 export function useNotificationSettings() {
   const [settings, setSettings] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("notifSettings") || "null");
+      const saved = JSON.parse(lsGet("notifSettings") || "null");
       if (!saved) return DEFAULT;
       // 저장된 값과 DEFAULT 병합 (새 키 누락 방지)
       // DEFAULT에 있는 키만 통과시킨다 — 제거된 알림(다이버전스 등)이 되살아나지 않게
@@ -32,7 +33,7 @@ export function useNotificationSettings() {
   const toggle = useCallback((tf, key) => {
     setSettings(prev => {
       const next = { ...prev, [tf]: { ...prev[tf], [key]: !prev[tf][key] } };
-      localStorage.setItem("notifSettings", JSON.stringify(next));
+      lsSet("notifSettings", JSON.stringify(next));
       return next;
     });
   }, []);

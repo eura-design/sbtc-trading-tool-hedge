@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
-import { api } from "../api/client";
+import { useState, useCallback } from "react";
+import { lsGetJSON, lsSetJSON } from "../utils/storage";
 
 export const INDICATOR_DEFAULTS = {
   vol: { colorMode: "neutral" },
@@ -44,13 +44,11 @@ export const INDICATOR_DEFAULTS = {
   //     한쪽만 바꾸지 말 것
   //     ※ 0.3인 이유는 슬라이더 눈금(10% 단위)에 맞추기 위해서다 — 0.25는 그전
   //       슬라이더의 최소값이었는데 같은 날 눈금이 바뀌며 그 위의 값이 아니게 됐다
-  //     ⚠ 이건 **서버에 저장되는 값**이라 기본값을 바꿔도 이미 저장된 쪽이 이긴다 —
-  //       `backend/indicator_params.json`도 같이 봐야 한다
-  //   ※ alert_choch는 일부러 **다르게 둔다** — 자동 ZZ는 ON, 수동 구조는 OFF.
-  //     수동 구조는 알림을 켜면 선이 호박색 점선이 되어, 기본 ON이면 모든 구조가
-  //     그 색이 되어 색으로 알림 여부를 구분할 수 없게 된다 (Structures.jsx [R10]).
-  //     자동 ZZ는 그 스타일이 없어 ON이어도 같은 문제가 생기지 않는다
-  zz:  { left_bars: 5, use_filter: true, atr_mult: 1.5, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.3 },
+  //     ⚠ 기본값을 바꿔도 **이미 저장된 쪽이 이긴다** — 처음 쓰는 브라우저에만 적용된다
+  //   ※ 여기 있던 "alert_choch는 자동 ZZ만 ON" 줄은 지웠다 (2026-08-26) —
+  //     2026-08-24에 둘 다 OFF로 통일했는데 그 줄만 남아 **바로 위 줄과 모순**됐다.
+  //     실제 값은 위 한 줄(둘 다 false)이 맞다
+  zz:  { left_bars: 2, use_filter: true, atr_mult: 1.0, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.3 },
   // 수동 구조(Custom Structure Zigzag)
   //   tfs — 표시할 타임프레임 (중복 선택 가능, 기본 1h). **여기 있는 건 이것뿐이다.**
   //   ※ CHoCH 표시 on/off·개수는 구조마다 localStorage에 있다 (st.showChoch / st.maxChoch,
@@ -84,59 +82,48 @@ function mergeWithDefaults(saved) {
   return result;
 }
 
-export function useIndicatorParams() {
-  const [params, setParams] = useState(() => mergeWithDefaults(null));
+// ⚠ **저장은 브라우저(localStorage) 하나뿐이다** (2026-08-26 정리).
+//
+// 그전에는 **파라미터는 서버**(`backend/indicator_params.json`), **지표 on/off는 브라우저**
+// (`indicators`)로 갈려 있었다. 같은 지표 메뉴에서 만지는데 저장되는 곳이 달라서:
+//   ① 한쪽만 지워지면 **반쪽만 초기화**된다 (브라우저를 청소하면 지표가 다 꺼지는데
+//      세부 숫자는 그대로, 백엔드 파일이 없어지면 그 반대)
+//   ② 백엔드가 꺼져 있을 때 세부 숫자를 바꾸면 `.catch(() => {})`에 먹혀
+//      **아무 말 없이 사라졌다**
+// 지표 설정은 도형·알림·단축키와 같은 "보기 설정"이고, 그것들은 전부 브라우저에 있다.
+// 백엔드가 꺼져 있어도 차트는 그려져야 하므로 브라우저 쪽으로 모았다.
+//
+// ⚠ **서버로 되돌리지 말 것.** 되돌리면 위 두 문제가 그대로 돌아온다.
+//   백업은 별도로 받는다 — 브라우저 저장소 전체를 백엔드가 스냅샷으로 뜬다.
+//
+// ※ 2026-08-26 하루 동안 백엔드 파일이 "옮겨 적기용"으로 남아 있었는데(브라우저에 값이
+//   없을 때만 한 번 읽는 용도), 같은 날 **통째로 지웠다** — 이관이 끝난 뒤에는
+//   그 파일이 **오늘 시점에 얼어붙은 낡은 사본**일 뿐이라, 나중에 브라우저를 비우면
+//   한 달 전 설정이 슬쩍 되살아난다. 되살릴 방법은 백업이 있고 그쪽이 항상 최신이다.
+//   (`backend/indicator_params.json` · `store/indicatorParamsStore.js` ·
+//    `routes/indicatorparams.js`가 그때 함께 사라졌다)
+const STORAGE_KEY = "indicatorParams";
 
-  // 마운트 시 서버에서 로드 (없으면 localStorage 마이그레이션)
-  useEffect(() => {
-    api("GET", "/api/indicator-params")
-      .then(data => {
-        const merged = mergeWithDefaults(data);
-        setParams(merged);
-        // localStorage 마이그레이션
-        try {
-          const local = JSON.parse(localStorage.getItem("indicatorParams") || "{}");
-          if (Object.keys(local).length > 0) {
-            const migrated = mergeWithDefaults(local);
-            setParams(migrated);
-            api("POST", "/api/indicator-params", migrated).catch(() => {});
-            localStorage.removeItem("indicatorParams");
-          }
-        } catch {}
-      })
-      .catch(() => {
-        // 서버 연결 실패 시 localStorage 폴백
-        try {
-          const local = JSON.parse(localStorage.getItem("indicatorParams") || "{}");
-          setParams(mergeWithDefaults(local));
-        } catch {}
-      });
-  }, []);
+export function useIndicatorParams() {
+  const [params, setParams] = useState(() => mergeWithDefaults(lsGetJSON(STORAGE_KEY, null)));
+
+  // 저장은 항상 브라우저. 실패해도 lsSetJSON이 로그를 남긴다
+  const persist = useCallback((next) => { lsSetJSON(STORAGE_KEY, next); return next; }, []);
 
   const setParam = useCallback((indicator, key, value) => {
-    setParams(prev => {
-      const next = { ...prev, [indicator]: { ...prev[indicator], [key]: value } };
-      api("POST", "/api/indicator-params", next).catch(() => {});
-      return next;
-    });
-  }, []);
+    setParams(prev => persist({ ...prev, [indicator]: { ...prev[indicator], [key]: value } }));
+  }, [persist]);
 
   const setEmaList = useCallback((newList) => {
-    setParams(prev => {
-      const next = { ...prev, ema: newList };
-      api("POST", "/api/indicator-params", next).catch(() => {});
-      return next;
-    });
-  }, []);
+    setParams(prev => persist({ ...prev, ema: newList }));
+  }, [persist]);
 
   const resetIndicator = useCallback((indicator) => {
     setParams(prev => {
       const def = INDICATOR_DEFAULTS[indicator];
-      const next = { ...prev, [indicator]: Array.isArray(def) ? [...def] : { ...def } };
-      api("POST", "/api/indicator-params", next).catch(() => {});
-      return next;
+      return persist({ ...prev, [indicator]: Array.isArray(def) ? [...def] : { ...def } });
     });
-  }, []);
+  }, [persist]);
 
   return { params, setParam, setEmaList, resetIndicator };
 }

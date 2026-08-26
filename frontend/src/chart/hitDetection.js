@@ -283,9 +283,41 @@ export function snapToOHLC(pos, candles, xScale, yScale) {
 //   따로 넣지 말고 이 상수를 참조할 것.
 export const STRUCT_SNAP_BARS = 1;
 
-// 진행 중 레그(점선) 끝점의 클릭 반경 — 화면에 그린 원(SEL_HANDLE_R + 0.5)보다 넉넉하게.
-// 다른 핸들의 잡는 반경(10)과 같은 값이다: 점을 작게 그려도 집기 어려워지지 않게
-export const STRUCT_LIVE_HIT = 10;
+// 자동 이어그리기 점의 클릭 반경 — 다른 핸들의 잡는 반경(10)과 같은 값이다.
+// 자동 점에는 마커를 그리지 않으므로(꺾이는 자리만 보인다) 반경이 유일한 판정이다.
+// ※ 이름이 STRUCT_LIVE_HIT이던 것을 2026-08-26에 바꿨다 — 진행 중 레그가 삭제되면서
+//   "live"가 가리키던 대상이 사라졌다
+export const STRUCT_AUTO_HIT = 10;
+
+/**
+ * **클릭해 확정할 수 있는 지점**을 찾는다 (2026-08-26).
+ *
+ * 후보는 **자동 이어그리기의 자동 점 하나하나**다 — 켜 둔 구조마다 있어서 여러 개일 수 있다.
+ * ⚠ 진행 중 레그 끝점 분기는 **2026-08-26에 그 기능과 함께 삭제**됐다 (Structures.jsx [R3]).
+ * 어느 것을 눌러도 **거기까지만** 확정되고 그 뒤는 다시 자동으로 계산된다 —
+ * 그래서 중간 점을 눌러 "여기까지는 맞다"고 잘라 갈 수 있다.
+ *
+ * ⚠ **히트와 커서가 같은 좌표를 봐야 한다.** 여기 하나만 부르게 할 것 —
+ *   각자 계산하면 커서가 바뀌는 자리와 눌리는 자리가 어긋난다 (posTpSlButtons와 같은 이유).
+ *
+ * @param chains structRenderState.getStructAutoChains() — [{ structId, points }]
+ * @returns { structId, points } | null — points = 그 지점까지 구조에 넣을 꼭짓점
+ *          (배열은 반경 안에 들어왔을 때만 만든다 — 커서 판정이 마우스 이동마다 부른다)
+ */
+export function structAutoCommitHit(chains, pos, xScale, yScale, candles) {
+  const distTo = (t, p) =>
+    Math.hypot(pos.x - xScale(tsToIdx(t, candles)), pos.y - yScale(p));
+
+  let best = null, bestD = STRUCT_AUTO_HIT;
+  for (const ch of chains ?? []) {
+    for (let j = 0; j < ch.points.length; j++) {
+      const d = distTo(ch.points[j].t, ch.points[j].p);
+      if (d <= bestD) { bestD = d; best = { structId: ch.structId, chain: ch.points, upto: j + 1 }; }
+    }
+  }
+  if (!best) return null;
+  return { structId: best.structId, points: best.chain.slice(0, best.upto) };
+}
 
 /**
  * 구조 꼭짓점용 스냅 — 커서 주변 봉 중 고가 최대(또는 저가 최소) 지점에 붙인다.
@@ -391,11 +423,11 @@ export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
  * 두 지표가 겹쳐 있으면 먼저 잡히는 쪽(수동 구조)이 이긴다 — 사용자가 직접 그린
  * 구조가 자동 검출보다 의도가 분명하므로.
  *
- * 진행 중 레그(수동 구조의 점선 / ZZ의 마지막 세그먼트)도 포함한다. "지금 이 레그가
- * 몇 % 왔나"가 확정 레그보다 오히려 자주 보고 싶은 값이다.
- * ※ 진행 중 레그는 구조와 별개 객체(마지막 꼭짓점 → 현재가 투영)라 확정 레그 목록에
- *   없다. 그래서 **prev를 Structures.jsx가 liveSegment에 실어 보낸다**(`[R8]`) —
- *   예전엔 여기서 null로 두는 바람에 진행 중 레그만 거래량 비교가 안 떴다.
+ * 자동 ZZ는 진행 중 레그(마지막 세그먼트)도 포함한다.
+ * ⚠ 수동 구조 쪽 진행 중 레그(점선)는 **2026-08-26에 기능째 삭제**됐다 —
+ *   여기 있던 liveSegment 분기와 `[R8]`(prev를 실어 보내기)도 같이 사라졌다.
+ * ※ 자동 이어그리기 구간의 레그는 **아직 hover가 안 된다** — 그 점들은 st.points에
+ *   없어서 아래 루프가 훑지 못한다. 붙이려면 자동 점을 여기까지 넘겨야 한다 (미구현).
  *
  * threshold는 클릭 판정(8)보다 좁은 6 — hover는 잘못 걸리면 라벨이 깜빡여서 거슬린다.
  */
@@ -411,7 +443,7 @@ export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
  * 알 수 없었다. 되살리지 말 것 — 구조 하나가 곧 하나의 비교 단위다.
  */
 export function findHoveredLeg({
-  px, py, structures, liveSegment, zzSegments, xScale, yScale, candles, threshold = 6,
+  px, py, structures, zzSegments, xScale, yScale, candles, threshold = 6,
   // 자동 ZZ의 `거래량 비교` — 지표 단위 설정이라 인자로 받는다 (수동 구조는 도형이
   // 자기 값을 들고 있어 st.showLegVol을 직접 읽는다). 2026-08-24 되살림
   zzShowVol = true,
@@ -437,25 +469,6 @@ export function findHoveredLeg({
           showVol: st.showLegVol === true,
         };
       }
-    }
-  }
-
-  if (liveSegment) {
-    const { t1, p1, t2, p2, prev } = liveSegment;
-    const ax = xScale(tsToIdx(t1, candles)), ay = yScale(p1);
-    const bx = xScale(tsToIdx(t2, candles)), by = yScale(p2);
-    if (distToSeg(px, py, ax, ay, bx, by) < threshold) {
-      return {
-        pct: pct(p1, p2),
-        i1: tsToIdx(t1, candles), i2: tsToIdx(t2, candles),
-        // 진행 중 레그의 직전 동일방향 레그 — Structures.jsx가 timestamp로 넘겨준다([R8]).
-        // 여기서 bar index로 바꾼다. 꼭짓점이 3개 미만이면 그 구조에 비교 대상이 없다 → null [LV7]
-        prev: prev
-          ? { i1: tsToIdx(prev.t1, candles), i2: tsToIdx(prev.t2, candles) }
-          : null,
-        // 소유 구조의 `거래량 비교` 설정 — Structures.jsx가 liveSegment에 같이 실어 보낸다
-        showVol: liveSegment.showVol !== false,
-      };
     }
   }
 
@@ -507,7 +520,7 @@ export function buildHitChain(ctx) {
     // 수동 구조
     structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
     structures, selectedStructId, structPart, selectStructPart,
-    structLive, commitLiveStructPoint,   // 진행 중 레그 끝점 확정 (3.95)
+    structAutoChains, commitStructPoints,   // 자동 점을 눌러 확정 (3.95)
     // 자동 ZZ — 도형이 아니라 지표라 선택만 한다 (드래그/삭제 없음)
     showZZ, zzSegments,
   } = ctx;
@@ -743,14 +756,15 @@ export function buildHitChain(ctx) {
     // ⚠ 구조 모드에서는 동작하지 않는다 — 거기선 클릭이 이미 꼭짓점 추가라 뜻이 겹친다.
     //   ownerId가 없으면(draft) 역시 건너뛴다
     {
-      when: !structMode && !drawMode && !!commitLiveStructPoint && !!structLive?.ownerId,
+      when: !structMode && !drawMode && !!commitStructPoints,
       handle() {
-        const x = xScale(tsToIdx(structLive.t2, candles));
-        const y = yScale(structLive.p2);
-        if (Math.hypot(pos.x - x, pos.y - y) > STRUCT_LIVE_HIT) return false;
-        commitLiveStructPoint(structLive.ownerId, {
-          t: structLive.t2, p: structLive.p2, type: structLive.type,
-        });
+        // 자동 점 하나하나 + 진행 중 레그 끝점이 전부 확정 지점이다 — 누른 지점**까지만**
+        // 들어가고 그 뒤는 다시 자동으로 계산된다 (Structures.jsx [R12]).
+        // ⚠ 어느 구조의 점인지도 여기서 나온다 — 자동 이어그리기는 구조마다 켤 수 있어서
+        //   진행 중 레그를 가진 구조가 아닐 수도 있다
+        const hit = structAutoCommitHit(structAutoChains, pos, xScale, yScale, candles);
+        if (!hit) return false;
+        commitStructPoints(hit.structId, hit.points);
         return true;
       },
     },

@@ -9,7 +9,7 @@ import { getCursor } from "../chart/cursorRules";
 import { buildHitChain, findHitChannel, findHitCircle, findHitFib, findHitStructure, findHitZzLeg, findHoveredLeg, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
 import { legPeakVolume, fmtVol, volChangePct, LEG_VOL_METRICS } from "../chart/legVolume";
 import { getZzSegments } from "../chart/structureZigzag";
-import { getStructLiveSegment } from "../chart/structRenderState";
+import { getStructAutoChains } from "../chart/structRenderState";
 import { ZZ_ID } from "../chart/drawables";
 
 export function useChartInteraction({
@@ -48,7 +48,7 @@ export function useChartInteraction({
   structures, selectedStructId, setSelectedStructId,
   addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
   moveStructPoint, normalizeStruct, structPart, selectStructPart, clearStructPart,
-  commitLiveStructPoint,   // 진행 중 레그 끝점을 클릭해 꼭짓점으로 확정
+  commitStructPoints,   // 자동 이어그리기의 점을 클릭해 꼭짓점으로 확정
   // 레그 등락률 hover 표시 — 자동 ZZ는 모듈 상태에서 읽으므로 on/off 여부만 받는다
   showZZ = false,
   // 자동 ZZ의 `거래량 비교` (indicatorParams.zz.show_legvol) — 2026-08-24 되살림.
@@ -167,7 +167,7 @@ export function useChartInteraction({
       fibs, selectedFibId, addFib,
       structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
       structures, selectedStructId, structPart, selectStructPart,
-      structLive: getStructLiveSegment(), commitLiveStructPoint,
+      structAutoChains: getStructAutoChains(), commitStructPoints,
       showZZ, zzSegments: showZZ ? getZzSegments() : null,
     });
 
@@ -176,7 +176,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, partialSls, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitLiveStructPoint, showZZ]);
+  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, partialSls, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitStructPoints, showZZ]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -309,7 +309,7 @@ export function useChartInteraction({
       if (scales && !drag && !structMode && !drawMode && pos.y >= 0 && pos.y <= IH) {
         const leg = findHoveredLeg({
           px: pos.x, py: pos.y,
-          structures, liveSegment: getStructLiveSegment(),
+          structures,
           zzSegments: showZZ ? getZzSegments() : null,
           xScale: scales.xScale, yScale: scales.yScale, candles, zzShowVol,
         });
@@ -360,7 +360,8 @@ export function useChartInteraction({
       if (!drag) {
         if (scales) {
           const { xScale, yScale } = scales;
-          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawings, scaleInOrders, splitTps, partialSls, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedStructId, structures, structMode, structDraft, structLive: getStructLiveSegment(), isLog });
+          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawings, scaleInOrders, splitTps, partialSls, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedStructId, structures, structMode, structDraft,
+            structAutoChains: getStructAutoChains(), isLog });
           if (cursor) { setCursor(cursor); return; }
         }
         setCursor((drawMode || lineMode || channelMode || circleMode || fibMode || structMode) ? "crosshair" : "grab"); return;

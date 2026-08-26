@@ -24,57 +24,31 @@
 // 전체 재계산(= 기록 초기화)은 다음 경우에만 발생한다:
 //   캔들 배열 교체(타임프레임 전환) / 파라미터 변경 / candles[0] 변경(버퍼 shift·재로드)
 
+import {
+  resolveZzParams, wilderATR, atrStep, pivotAt, passesNoiseFilter,
+} from "./zigzagPivots";
+
+// ⚠ 꼭짓점 판정(피벗·ATR·노이즈 필터)은 **chart/zigzagPivots.js 한 곳**에 있다.
+//   커스텀 구조의 자동 이어그리기(chart/structAutoPivots.js)가 같은 규칙을 쓰기 때문이다.
+//   여기로 다시 옮겨오지 말 것 — 두 벌이 되면 같은 차트에서 꼭짓점 자리가 갈린다.
+//   이 파일이 갖는 건 그 위에 얹히는 것뿐이다: CHoCH·bias·세그먼트 누적.
+
 const EMPTY = { segments: [], chochs: [] };
 
 // 장시간 세션에서 무한 증가 방지 (표시용 슬라이스와 별개인 원본 보관 한도)
 const MAX_SEGMENTS = 2000;
 const MAX_CHOCHS   = 500;
 
-function resolve(params) {
-  return {
-    left_bars:  params.left_bars  ?? 5,
-    use_filter: params.use_filter ?? true,
-    atr_mult:   params.atr_mult   ?? 1.5,
-    atr_period: params.atr_period ?? 14,
-  };
-}
-
-function trueRange(candles, i) {
-  const c = candles[i];
-  if (i === 0) return c.h - c.l;
-  const pc = candles[i - 1].c;
-  return Math.max(c.h - c.l, Math.abs(c.h - pc), Math.abs(c.l - pc));
-}
-
-// Wilder's ATR (Pine `ta.atr` = RMA of True Range, SMA 시드) — 초기 구축용 전체 계산
-function wilderATR(candles, period) {
-  const n   = candles.length;
-  const atr = new Array(n).fill(NaN);
-  let sum = 0;
-  for (let i = 0; i < n; i++) {
-    const tr = trueRange(candles, i);
-    if (i < period) {
-      sum += tr;
-      if (i === period - 1) atr[i] = sum / period;
-    } else {
-      atr[i] = (atr[i - 1] * (period - 1) + tr) / period;
-    }
-  }
-  return atr;
-}
-
 // 진행 중 봉의 ATR은 직전(확정) 봉 값에서 매번 다시 구한다 — 확정 값은 훼손하지 않음
 function atrAt(st, candles, i, period) {
   if (i < period) return st.atr[i] ?? NaN;
-  const prev = st.atr[i - 1];
-  if (Number.isNaN(prev) || prev === undefined) return NaN;
-  const v = (prev * (period - 1) + trueRange(candles, i)) / period;
+  const v = atrStep(st.atr[i - 1], candles, i, period);
   st.atr[i] = v;
   return v;
 }
 
 function initState(candles, params, firstT) {
-  const p = resolve(params);
+  const p = resolveZzParams(params);
   const n = candles.length;
   // 초기화 = 과거 전 구간을 다시 훑어 CHoCH를 무더기로 재생산한다는 뜻.
   // 알림 쪽이 이걸 "새 발생"으로 오해하지 않도록 세대 번호를 올린다
@@ -135,25 +109,16 @@ function pushChoch(st, ev) {
 // 봉 하나를 상태에 반영. 되돌리는 동작은 없음 — 기록은 추가되기만 한다.
 function step(st, candles, i) {
   const p = st.p;
-  const c = candles[i];
 
-  let hh = -Infinity, ll = Infinity;
-  for (let j = 1; j <= p.left_bars; j++) {
-    const q = candles[i - j];
-    if (q.h > hh) hh = q.h;
-    if (q.l < ll) ll = q.l;
-  }
-  const ph = c.h > hh ? c.h : null;
-  const pl = c.l < ll ? c.l : null;
+  const { ph, pl } = pivotAt(candles, i, p.left_bars);
   if (ph === null && pl === null) return;
 
   // 스윙폭이 ATR × 배수 미만이면 노이즈로 간주 (ATR 미확정 구간은 통과)
-  const passes = (price) => {
-    if (!p.use_filter || Number.isNaN(st.lastPointPrice)) return true;
-    const a = atrAt(st, candles, i, p.atr_period);
-    if (Number.isNaN(a)) return true;
-    return Math.abs(price - st.lastPointPrice) >= a * p.atr_mult;
-  };
+  const passes = (price) => passesNoiseFilter(
+    price, st.lastPointPrice,
+    () => atrAt(st, candles, i, p.atr_period),
+    p.atr_mult, p.use_filter,
+  );
 
   // ── High Pivot ────────────────────────────────────────────────────────────
   if (ph !== null) {

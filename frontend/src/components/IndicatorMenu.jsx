@@ -17,7 +17,7 @@ export const INDICATORS = [
   //   둘 다 지그재그 + CHoCH라 이름이 거의 같은데, 하나는 시스템이 봉에서 뽑고
   //   하나는 사용자가 손으로 찍는다 — 그 차이가 이름에서 바로 읽혀야 한다.
   //   ※ key는 "zz" 그대로 — 바꾸면 localStorage("indicators")의 on/off와
-  //     서버에 저장된 파라미터(indicator_params.json)가 통째로 초기화된다
+  //     저장된 파라미터(브라우저 localStorage `indicatorParams`)가 통째로 초기화된다
   { key: "zz",  label: "Auto Structure Zigzag" },
   // 수동 구조 표시 토글 — 자동 ZZ와 독립
   // ※ key는 "struct" 유지 — 바꾸면 localStorage("indicators")에 저장된 on/off가 초기화된다

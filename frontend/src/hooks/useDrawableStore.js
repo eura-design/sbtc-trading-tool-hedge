@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo, useRef } from "react";
+import { lsGet, lsSet } from "../utils/storage";
 
 const load = (key) => {
-  try { return JSON.parse(localStorage.getItem(key) || "[]"); }
+  try { return JSON.parse(lsGet(key) || "[]"); }
   catch { return []; }
 };
 
@@ -38,7 +39,7 @@ export function useDrawableStore(storageKey, reloadToken = 0) {
   const save = useCallback((list) => {
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      localStorage.setItem(storageKey, JSON.stringify(list));
+      lsSet(storageKey, JSON.stringify(list));
     }, 300);
   }, [storageKey]);
 
@@ -48,7 +49,7 @@ export function useDrawableStore(storageKey, reloadToken = 0) {
   // 전체 교체 (마이그레이션 등에서 사용)
   const replaceAll = useCallback((list) => {
     setRaw(list);
-    localStorage.setItem(storageKey, JSON.stringify(list));
+    lsSet(storageKey, JSON.stringify(list));
   }, [storageKey]);
 
   const add = useCallback((props) => {

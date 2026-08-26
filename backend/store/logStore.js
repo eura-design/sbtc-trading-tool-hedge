@@ -100,16 +100,35 @@ function openStream() {
   }
 }
 
-/** 보존 기간이 지난 날짜 파일 삭제 — 비동기라 이벤트 루프를 막지 않는다 */
+/**
+ * 보존 기간이 지난 날짜 파일 삭제 — 비동기라 이벤트 루프를 막지 않는다.
+ *
+ * ⚠ **날짜 파일이 아닌 것은 지우지 않되, 있으면 알린다** (2026-08-26).
+ *   예전에는 `YYYY-MM-DD.jsonl`에 **정확히** 맞는 것만 봤다. 그래서 어쩌다 생긴
+ *   `2026-08-25.jsonl.tmp` 하나가 **석 달 동안** 그대로 남아 있었다 —
+ *   지워지지도, 알려지지도 않았다. 조용히 쌓이는 것이 이 폴더에서 가장 나쁘다.
+ *   · 날짜로 시작하는 파일은 꼬리표가 붙어 있어도(`.tmp` 등) 같이 정리한다
+ *   · 그 외 낯선 파일은 **건드리지 않고 경고만** 낸다 — 누가 일부러 둔 것일 수 있다
+ *
+ * ⚠ 이 폴더에 **오래 남아야 하는 것을 두지 말 것.** 손익 커서(`income_cursor.json`)와
+ *   하루 요약(`daily_summary.jsonl`)은 2026-08-26에 이 폴더 밖으로 옮겼다 —
+ *   여기는 "지워도 되는 것"만 있는 자리다
+ */
 function sweep() {
   const cutoff = Date.now() - RETAIN_DAYS * 86400_000;
   fs.readdir(DIR, (err, files) => {
     if (err) return;
+    const stray = [];
     for (const f of files) {
-      const m = /^(\d{4})-(\d{2})-(\d{2})\.jsonl$/.exec(f);
-      if (!m) continue;
+      // 꼬리표가 붙은 날짜 파일도 잡는다 (`.jsonl.tmp` 같은 찌꺼기)
+      const m = /^(\d{4})-(\d{2})-(\d{2})\.jsonl(?:\..+)?$/.exec(f);
+      if (!m) { stray.push(f); continue; }
       const t = new Date(+m[1], +m[2] - 1, +m[3]).getTime();
       if (t < cutoff) fs.unlink(path.join(DIR, f), () => {});
+    }
+    // 낯선 파일은 지우지 않는다 — 대신 보이게 한다 (하루 한 번뿐이라 시끄럽지 않다)
+    if (stray.length) {
+      log("LOG_DIR_STRAY", { level: "warn", count: stray.length, files: stray.slice(0, 10) });
     }
   });
 }

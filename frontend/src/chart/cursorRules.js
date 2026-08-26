@@ -1,7 +1,7 @@
 import { HIT } from "../constants";
 import { distToSeg } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
-import { channelXYs, lineXY, findStructEndpointHit, findHitFib, fibXs, STRUCT_LIVE_HIT } from "./hitDetection";
+import { channelXYs, lineXY, findStructEndpointHit, findHitFib, fibXs, structAutoCommitHit } from "./hitDetection";
 
 // 구조 끝점 연결 커서 — **크기를 직접 정한 작은 + 표시** (2026-08-15 사용자 지정)
 //
@@ -232,14 +232,15 @@ export const CURSOR_RULES = [
     },
     cursor: "move",
   },
-  // 진행 중 레그(점선)의 끝점 위 — 누르면 그 자리가 꼭짓점으로 확정된다
+  // 자동 이어그리기의 점 위 — 누르면 거기까지가 꼭짓점으로 확정된다 (2026-08-26).
+  // 자동 점 **하나하나**가 대상이고, 켜 둔 구조마다 있다.
   // (구조 모드 밖에서만. 모드 안에서는 클릭이 이미 꼭짓점 추가라 뜻이 겹친다)
   {
-    test: ({ structMode, structLive, pos, xScale, yScale, candles }) => {
-      if (structMode || !structLive?.ownerId) return false;
-      const x = xScale(tsToIdx(structLive.t2, candles));
-      const y = yScale(structLive.p2);
-      return Math.hypot(pos.x - x, pos.y - y) <= STRUCT_LIVE_HIT;
+    test: ({ structMode, structAutoChains, pos, xScale, yScale, candles }) => {
+      if (structMode) return false;
+      // 판정은 hitDetection 하나가 갖는다 — 여기서 다시 계산하면 커서가 바뀌는 자리와
+      // 실제로 눌리는 자리가 어긋난다
+      return !!structAutoCommitHit(structAutoChains, pos, xScale, yScale, candles);
     },
     // 구조 모드의 끝점 이어붙이기와 **같은 커서**다 (2026-08-15 사용자 지정).
     // 하는 일이 같기 때문 — "여기를 누르면 구조에 이어 붙는다".

@@ -21,7 +21,15 @@ let _replayGuard = false;
 // 계좌와 무관한 UI 설정은 리플레이 중에도 저장돼야 한다 — 지표 파라미터가 그렇다.
 // (한때 막혀 있었는데 useIndicatorParams가 `.catch(() => {})`로 삼켜서,
 //  연습 중에 바꾼 지표 설정이 아무 말 없이 사라졌다)
-const ALLOW_IN_REPLAY = ["/api/indicator-params"];
+// 리플레이 중에도 통과시킬 경로 — **계좌와 무관한 UI 설정**만 넣을 것.
+// ※ 지금은 비어 있다. 유일한 항목이던 `/api/indicator-params`가 2026-08-26에 사라졌다
+//   (지표 설정이 브라우저로 옮겨가 백엔드에 보낼 것이 없어졌다).
+//   ⚠ **그 항목이 왜 있었는지는 기억해 둘 것** — 막아 뒀더니 `useIndicatorParams`가
+//     `.catch(() => {})`로 삼켜서, 연습 중에 바꾼 지표 설정이 아무 말 없이 사라졌다.
+//     앞으로도 "계좌와 무관한데 백엔드에 쓰는 것"이 생기면 여기에 넣어야 한다.
+// ※ 브라우저 저장소 백업(`api/backup.js`)은 이 목록과 무관하다 — `api()`를 안 쓰고
+//   raw fetch라 애초에 가드를 지나지 않는다 (clientLog와 같다)
+const ALLOW_IN_REPLAY = [];
 
 export function setReplayGuard(on) { _replayGuard = on; }
 

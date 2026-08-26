@@ -20,6 +20,8 @@
 // ⚠ 펀딩비 커서(`fundIdx`)도 ②에서는 0으로 되돌린다 — 구간이 바뀌면 펀딩비
 //   이력 배열 자체가 새로 받은 다른 배열이라 옛 인덱스는 뜻이 없다.
 
+import { lsGet, lsRemove, lsSet } from "../utils/storage.js";
+
 const KEY = "replay_session";
 const VERSION = 3;   // v2 → v3: 구간이 달라도 장부를 이어받는다
 
@@ -37,7 +39,7 @@ export const sessionKey = (symbol, startMs, endMs) => `${symbol}|${startMs}|${en
 export function saveSession(key, broker) {
   if (!broker) return;
   try {
-    localStorage.setItem(KEY, JSON.stringify({
+    lsSet(KEY, JSON.stringify({
       v: VERSION, key,
       startBalance: broker.startBalance,
       balance: broker.balance,
@@ -63,7 +65,7 @@ export function saveSession(key, broker) {
  */
 export function loadSession() {
   try {
-    const s = JSON.parse(localStorage.getItem(KEY) || "null");
+    const s = JSON.parse(lsGet(KEY) || "null");
     if (!s || !READABLE.has(s.v)) return null;
     return s;
   } catch { return null; }
@@ -73,7 +75,7 @@ export function loadSession() {
 export const sameRange = (s, key) => !!s && s.key === key;
 
 export function clearSession() {
-  localStorage.removeItem(KEY);
+  lsRemove(KEY);
 }
 
 /**

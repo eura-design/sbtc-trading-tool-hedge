@@ -17,6 +17,8 @@
 // 때마다 새 키가 생겨 localStorage에 쓰레기가 쌓이고 "아까 그린 게 어디 갔나"가
 // 되기 때문이다. 연습용은 한 벌이면 충분하고, 지우고 싶으면 clearReplayDrawings.
 
+import { lsGet, lsRemove } from "../utils/storage.js";
+
 const PREFIX = "replay_";
 
 export const DRAWING_KEYS = ["trendLines", "trendChannels", "trendCircles", "fibs", "structures"];
@@ -34,12 +36,12 @@ export function drawingKey(base, replayOn) {
 }
 
 export function clearReplayDrawings() {
-  for (const k of DRAWING_KEYS) localStorage.removeItem(PREFIX + k);
+  for (const k of DRAWING_KEYS) lsRemove(PREFIX + k);
 }
 
 export function hasReplayDrawings() {
   return DRAWING_KEYS.some(k => {
-    try { return JSON.parse(localStorage.getItem(PREFIX + k) || "[]").length > 0; }
+    try { return JSON.parse(lsGet(PREFIX + k) || "[]").length > 0; }
     catch { return false; }
   });
 }

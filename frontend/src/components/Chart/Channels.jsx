@@ -2,6 +2,7 @@ import { memo } from "react";
 import { SEL_HANDLE_R } from "../../constants";
 import { tsToIdx } from "../../chart/scales";
 import { clipSegmentX, VIEW_PAD } from "../../chart/svgGeom";
+import { LockMark } from "./LockMark";
 
 const CHANNEL_COLOR = "#888888";
 
@@ -47,9 +48,14 @@ export const Channels = memo(function Channels({
         const s1 = clipSegmentX(a1.x, a1.y, b1.x, b1.y, -VIEW_PAD, IW + VIEW_PAD);
         const s2 = clipSegmentX(a2.x, a2.y, b2.x, b2.y, -VIEW_PAD, IW + VIEW_PAD);
         if (!s1 && !s2) return null;                    // 완전히 화면 밖
+        // 자물쇠는 메인선에 붙인다 — 메인선이 화면 밖이면 미러선에
+        const lockSeg = s1 ?? s2;
 
         return (
           <g key={ch.id}>
+            {ch.locked && <LockMark
+              pts={[{ x: lockSeg.x1, y: lockSeg.y1 }, { x: lockSeg.x2, y: lockSeg.y2 }]}
+              IW={IW} />}
             {/* 메인 라인 */}
             {s1 && <line x1={s1.x1} y1={s1.y1} x2={s1.x2} y2={s1.y2}
               stroke={color} strokeWidth={sw} opacity={opacity}

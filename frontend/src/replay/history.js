@@ -23,9 +23,17 @@ import { fetchRange, FIRST_LISTING_MS } from "./klines.js";
 import { concatSoA, sliceSoA, indexOfTime, soaFromRows, createSoA } from "./soa.js";
 
 const DB_NAME    = "hadge-replay";
-const DB_VERSION = 1;
+// v2 (2026-08-26) — 청크에 `at`(받아 둔 시각)을 붙이고 그 인덱스를 만들었다.
+// 예전엔 캐시가 **무한정 쌓였다** (비우는 함수는 있는데 아무도 안 불렀다).
+const DB_VERSION = 2;
 const STORE      = "klines";
 const CHUNK_BARS = 1000;
+
+// 캐시 상한 — 청크 하나가 1000봉 × 6 × 8바이트 ≈ 48KB이므로 400개면 약 19MB다.
+// 90일 5m 한 세션이 26청크라 열댓 구간을 오가도 여유가 있다.
+// ⚠ 이건 **성능용 캐시일 뿐**이다 — 지워도 다시 받으면 그만이라 상한을 낮게 잡아도
+//   기능이 깨지지 않는다. 저장 공간을 조용히 먹는 쪽이 더 나쁘다.
+const MAX_CHUNKS = 400;
 
 const chunkSpan = (tf) => tfMs(tf) * CHUNK_BARS;
 const chunkIdxOf = (t, tf) => Math.floor(t / chunkSpan(tf));
@@ -44,7 +52,12 @@ function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "key" });
+      // ⚠ 옛 청크는 **버린다.** v1에는 `at`이 없어서 인덱스에 잡히지 않고, 그러면
+      //   영영 안 지워지는 찌꺼기가 된다. 캐시는 다시 받으면 그만이라 버리는 게 싸다.
+      if (db.objectStoreNames.contains(STORE)) db.deleteObjectStore(STORE);
+      const store = db.createObjectStore(STORE, { keyPath: "key" });
+      // 오래된 것부터 지우려면 값을 통째로 읽지 않고 시각만 훑을 수 있어야 한다
+      store.createIndex("at", "at");
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => {
@@ -90,8 +103,9 @@ async function writeChunks(symbol, tf, entries) {
   await new Promise((resolve) => {
     const tx = tx0(db, "readwrite");
     const store = tx.objectStore(STORE);
+    const at = Date.now();
     for (const { idx, soa } of entries) {
-      store.put({ key: chunkKey(symbol, tf, idx), soa });
+      store.put({ key: chunkKey(symbol, tf, idx), soa, at });
     }
     tx.oncomplete = resolve;
     tx.onerror = () => { console.warn("[replay] 캐시 저장 실패:", tx.error?.message); resolve(); };
@@ -100,6 +114,45 @@ async function writeChunks(symbol, tf, entries) {
 }
 
 const tx0 = (db, mode) => db.transaction(STORE, mode);
+
+/**
+ * 캐시가 상한을 넘으면 **먼저 받아 둔 것부터** 지운다.
+ *
+ * 쓰기가 끝난 뒤에만 부르고, 상한 아래면 개수만 세고 끝난다(거의 공짜).
+ * `at` 인덱스를 커서로 훑으므로 **캔들 데이터를 읽지 않는다** — 값까지 읽으면
+ * 정리하려다 수십 MB를 메모리에 올리게 된다.
+ *
+ * ※ 받은 시각 기준이지 마지막으로 쓴 시각이 아니다. 읽을 때마다 시각을 갱신하면
+ *   조회 한 번에 쓰기가 딸려붙어 리플레이 로딩이 느려진다 — 캐시 하나 더 받는 값보다 비싸다.
+ */
+async function trimCache() {
+  const db = await openDB();
+  if (!db) {
+    // 메모리 폴백도 같이 막는다 (Map은 넣은 순서를 지킨다)
+    while (memory.size > MAX_CHUNKS) memory.delete(memory.keys().next().value);
+    return;
+  }
+  await new Promise((resolve) => {
+    const tx    = tx0(db, "readwrite");
+    const store = tx.objectStore(STORE);
+    const req   = store.count();
+    req.onsuccess = () => {
+      let over = req.result - MAX_CHUNKS;
+      if (over <= 0) return;                       // 상한 아래 — 아무것도 안 한다
+      const cur = store.index("at").openKeyCursor();   // 값이 아니라 키만
+      cur.onsuccess = () => {
+        const c = cur.result;
+        if (!c || over <= 0) return;
+        store.delete(c.primaryKey);
+        over--;
+        c.continue();
+      };
+    };
+    tx.oncomplete = resolve;
+    tx.onerror    = resolve;
+    tx.onabort    = resolve;
+  });
+}
 
 // ── 조회 ─────────────────────────────────────────────────────────────────
 
@@ -147,6 +200,7 @@ export async function getRange(symbol, tf, startMs, endMs, { signal, onProgress 
       if ((i + 1) * span <= now) toWrite.push({ idx: i, soa: part });
     }
     await writeChunks(symbol, tf, toWrite);
+    await trimCache();   // 상한을 넘으면 먼저 받아 둔 청크부터 지운다
   }
 
   const parts = [];
@@ -164,7 +218,10 @@ export function getLastBars(symbol, tf, endMs, bars, opts) {
   return getRange(symbol, tf, endMs - tfMs(tf) * bars, endMs, opts);
 }
 
-/** 캐시 비우기 — 저장 형식을 바꿨을 때 쓴다 */
+/**
+ * 캐시 통째로 비우기 — 저장 형식을 바꿨을 때 쓴다.
+ * ※ 평소 정리는 `trimCache()`가 쓰기 뒤에 알아서 한다 (상한 MAX_CHUNKS).
+ */
 export async function clearCache() {
   memory.clear();
   const db = await openDB();

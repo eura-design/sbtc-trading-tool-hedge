@@ -1,15 +1,16 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { RSI_H } from "../constants";
+import { lsGet, lsSet } from "../utils/storage";
 
 const MIN_H = 50;
 const MAX_H = 300;
 
 export function useRsiResize() {
-  const [rsiH, setRsiH] = useState(() => Number(localStorage.getItem("rsiH")) || RSI_H);
+  const [rsiH, setRsiH] = useState(() => Number(lsGet("rsiH")) || RSI_H);
   const dragRef    = useRef(null);
   const handlersRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem("rsiH", rsiH); }, [rsiH]);
+  useEffect(() => { lsSet("rsiH", rsiH); }, [rsiH]);
 
   // 마운트 중 언마운트되어도 리스너가 남지 않도록 useEffect로 cleanup 보장
   useEffect(() => {

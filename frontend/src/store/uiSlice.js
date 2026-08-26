@@ -1,4 +1,6 @@
 // Module-level timer: drawing localStorage 동기화 debounce
+import { lsGet, lsRemove, lsSet } from "../utils/storage";
+
 let _drawingTimer = null;
 
 // ── 플랜 박스도 모드별로 나눈다 ──────────────────────────────────────────
@@ -34,8 +36,8 @@ export function swapDrawingStorage(replayOn, current) {
 }
 
 function writeDrawings(key, map) {
-  if (map?.long || map?.short) localStorage.setItem(key, JSON.stringify(map));
-  else                         localStorage.removeItem(key);
+  if (map?.long || map?.short) lsSet(key, JSON.stringify(map));
+  else                         lsRemove(key);
 }
 
 /** 저장된 박스 하나를 씻어 낸다 (구버전 좌표 정리). 못 쓰면 null */
@@ -51,7 +53,7 @@ function normBox(b) {
 
 function loadDrawings() {
   try {
-    const saved = JSON.parse(localStorage.getItem(_drawingKey) || "null");
+    const saved = JSON.parse(lsGet(_drawingKey) || "null");
     if (!saved) return { ...EMPTY_DRAWINGS };
     // ⚠ **박스 하나만 저장하던 구버전을 계속 읽는다.** `isLong`이 있으면 박스 자체다
     //   (새 형식은 long/short를 담은 봉투라 그 키가 없다). 안 읽어 주면 업데이트

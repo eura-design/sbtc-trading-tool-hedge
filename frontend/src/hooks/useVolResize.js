@@ -1,15 +1,16 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { VOL_H } from "../constants";
+import { lsGet, lsSet } from "../utils/storage";
 
 const MIN_H = 40;
 const MAX_H = 200;
 
 export function useVolResize() {
-  const [volH, setVolH] = useState(() => Number(localStorage.getItem("volH")) || VOL_H);
+  const [volH, setVolH] = useState(() => Number(lsGet("volH")) || VOL_H);
   const dragRef     = useRef(null);
   const handlersRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem("volH", volH); }, [volH]);
+  useEffect(() => { lsSet("volH", volH); }, [volH]);
 
   useEffect(() => {
     return () => {

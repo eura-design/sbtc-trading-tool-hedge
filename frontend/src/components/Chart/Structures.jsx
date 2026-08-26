@@ -3,8 +3,11 @@ import { CANVAS_C, PALETTE, SEL_HANDLE_R } from "../../constants";
 import { useStore } from "../../store";
 import { tsToIdx } from "../../chart/scales";
 import { deriveStructure, normalizeStructurePoints } from "../../chart/deriveStructure";
-import { setStructChochCounts, setStructLiveSegment, setStructLiveChochs } from "../../chart/structRenderState";
+import { autoPivotsAfter, structAutoOn } from "../../chart/structAutoPivots";
+import { setStructChochCounts, setStructLiveChochs,
+         setStructAutoChains } from "../../chart/structRenderState";
 import { clipPolylineX, clipSegmentX, inViewX, VIEW_PAD } from "../../chart/svgGeom";
+import { LockMark } from "./LockMark";
 
 // 수동 구조 SVG 렌더 — 지그재그 + CHoCH 마크 + 꼭짓점 핸들
 //
@@ -19,19 +22,36 @@ import { clipPolylineX, clipSegmentX, inViewX, VIEW_PAD } from "../../chart/svgG
 // [R2] 신규 구조 기본 투명도 0.5 (useStructures.js의 STRUCT_DEFAULT_OPACITY).
 //      1.0으로 "정상화"하지 말 것.
 //
-// [R3] 진행 중 레그(점선)는 꼭짓점 timestamp가 가장 최근인 구조 **하나만** 갖는다.
-//      나머지는 deriveStructure에 candles 대신 null을 넘겨 라이브를 끈다.
-//      전부에게 주면 과거 구조가 화면 끝까지 점선을 뻗는다 (사용자 지적).
-//      확정 CHoCH는 캔들 없이 계산되므로 null을 넘겨도 잃는 게 없다.
+// [R3] ⚠ **진행 중 레그는 2026-08-26에 기능째 삭제됐다** (사용자 요청 —
+//      "자동 이어그리기가 그걸 대체하니 제거해도 된다"). [R11]도 같이 사라졌다.
+//      마지막 꼭짓점 → 현재 극값을 하늘색 점선 한 줄로 잇던 것이다.
+//      되살리지 말 것. 되살리려면 deriveStructure의 liveSegment 계산,
+//      structRenderState의 `_liveSegment`, 여기 소유자 판정(liveOwnerId)과 렌더,
+//      hitDetection의 끝점 클릭, cursorRules, legDebug가 전부 다시 필요하다.
+//      ※ 그 결과 **점선은 마지막으로 확정된 꼭짓점까지만 간다** — 현재 봉에 닿지 않는다.
+//        자동 이어그리기는 진행 중 봉을 일부러 빼기 때문이다(structAutoPivots 참고).
 //
 // [R4] liveCandles는 candlesRef.current다. candles prop으로 바꾸지 말 것 —
-//      진행 중 봉의 고가/저가가 낡아 라이브 판정이 조용히 죽는다.
+//      진행 중 봉의 고가/저가가 낡아 자동 이어그리기 판정이 한 봉 뒤처진다.
 //      단, tsToIdx 좌표 변환은 candles(prop)를 쓴다. 길이가 항상 같아 안전하다.
 //
-// [R5] 라이브에서 나온 CHoCH는 점선, 확정분은 실선. 이 구분을 없애지 말 것.
+// [R5] 자동 이어그리기 구간에서 나온 CHoCH는 점선, 확정분은 실선.
+//      이 구분을 없애지 말 것 — 아직 내가 인정한 꼭짓점이 아니라는 뜻이다.
 //
-// [R11] 진행 중 레그(점선)는 **하늘색(LIVE_COLOR) + 굵기 1.5 + 글로우**로 눈에 띄게 그린다
-//      (2026-08-15 사용자 요청). 구조 투명도를 곱하지 않는다 — 자세한 근거는 렌더 부분 주석.
+// [R12] **마지막 꼭짓점 이후는 자동으로 꼭짓점을 찾아 이어 붙인다** (2026-08-26 사용자 요청).
+//      찾는 규칙은 자동 ZZ 지표와 같은 것을 나눠 쓴다 (chart/zigzagPivots.js).
+//      ⚠ **설정은 공유하지 않는다 — 구조마다 따로다** (`st.autoZz` / `st.autoParams`,
+//        더블클릭 팝업에서 켜고 조절한다). 처음 값만 지표와 같다.
+//        전역 값 하나로 되돌리지 말 것 — 구조마다 다른 설정을 쓰는 게 요구사항이다.
+//      ⚠ **기본 OFF**다. 켠 구조마다 각각 붙는다(하나로 제한하지 않는다) —
+//        기본이 OFF인 것이 [R3]의 "화면이 온통 점선이 된다"를 막는 장치다.
+//      자동으로 찾은 구간은 **진행 중 레그와 같은 하늘색 점선**이다: 둘 다 "아직 확정
+//      아님"이고 화면에서 한 덩어리로 이어져 보여야 한다. 끝점을 클릭하면 그 점들이
+//      **통째로** 구조에 들어가고(hitDetection 3.95), 그 뒤부터 다시 자동으로 찾는다.
+//      ⚠ 진행 중 레그를 가진 구조 하나에만 적용한다 ([R3]과 같은 이유).
+//      ⚠ draft(그리는 중)에는 적용하지 않는다 — 거기선 클릭이 이미 꼭짓점 추가라
+//        자동 점선이 겹치면 무엇을 찍는 건지 알 수 없다.
+//      ⚠ 자동 구간에서 나온 CHoCH도 점선이고 알림 대상이다 ([R5]와 같은 뜻).
 //
 // [R6] CHoCH 표시 개수 제한은 **구조마다 각각**이고, 값도 구조가 들고 있다(st.maxChoch,
 //      더블클릭 팝업에서 설정). 전역 설정 하나로 두지 말 것 — 두 번 문제가 됐다:
@@ -83,9 +103,10 @@ const SEL_COLOR  = "#f0b90b";           // 구조 전체 선택 = 금색
 // ※ 예전엔 여기에 🔔 아이콘도 달렸다 — 2026-08-14 사용자 요청으로 **네 종류 모두** 제거.
 //   되살리려면 넷을 같이 되살릴 것
 const ALERT_COLOR = "#fbbf24";
-// 진행 중 레그(점선) 전용 색 — 하늘색 ([R11], 2026-08-15 사용자 지정).
-// 한때 알림과 같은 호박색이었는데, 그러면 알림 ON인 구조에서 확정 레그와 진행 중 레그가
-// 같은 색이 되어 "지금 뻗고 있는 쪽"이 묻힌다. 파랑 계열은 지그재그 회색·알림 호박색·
+// 자동 이어그리기(점선) 전용 색 — 하늘색. 2026-08-15에 진행 중 레그용으로 정한 색이고,
+// 그 기능이 2026-08-26에 삭제되면서 자동 이어그리기가 그대로 물려받았다 ([R3]).
+// 한때 알림과 같은 호박색이었는데, 그러면 알림 ON인 구조에서 확정 레그와 색이 겹쳐
+// "아직 확정 아닌 쪽"이 묻힌다. 파랑 계열은 지그재그 회색·알림 호박색·
 // 선택 금색 어느 것과도 겹치지 않는다.
 // ⚠ 꼭짓점 부분 선택 파랑(PART_COLOR #60a5fa)과는 **일부러 다른 색조**다 —
 //   저건 "Delete 대상"이라는 전혀 다른 뜻이고, 둘이 같으면 화면에서 구분이 안 된다
@@ -99,9 +120,6 @@ const PART_COLOR = PALETTE.info;        // #60a5fa
 //   화면이 복잡해 보인다는 이유. 방향은 색(초록/빨강)과 선 위치가 이미 말해준다.
 //   ⚠ 자동 ZZ(overlayRenderers.js)·`기타/structure_zigzag.pine`도 같이 지웠다 —
 //     되살릴 거면 셋을 같이. 한쪽만 되살리면 지표마다 다르게 보인다
-
-// 진행 중 레그 소유자 판정에서 draft를 가리키는 키 (구조 id와 겹치지 않게)
-const DRAFT_ID = Symbol("draft");
 
 // 이 구조가 현재 draft에 흡수돼 있는가 (연장 원본이거나 이어붙인 대상)
 const inDraft = (draft, id) =>
@@ -147,39 +165,42 @@ export const Structures = memo(function Structures({
   // 길이는 항상 같으므로 tsToIdx 좌표 변환은 candles를 그대로 써도 된다.
   const liveCandles = candlesRef?.current?.length ? candlesRef.current : candles;
 
-  // ── 진행 중 레그는 "가장 최근 꼭짓점을 가진 구조" 하나만 갖는다 ────────────
-  // 모든 구조가 현재가를 쫓으면, 과거에 그려둔 구조도 마지막 꼭짓점에서 화면
-  // 오른쪽 끝까지 긴 점선을 뻗어 엉뚱한 데로 이어지려는 것처럼 보인다.
-  // 과거 구조는 이미 끝난 것이므로 확정 꼭짓점만 그린다.
-  // (deriveStructure에 candles를 안 넘기면 라이브 레그가 통째로 꺼진다 —
-  //  확정 CHoCH는 캔들 없이도 계산되므로 잃는 게 없다)
-  const maxT = pts => (pts?.length ? Math.max(...pts.map(p => p.t)) : -Infinity);
-  const liveOwnerId = (() => {
-    const cands = (structures ?? [])
-      .filter(s => s.points?.length && !inDraft(structDraft, s.id))
-      .map(s => ({ id: s.id, t: maxT(s.points) }));
-    if (structDraft?.points?.length) cands.push({ id: DRAFT_ID, t: maxT(structDraft.points) });
-    if (!cands.length) return null;
-    return cands.reduce((a, b) => (b.t > a.t ? b : a)).id;
-  })();
-
   // ── CHoCH 파생 + 표시 개수 제한 ([R6]) ─────────────────────────────────────
   // 개수를 세려면 구조별 렌더 안에서 계산할 수 없다 — 먼저 전부 파생해 합친다.
   // draft에 들어온 구조(연장 원본 / 흡수된 구조)는 draft가 대신 그리므로 제외.
   const visible = (structures ?? []).filter(
     st => st.points?.length && !inDraft(structDraft, st.id));
 
+  // ── 자동 이어그리기 ([R12]) ────────────────────────────────────────────────
+  // 사용자 꼭짓점 뒤에 자동으로 찾은 꼭짓점을 붙여서 deriveStructure에 넘긴다.
+  // 그러면 지그재그·CHoCH·진행 중 레그가 전부 따라온다 — 커스텀 구조는 원래
+  // "꼭짓점 목록만 주면 나머지는 알아서"라 자동 구간을 특별 취급할 게 없다.
+  const autoPts = new Map();   // structId → 자동으로 찾은 꼭짓점 []
+
   const derived = new Map();
   for (const st of visible) {
-    derived.set(st.id, deriveStructure(st.points, st.id === liveOwnerId ? liveCandles : null));
+    // ⚠ **구조마다 켜고 끈다** — 가장 최근 구조 하나로 제한하지 않는다
+    //   (2026-08-26 사용자 요청: 여러 구조가 각각 쓸 수 있어야 한다).
+    //   기본이 OFF라 켜지 않으면 예전과 똑같이 아무것도 안 붙는다.
+    //   설정은 그 구조가 들고 있다 — 자동 구조 지표와 공유하지 않는다
+    const auto   = structAutoOn(st) ? autoPivotsAfter(st.points, liveCandles, st.autoParams) : [];
+    const all    = auto.length ? [...st.points, ...auto] : st.points;
+    autoPts.set(st.id, auto);
+
+    const d = deriveStructure(all);
+    // 자동 구간의 CHoCH도 **아직 확정이 아니다** → 진행 중 레그의 것과 같이 점선으로
+    // 그리고 알림 대상에도 넣는다. 판정은 "가로선 끝이 사용자 마지막 점보다 뒤인가"
+    // 하나면 된다 — 자동 구간의 레그는 정의상 전부 그 뒤에 있다.
+    const userLastT = st.points[st.points.length - 1].t;
+    derived.set(st.id, auto.length
+      ? { ...d, chochs: d.chochs.map(ev => (ev.toT > userLastT ? { ...ev, live: true } : ev)) }
+      : d);
   }
   // 이어 그리기 중에도 CHoCH가 계속 보이도록 draft에서도 파생한다.
   // draft는 과거 방향 연장 시 역순일 수 있어 normalize로 시간순을 맞춘 뒤 넘긴다.
   const draftPts = structDraft?.points?.length >= 2
     ? normalizeStructurePoints(structDraft.points) : null;
-  const draftDerived = draftPts
-    ? deriveStructure(draftPts, liveOwnerId === DRAFT_ID ? liveCandles : null)
-    : null;
+  const draftDerived = draftPts ? deriveStructure(draftPts) : null;
 
   // 구조별 CHoCH 표시 토글(더블클릭 팝업)이 꺼진 구조는 제외. 기본은 ON이라 undefined = ON
   // (기존에 저장된 구조가 전부 꺼진 채로 뜨지 않게).
@@ -187,45 +208,14 @@ export const Structures = memo(function Structures({
   // 슬라이스 **전** 개수를 구조별로 남긴다 — 팝업의 "CHoCH 개수" 슬라이더 상한(1~N)
   setStructChochCounts(new Map(visible.map(st => [st.id, derived.get(st.id).chochs.length])));
 
-  // 진행 중 레그(점선)를 hover 라벨이 쓸 수 있게 남긴다.
-  // 구조를 통틀어 하나뿐이므로([R3]) 여기서 한 번만 기록하면 된다.
-  //
-  // [R8] **prev(직전 동일방향 레그)까지 같이 남긴다.** 안 그러면 진행 중 레그만
-  //   거래량 비교(↑↓%)가 통째로 안 뜬다 — 정작 제일 자주 보는 레그인데다,
-  //   화면엔 비교 대상이 뻔히 보이는 상태라 "왜 이것만 안 나오지"가 된다(사용자 지적).
-  //   진행 중 레그는 pts[n-1] → 현재이므로 두 칸 앞 레그는 pts[n-3] → pts[n-2]다
-  //   (고/저 교대라 방향 판정 없이 정확 — 자동 ZZ가 segs[k-2]를 쓰는 것과 같은 근거).
-  //   좌표 변환(timestamp → bar index)은 소비하는 쪽(hitDetection)에서 한다.
-  const liveOwnerPts = liveOwnerId === DRAFT_ID
-    ? draftPts
-    : visible.find(st => st.id === liveOwnerId)?.points;
-  const liveSeg = (liveOwnerId === DRAFT_ID
-    ? draftDerived?.liveSegment
-    : derived.get(liveOwnerId)?.liveSegment) ?? null;
-  const n = liveOwnerPts?.length ?? 0;
-  // 소유 구조의 `거래량 비교` 설정도 같이 실어 보낸다 — 진행 중 레그는 구조 목록에 없어서
-  // hitDetection이 st.showLegVol을 직접 읽을 수 없다 (prev를 여기서 넘기는 것과 같은 이유).
-  // draft(그리는 중)는 아직 구조가 아니므로 ON.
-  const liveShowVol = liveOwnerId === DRAFT_ID
-    ? true
-    : visible.find(st => st.id === liveOwnerId)?.showLegVol === true;
-  // ownerId / type — 점선 끝점을 **클릭해서 확정**하는 경로가 쓴다 (2026-08-15).
-  // hitDetection이 "어느 구조에, 어떤 타입으로 붙일지"를 알아야 하는데 진행 중 레그는
-  // 구조 목록에 없어서 직접 알아낼 수 없다 (prev·showVol을 여기서 실어 보내는 것과 같은 이유).
-  // draft는 ownerId를 주지 않는다 — 그리는 중에는 클릭이 이미 꼭짓점 추가다
-  const liveOwnerLast = n > 0 ? liveOwnerPts[n - 1] : null;
-  setStructLiveSegment(
-    liveSeg
-      ? {
-          ...liveSeg,
-          showVol: liveShowVol,
-          ownerId: liveOwnerId === DRAFT_ID ? null : liveOwnerId,
-          // 마지막이 저점(L)이면 진행 중 레그는 상승 → 찍힐 점은 고점(H)
-          type: liveOwnerLast?.type === "L" ? "H" : "L",
-          ...(n >= 3 ? { prev: { t1: liveOwnerPts[n - 3].t, t2: liveOwnerPts[n - 2].t } } : {}),
-        }
-      : liveSeg,
-  );
+  // 자동 점을 클릭해 확정하는 경로가 쓴다 (hitDetection·cursorRules).
+  // 자동 점은 구조 목록(st.points)에 없어서 소비하는 쪽이 알아낼 방법이 없다 —
+  // ownerId·prev·showVol을 진행 중 레그에 실어 보내는 것과 같은 이유.
+  // ⚠ 진행 중 레그와 달리 **여러 구조가 동시에 가질 수 있다**
+  setStructAutoChains(
+    visible
+      .filter(st => autoPts.get(st.id)?.length)
+      .map(st => ({ structId: st.id, points: autoPts.get(st.id) })));
 
   // 알림(useChochAlert)용 — 진행 중 레그에서 나온 CHoCH만. 확정분을 넣으면
   // 꼭짓점을 옮길 때마다 과거 CHoCH가 재계산돼 알림이 터진다(structRenderState 주석).
@@ -258,8 +248,8 @@ export const Structures = memo(function Structures({
         const alert    = !!st.alertChoch;
         const color    = selected ? SEL_COLOR : alert ? ALERT_COLOR : ZZ_COLOR;
 
-        // segments는 아래 polyline이 points로 직접 그리므로 여기선 chochs/liveSegment만 사용
-        const { chochs, liveSegment } = derived.get(st.id);
+        // segments는 아래 polyline이 points로 직접 그리므로 여기선 chochs만 사용
+        const { chochs } = derived.get(st.id);
         const pts = st.points.map(pt => toXY(pt.t, pt.p));
 
         // 선택된 구조 안에서 다시 고른 꼭짓점 (Delete로 이것만 지워진다).
@@ -275,6 +265,10 @@ export const Structures = memo(function Structures({
 
         return (
           <g key={st.id}>
+            {/* 자물쇠 — 잘라둔 폴리라인을 그대로 넘긴다 (LockMark.jsx).
+                ⚠ 잠금은 **꼭짓점을 바꾸는 모든 경로**를 막는다([SL1]) — 그 상태를
+                  화면에서 알 방법이 이 표시뿐이다 */}
+            {st.locked && <LockMark pts={vis} IW={IW} />}
             {/* 알림/선택 글로우 — 굵기 6 / 불투명도 0.18 (2026-08-25부터 이 지표에만 남아 있다) */}
             {(alert || selected) && vis.length >= 2 && (
               <polyline points={poly} fill="none" stroke={color} strokeWidth={6} opacity={0.18} />
@@ -291,37 +285,27 @@ export const Structures = memo(function Structures({
               />
             )}
 
-            {/* 진행 중 레그 — 마지막 꼭짓점에서 현재가까지 (점선이라 [R9] 클리핑 필수) */}
-            {liveSegment && (() => {
-              const a = toXY(liveSegment.t1, liveSegment.p1);
-              const b = toXY(liveSegment.t2, liveSegment.p2);
-              const s = clipSegmentX(a.x, a.y, b.x, b.y, -VIEW_PAD, IW + VIEW_PAD);
-              if (!s) return null;
-              // [R11] 진행 중 레그는 **눈에 띄게 그린다** (2026-08-15 사용자 요청).
-              //   하늘색(LIVE_COLOR) + 굵기 1.5 + 글로우(6/0.15). 예전엔 구조 색(회색)에
-              //   굵기 1, 불투명도 0.45 × 구조 투명도(기본 0.5)라 사실상 0.22였고,
-              //   회색 지그재그 끝에서 흐려지며 사라져 "지금 어디로 뻗고 있나"가 안 보였다.
-              //   ※ 처음엔 알림과 같은 호박색이었다가 같은 날 파랑으로 바꿨다 —
-              //     알림 ON인 구조에서 확정 레그와 색이 겹쳐 진행 중 레그가 묻혔다.
-              //   ⚠ **구조 투명도를 따르지 않는다** — CHoCH 마크([R1])와 같은 이유다.
-              //     지그재그를 배경처럼 흐리게 깔아도 "지금"을 가리키는 요소는 또렷해야 한다.
-              //     "일관되게" opacity를 다시 곱하지 말 것 — 기본 0.5에서 도로 안 보인다.
-              //   ⚠ 선택 중(금색)일 때만 색이 바뀐다 — 지그재그 폴리라인과 같은 규칙으로
-              //     "지금 조작 중"이 먼저다.
-              //   점선 간격(4,3)은 그대로 둔다 — 알림 선(6,3)·확정 선(실선)과 여전히 구분된다.
-              const liveColor = selected ? SEL_COLOR : LIVE_COLOR;
+            {/* 자동으로 이어 붙인 구간 ([R12]) — 진행 중 레그와 **같은 모양**이다.
+                둘은 "아직 확정 아님"이라는 같은 뜻이고, 화면에서 사용자 꼭짓점 끝부터
+                현재까지 한 덩어리로 이어져 보여야 한다. 색을 나누면 어디까지가
+                확정이고 어디부터가 아닌지가 오히려 흐려진다.
+                점선이라 [R9] 클리핑이 필수인 것도 같다 — 여기는 꼭짓점이 여럿이라
+                폴리라인이고, 조각 수는 그만큼 더 늘어난다 */}
+            {(() => {
+              const auto = autoPts.get(st.id);
+              if (!auto?.length) return null;
+              // 사용자 마지막 꼭짓점부터 이어 그린다 — 그 사이 레그가 빠지면
+              // 확정 지그재그와 자동 구간이 끊겨 보인다
+              const chain = [st.points[st.points.length - 1], ...auto].map(pt => toXY(pt.t, pt.p));
+              const cv = clipPolylineX(chain, IW);
+              if (cv.length < 2) return null;
+              const cpoly = cv.map(q => `${q.x},${q.y}`).join(" ");
+              const cc = selected ? SEL_COLOR : LIVE_COLOR;
               return (
                 <g>
-                  <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
-                    stroke={liveColor} strokeWidth={6} opacity={0.15} />
-                  <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
-                    stroke={liveColor} strokeWidth={1.5} opacity={0.8}
+                  <polyline points={cpoly} fill="none" stroke={cc} strokeWidth={6} opacity={0.15} />
+                  <polyline points={cpoly} fill="none" stroke={cc} strokeWidth={1.5} opacity={0.8}
                     strokeDasharray="4,3" />
-                  {/* ⚠ 끝점의 **속 빈 원(하늘색)은 2026-08-15 사용자 요청으로 제거**됐다.
-                      되살리지 말 것 — 점선 자체가 이미 "여기까지 뻗고 있다"를 말한다.
-                      ※ **끝점 클릭 = 꼭짓점 확정은 그대로 동작한다.** 판정은 원이 아니라
-                        hitDetection(3.95, STRUCT_LIVE_HIT)이 갖고 있었고 원은 표시일 뿐이었다.
-                        커서가 `+`로 바뀌는 것으로 누를 수 있다는 걸 알 수 있다 */}
                 </g>
               );
             })()}

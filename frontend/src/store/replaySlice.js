@@ -14,6 +14,7 @@ import { setReplayGuard } from "../api/client";
 import { clientLog } from "../api/clientLog";
 import { swapDrawingStorage } from "./uiSlice";
 import { swapTradeSettings } from "./settingsSlice";
+import { lsGet, lsSet } from "../utils/storage";
 
 const START_KEY = "replay_start_ms";
 
@@ -32,7 +33,7 @@ export const SESSION_MAX_MS = 90 * 86_400_000;
 export const sessionEnd = (startMs) => Math.min(Date.now(), startMs + SESSION_MAX_MS);
 
 function loadStart() {
-  const v = Number(localStorage.getItem(START_KEY));
+  const v = Number(lsGet(START_KEY));
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
@@ -117,7 +118,7 @@ export const createReplaySlice = (set, get) => ({
     if (startMs !== undefined) {
       patch.replayStartMs = startMs;
       if (startMs) {
-        localStorage.setItem(START_KEY, String(startMs));
+        lsSet(START_KEY, String(startMs));
         patch.replayEndMs = sessionEnd(startMs);
       }
     }

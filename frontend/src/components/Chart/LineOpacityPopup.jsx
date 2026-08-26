@@ -4,6 +4,7 @@ import { PALETTE } from "../../constants";
 import { getStructChochCount } from "../../chart/structRenderState";
 import { getZzChochTotal } from "../../chart/structureZigzag";
 import { FIB_ALL_LEVELS, fibLevelsOf } from "../../chart/fib";
+import { structAutoParamsOf } from "../../chart/structAutoPivots";
 
 // 자동 ZZ와 수동 구조는 **같은 이름("구조")** 을 쓴다 (2026-08-12 사용자 요청).
 // 사용자에게는 둘 다 "구조"이고, 어느 쪽을 더블클릭했는지는 이미 알고 있다.
@@ -31,6 +32,19 @@ const CHOCH_KINDS = new Set(["structure", "zz"]);
 const LEGVOL_KINDS = new Set(["structure", "zz"]);
 // 드래그로 움직일 수 있는 것만 잠금이 의미 있다. ZZ는 지표라 제외
 const LOCK_KINDS = new Set(["line", "channel", "circle", "fib", "structure"]);
+// 자동 이어그리기를 갖는 종류 — **커스텀 구조뿐이다** (2026-08-26).
+// 자동 구조(zz)는 그 자체가 자동이라 넣을 것이 없다. 그리고 두 지표의 설정은
+// **서로 영향을 주지 않는다** — 사용자가 공유를 취소하고 구조별로 옮겼다
+const AUTO_KINDS = new Set(["structure"]);
+// 자동 이어그리기 설정 4가지 — 라벨은 지표 메뉴(IndicatorMenu)의 ZZ ⚙과 **같은 말**이다.
+// 계산 규칙이 같은 것을 나눠 쓰므로(chart/zigzagPivots.js) 이름까지 같아야
+// "저기서 본 그 값"으로 읽힌다. 값만 구조마다 따로 산다
+const AUTO_PARAMS = [
+  { key: "left_bars",  label: "피벗 감지(봉)", min: 1,   max: 10,  step: 1 },
+  { key: "use_filter", label: "노이즈 필터",   type: "toggle" },
+  { key: "atr_mult",   label: "ATR 배수",      min: 0.1, max: 5.0, step: 0.1, fmt: v => v.toFixed(1) + "×" },
+  { key: "atr_period", label: "ATR 기간",      min: 5,   max: 50,  step: 1 },
+];
 // 표시할 레벨 목록을 갖는 종류 — 피보나치뿐.
 // **도형별**이다 (chart/fib.js [F1], 2026-08-15). 전역 값을 다시 만들지 말 것
 const LEVEL_KINDS = new Set(["fib"]);
@@ -116,6 +130,34 @@ function CountRow({ value, detected, onChange, theme }) {
           cursor: detected ? "pointer" : "default",
           opacity: detected ? 1 : 0.4,
         }}
+      />
+    </div>
+  );
+}
+
+/**
+ * 자동 이어그리기 설정값 한 줄 — 라벨 + 값 + 전폭 슬라이더.
+ * 레이아웃은 CountRow와 같다 (같은 팝업 안에서 줄마다 다르게 보이면 안 된다).
+ */
+function ParamRow({ label, value, min, max, step, fmt, onChange, theme }) {
+  return (
+    <div style={{ marginTop: "8px" }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: "4px",
+      }}>
+        <span style={{ fontSize: "12px", color: theme.textMuted }}>{label}</span>
+        <span style={{
+          fontSize: "12px", fontVariantNumeric: "tabular-nums",
+          color: PALETTE.accent, fontWeight: 700,
+        }}>
+          {fmt ? fmt(value) : value}
+        </span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        style={{ width: "100%", accentColor: PALETTE.accent, cursor: "pointer" }}
       />
     </div>
   );
@@ -247,14 +289,23 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
   // 표시할 레벨 — 도형별([F1]). 저장 안 된 도형은 기본 7개로 읽는다
   const hasLevels = LEVEL_KINDS.has(kind);
   const levels    = hasLevels ? fibLevelsOf(item) : [];
+  // 자동 이어그리기 — **구조마다** 켜고 끄고, 설정도 구조마다 따로다 (2026-08-26).
+  // ⚠ **기본 OFF**다 (`=== true`). `!== false`로 되돌리지 말 것 — 손대지 않은 기존
+  //   구조가 전부 켜진 채로 뜨고, 그러면 그려둔 구조 전부가 현재 봉까지 점선을 뻗는다
+  const hasAuto = AUTO_KINDS.has(kind);
+  const autoOn  = item?.autoZz === true;
+  const autoP   = hasAuto ? structAutoParamsOf(item) : null;
 
   // 팝업이 화면 밖으로 나가지 않도록 위치 조정.
   // 슬라이더가 브라우저 기본 최소 너비(~129px)를 갖고 좌우 여백 24px가 빠지므로
   // 폭은 넉넉히 잡는다. 높이는 구조/ZZ일 때 CHoCH 두 블록 + `거래량 비교` 행만큼 더 크다
   // (2026-08-24부터 자동 ZZ도 같은 구성이라 둘의 높이가 같다).
   // 피보나치는 레벨 체크박스 4줄 + 안내 + 버튼이 붙어 가장 크다
-  const W = 210, H = hasLevels ? 250
-    : LEGVOL_KINDS.has(kind) ? 210 : isChoch ? 175 : 80;
+  // 자동 이어그리기는 켜야 설정 4줄이 나온다 — 꺼 두면 ON/OFF 한 줄뿐이라
+  // 팝업이 쓸데없이 길어지지 않는다
+  const autoH = !hasAuto ? 0 : autoOn ? 210 : 35;
+  const W = 210, H = (hasLevels ? 250
+    : LEGVOL_KINDS.has(kind) ? 210 : isChoch ? 175 : 80) + autoH;
   const x = Math.min(popup.x, window.innerWidth  - W - 8);
   const y = Math.min(popup.y, window.innerHeight - H - 8);
 
@@ -352,6 +403,44 @@ export function LineOpacityPopup({ popup, drawables, onClose }) {
               theme={theme}
             />
           )}
+        </>
+      )}
+
+      {/* 자동 이어그리기 — **커스텀 구조에만**. 마지막 꼭짓점 뒤를 자동으로 이어 그린다
+          (Structures.jsx [R12]).
+          ⚠ 자동 구조 지표(kind "zz")의 설정과 **아무 관계가 없다** (2026-08-26 사용자
+            요청으로 공유를 끊었다). 처음 값만 같고, 그 뒤로는 서로 영향을 주지 않는다.
+            지표 메뉴 ⚙에 이 네 줄을 거울로 만들지 말 것 — 값이 구조마다 있어서
+            지표 메뉴가 가리킬 대상이 없다 (struct의 다른 값들과 같은 이유) */}
+      {hasAuto && (
+        <>
+          <ToggleRow
+            label="자동 이어그리기" on={autoOn}
+            onClick={() => d.toggleAuto?.(popup.id)}
+            title={autoOn ? "마지막 꼭짓점 뒤를 자동으로 이어 그리는 중 — 클릭하여 끔"
+                          : "마지막 꼭짓점 뒤를 자동으로 이어 그린다 — 클릭하여 켬"}
+            theme={theme}
+          />
+          {/* 꺼져 있으면 설정을 감춘다 — 아무 일도 안 하는 슬라이더가 남아 있으면
+              끈 게 아니라 고장 난 것처럼 보인다 */}
+          {autoOn && AUTO_PARAMS.map(m => (
+            m.type === "toggle" ? (
+              <ToggleRow
+                key={m.key} label={m.label} on={!!autoP[m.key]}
+                onClick={() => d.setAutoParam?.(popup.id, m.key, !autoP[m.key])}
+                title={autoP[m.key] ? "작은 흔들림을 걸러내는 중 — 클릭하여 끔"
+                                    : "작은 흔들림도 꼭짓점으로 잡는다 — 클릭하여 켬"}
+                theme={theme}
+              />
+            ) : (
+              <ParamRow
+                key={m.key} label={m.label} value={autoP[m.key]}
+                min={m.min} max={m.max} step={m.step} fmt={m.fmt}
+                onChange={v => d.setAutoParam?.(popup.id, m.key, v)}
+                theme={theme}
+              />
+            )
+          ))}
         </>
       )}
     </div>

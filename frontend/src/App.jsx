@@ -38,6 +38,7 @@ import { SidebarPanel } from "./components/Sidebar/SidebarPanel";
 import { ChartArea }    from "./components/ChartArea";
 import { ReplayBar }    from "./components/ReplayBar";
 import { Toast }        from "./components/Toast";
+import { lsGet, lsSet } from "./utils/storage";
 
 export default function App() {
   // ── 스토어 ────────────────────────────────────────────────────────────────
@@ -182,8 +183,8 @@ export default function App() {
 
 
   // ── 로컬 상태 ────────────────────────────────────────────────────────────
-  const [isLog, setIsLog] = useState(() => localStorage.getItem("chart_isLog") === "true");
-  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem("sidebar_open") !== "false");
+  const [isLog, setIsLog] = useState(() => lsGet("chart_isLog") === "true");
+  const [sidebarOpen, setSidebarOpen] = useState(() => lsGet("sidebar_open") !== "false");
   const [current, setCurrent] = useState(null); // 박스 그리기 중 드래그 사각형
 
   // ChartArea에서 resetDomain을 노출받는 ref
@@ -406,6 +407,10 @@ export default function App() {
       toggleChoch:   structs.toggleStructChoch,   // CHoCH 마크 표시
       setMaxChoch:   structs.setStructMaxChoch,   // CHoCH 표시 개수 (구조별)
       toggleLegVol:  structs.toggleStructLegVol,  // 레그 hover 거래량 비교 3줄 (구조별)
+      // 자동 이어그리기 — **구조마다** on/off와 설정을 갖는다 (2026-08-26).
+      // 자동 구조 지표(zz)에는 대응하는 항목이 없다 — 그쪽은 그 자체가 자동이다
+      toggleAuto:    structs.toggleStructAuto,
+      setAutoParam:  structs.setStructAutoParam,
     },
   }), [
     trendLines.selectedLineId, trendLines.lines, trendLines.setSelectedLineId,
@@ -420,7 +425,7 @@ export default function App() {
     structs.selectedStructId, structs.structures, structs.setSelectedStructId,
     structs.deleteStructSelection, structs.toggleStructLock, structs.setStructOpacity,
     structs.toggleStructChoch, structs.toggleStructChochAlert, structs.toggleStructLegVol,
-    structs.setStructMaxChoch,
+    structs.setStructMaxChoch, structs.toggleStructAuto, structs.setStructAutoParam,
     zzSelected, indicatorParams.zz, setIndicatorParam,
   ]);
 
@@ -505,7 +510,7 @@ export default function App() {
           setEmaList={setEmaList} resetIndicator={resetIndicator}
           notifSettings={notifSettings} onNotifToggle={notifToggle}
           isLog={isLog} onLogToggle={() => setIsLog(v => {
-            const next = !v; localStorage.setItem("chart_isLog", next); return next;
+            const next = !v; lsSet("chart_isLog", next); return next;
           })}
           shortcuts={shortcuts} onShortcutUpdate={updateShortcut} onShortcutReset={resetShortcuts}
           replayOn={replayOn} onReplayToggle={onReplayToggle}
@@ -565,7 +570,7 @@ export default function App() {
 
       {/* ── 사이드바 토글 ── */}
       <div
-        onClick={() => setSidebarOpen(v => { const next = !v; localStorage.setItem("sidebar_open", next); return next; })}
+        onClick={() => setSidebarOpen(v => { const next = !v; lsSet("sidebar_open", next); return next; })}
         style={{
           width: "20px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
           cursor: "pointer", background: theme.bgMain,

@@ -2,13 +2,14 @@ import { useState, useCallback } from "react";
 import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
 import { actionBtn } from "../sidebarBtn";
+import { lsGet, lsSet } from "../../utils/storage";
 
 // localStorage에 영속화되는 percent state — 추가진입/분할TP 카드에서 공유
 export function usePersistedPct(storageKey, defaultPct = 50) {
-  const [pct, setPctState] = useState(() => Number(localStorage.getItem(storageKey)) || defaultPct);
+  const [pct, setPctState] = useState(() => Number(lsGet(storageKey)) || defaultPct);
   const setPct = useCallback((v) => {
     setPctState(v);
-    localStorage.setItem(storageKey, v);
+    lsSet(storageKey, v);
   }, [storageKey]);
   return [pct, setPct];
 }

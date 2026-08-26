@@ -30,7 +30,14 @@ const { log, errOf } = require("../store/logStore");
  *   재시작할 때마다 최근 7일치가 통째로 다시 쌓인다 (실측으로 재시작 후 0건 확인)
  */
 
-const CURSOR_FILE = path.join(__dirname, "../logs/.income_cursor.json");
+// ⚠ **`logs/` 안에 두지 말 것** (2026-08-26에 옮겼다 — 예전엔 `logs/.income_cursor.json`).
+//   로그 폴더는 "지워도 되는 것"으로 취급되기 쉬운데, 이 커서가 사라지면 최근 7일치
+//   INCOME이 **로그에 다시 쌓인다**(백필). 그러면 수수료·손익 합계가 부풀려진다 —
+//   로그가 그 숫자의 유일한 출처라 어디와 대조할 수도 없다.
+//   ※ 읽는 쪽(tools/logq.js)에도 중복 제거를 넣었지만 그건 두 번째 겹이다.
+//     애초에 중복이 안 생기게 하는 것이 첫 번째다.
+const CURSOR_FILE = path.join(__dirname, "../income_cursor.json");
+const OLD_CURSOR  = path.join(__dirname, "../logs/.income_cursor.json");
 const POLL_MS     = 10 * 60 * 1000;   // 10분 — 펀딩비는 8시간마다라 이보다 자주 볼 이유가 없다
 const BACKFILL_MS = 7 * 24 * 3600_000; // 커서가 없을 때 훑을 범위
 
@@ -38,10 +45,19 @@ let timer   = null;
 let cursor  = { time: 0, ids: [] };   // ids = 마지막 시각에 이미 본 tranId (경계 중복 방지)
 
 function loadCursor() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(CURSOR_FILE, "utf-8"));
-    if (raw && typeof raw.time === "number") cursor = { time: raw.time, ids: raw.ids || [] };
-  } catch { /* 없으면 아래 백필로 시작한다 */ }
+  // 새 자리 → 옛 자리 순으로 본다. 옛 자리에서 읽었으면 새 자리에 옮겨 적고 지운다
+  // (일회성 이관 — 안 하면 업데이트 직후 한 번 7일치가 다시 쌓인다)
+  for (const [file, migrate] of [[CURSOR_FILE, false], [OLD_CURSOR, true]]) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
+      if (raw && typeof raw.time === "number") {
+        cursor = { time: raw.time, ids: raw.ids || [] };
+        if (migrate) { saveCursor(); try { fs.unlinkSync(OLD_CURSOR); } catch { /* 지워지든 말든 */ } }
+        return;
+      }
+    } catch { /* 다음 자리를 본다 */ }
+  }
+  /* 둘 다 없으면 아래 백필로 시작한다 */
 }
 
 function saveCursor() {

@@ -6,6 +6,7 @@
  *   node backend/tools/logq.js --since 7d --count
  *   node backend/tools/logq.js --day 2026-08-25 --level error
  *   node backend/tools/logq.js --since 30d --sum income
+ *   node backend/tools/logq.js --summary            (하루 한 줄 요약 — 30일보다 오래된 것도 나온다)
  *
  * 왜 있나 — 이 로그는 Claude가 읽는데, 물어볼 때마다 파싱 스크립트를 새로 짜면
  * **매번 조금씩 다르게 세게 된다**(특히 `tranId`처럼 함정이 있는 필드).
@@ -21,6 +22,9 @@ const path = require("path");
 const readline = require("readline");
 
 const DIR = path.join(__dirname, "../logs");
+// 오래 남는 하루 요약 — `logs/` 밖이라 30일 청소에 안 걸린다
+// (services/dailySummary.js 참고). 30일보다 오래된 날은 **여기서만** 볼 수 있다
+const SUMMARY_FILE = path.join(__dirname, "../daily_summary.jsonl");
 
 function parseArgs(argv) {
   const a = { limit: 50 };
@@ -37,6 +41,7 @@ function parseArgs(argv) {
       case "--grep":   a.grep  = v; i++; break;
       case "--limit":  a.limit = Number(v); i++; break;
       case "--count":  a.count = true; break;     // event별 건수만
+      case "--summary": a.summary = true; break;  // 하루 한 줄 요약 (오래 남는 파일)
       case "--sum":    a.sum   = v; i++; break;   // income → 종류별 합계
       case "--json":   a.json  = true; break;
       case "--help": case "-h": a.help = true; break;
@@ -104,11 +109,40 @@ async function main() {
     return;
   }
   const from  = a.day ? 0 : sinceMs(a.since);
+
+  // ── 하루 요약 — 별도 파일이라 30일 청소와 무관하다 ────────────────────────
+  if (a.summary) {
+    let rows = [];
+    try {
+      for (const line of fs.readFileSync(SUMMARY_FILE, "utf-8").split("\n")) {
+        if (!line) continue;
+        try { rows.push(JSON.parse(line)); } catch { /* 깨진 줄은 건너뛴다 */ }
+      }
+    } catch { console.log("요약 파일이 아직 없습니다:", SUMMARY_FILE); return; }
+    if (a.day)   rows = rows.filter(r => r.summarizedFor === a.day);
+    if (a.since) rows = rows.filter(r => Date.parse(r.summarizedFor + "T00:00:00") >= from);
+    for (const r of rows) {
+      console.log(
+        `${r.summarizedFor}  줄 ${String(r.lines).padStart(5)}  오류 ${String(r.errors).padStart(3)}` +
+        `  재시작 ${r.boots}  손익 ${r.net >= 0 ? "+" : ""}${r.net}` +
+        (r.nakedCount ? `  손절공백 ${r.nakedCount}회/${r.nakedSeconds}s` : ""));
+    }
+    console.log(`\n(${rows.length}일)`);
+    return;
+  }
+
   const files = filesFor(a);
   if (files.length === 0) { console.log("로그 파일이 없습니다:", DIR); return; }
 
   const counts = {};
   const sums   = {};
+  // INCOME 중복 제거용 — 커서 파일이 사라지면 같은 건이 두 번 기록될 수 있다
+  // (services/incomeLogger.js 주석 참고). 그때 합계가 부풀려지는 것을 여기서 막는다.
+  // ⚠ 키에 `tranId` 하나만 쓰지 말 것 — 손익과 수수료가 같은 값을 쓴다(실측).
+  //   incomeTime·amount까지 넣는 이유는 **서로 다른 건을 하나로 뭉치지 않기 위해서**다
+  //   (tranId가 비는 종류가 있어서 그것만으로는 갈리지 않는다)
+  const seenIncome = new Set();
+  let dupIncome = 0;
   const hits   = [];
   let scanned = 0, broken = 0;
 
@@ -125,8 +159,13 @@ async function main() {
         const key = o.kind === "console" ? `console:${o.tag || "-"}` : o.event;
         counts[key] = (counts[key] || 0) + 1;
       } else if (a.sum === "income") {
-        // ⚠ `tranId`로 묶지 말 것 — 손익과 수수료가 같은 값을 쓴다 (incomeLogger 주석)
-        if (o.event === "INCOME") sums[o.incomeType] = (sums[o.incomeType] || 0) + o.amount;
+        // ⚠ `tranId`로만 묶지 말 것 — 손익과 수수료가 같은 값을 쓴다 (incomeLogger 주석)
+        if (o.event === "INCOME") {
+          const key = `${o.tranId}|${o.incomeType}|${o.incomeTime}|${o.amount}`;
+          if (seenIncome.has(key)) { dupIncome++; continue; }
+          seenIncome.add(key);
+          sums[o.incomeType] = (sums[o.incomeType] || 0) + o.amount;
+        }
       } else {
         hits.push(o);
         if (hits.length > a.limit) hits.shift();   // 최근 것만 남긴다
@@ -143,6 +182,9 @@ async function main() {
     for (const [k, v] of Object.entries(sums)) { console.log(k.padEnd(14), v.toFixed(4)); net += v; }
     console.log("-".repeat(24));
     console.log("NET".padEnd(14), net.toFixed(4));
+    // 중복이 있었다는 건 커서가 한 번 유실됐다는 뜻이다 — 조용히 넘기지 않는다
+    if (dupIncome) console.log(`
+⚠ 중복 ${dupIncome}건을 빼고 합쳤습니다 (커서 유실 흔적)`);
   } else {
     for (const o of hits) console.log(a.json ? JSON.stringify(o) : fmt(o));
     console.log(`\n(${hits.length}건 표시 / ${scanned}줄 훑음${broken ? ` / 깨진 줄 ${broken}` : ""})`);

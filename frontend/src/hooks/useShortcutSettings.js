@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { lsGet, lsSet } from "../utils/storage";
 
 const STORAGE_KEY = "keyboard_shortcuts";
 
@@ -19,7 +20,7 @@ export const DEFAULT_SHORTCUTS = {
 
 function loadShortcuts() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = lsGet(STORAGE_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
       // 기본값과 병합 (새 단축키가 추가되었을 때 대비)
@@ -42,7 +43,7 @@ function saveShortcuts(shortcuts) {
   for (const [id, v] of Object.entries(shortcuts)) {
     toSave[id] = { key: v.key };
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  lsSet(STORAGE_KEY, JSON.stringify(toSave));
 }
 
 export function useShortcutSettings() {

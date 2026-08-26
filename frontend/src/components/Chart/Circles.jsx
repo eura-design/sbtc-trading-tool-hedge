@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { SEL_HANDLE_R } from "../../constants";
 import { tsToIdx } from "../../chart/scales";
+import { LockMark } from "./LockMark";
 
 const CIRCLE_COLOR = "#a9d0fd"; // 연한 파랑
 
@@ -38,6 +39,10 @@ export const Circles = memo(function Circles({
 
         return (
           <g key={ci.id}>
+            {/* 자물쇠 — 원의 **가로 지름**을 선분처럼 넘긴다. 그러면 원이 왼쪽으로
+                잘려 있어도 화면 안쪽 지점을 공용 헬퍼가 알아서 찾는다 */}
+            {ci.locked && <LockMark
+              pts={[{ x: c.x - r, y: c.y }, { x: c.x + r, y: c.y }]} IW={IW} />}
             {/* 테두리 */}
             <circle cx={c.x} cy={c.y} r={r}
               fill="none" stroke={color}

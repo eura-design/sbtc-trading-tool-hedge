@@ -16,6 +16,7 @@ const { stop: stopWatcher }      = require("./services/orderWatcher");
 const { syncServerTime }         = require("./services/binanceClient");
 const incomeLogger               = require("./services/incomeLogger");
 const dailySummary               = require("./services/dailySummary");
+const backupStore                = require("./store/backupStore");
 const store                      = require("./store/pendingOrders");
 const push                       = require("./services/pushService");
 
@@ -104,11 +105,16 @@ app.use("/api/orders",   require("./routes/orders"));
 app.use("/api/tpsl",      require("./routes/tpsl"));
 app.use("/api/stats",     require("./routes/stats"));
 app.use("/api/scale-in",   require("./routes/scalein"));
-app.use("/api/indicator-params", require("./routes/indicatorparams"));
 app.use("/api/leverage",         require("./routes/leverage"));
 app.use("/api/daily-loss",       require("./routes/dailyloss"));
 // 화면에서 일어난 일 — "왜 이 주문이 나갔나"의 절반은 프론트에 있다 (routes/log.js)
 app.use("/api/log",              require("./routes/log"));
+// 백업 — 브라우저 저장소를 받아 하루 한 파일로 남긴다 (store/backupStore.js)
+// ⚠ 본문이 브라우저 저장소 전체라 크다. **위의 전역 `express.json({ limit: "10mb" })`가
+//   이미 적용된다** — 여기에 또 붙이면 전역이 먼저 파싱해서 아무 일도 안 하는데,
+//   읽는 사람은 8MB가 한도인 줄 알게 된다. 실제 상한은 backupStore의 MAX_BYTES(4MB)다
+//   (`/api/tracker`가 자기 파서를 갖는 건 전역보다 **앞에** 있기 때문이다 — 여긴 뒤다)
+app.use("/api/backup", require("./routes/backup"));
 
 // ── 서버 시작 ─────────────────────────────────────────────────────────────────
 const server = app.listen(PORT, async () => {
@@ -126,6 +132,9 @@ const server = app.listen(PORT, async () => {
     // 하루가 끝나면 그날치를 한 줄로 요약한다 — "지난달 어땠어?"에 30줄만 읽고 답하기 위해
     dailySummary.start();
   }
+  // 백업 — **API 키와 무관하게** 시작한다. 매매 기능이 아니라 "지워져도 되살리기"용이라
+  // 키가 없는 환경(설정 전, 다른 PC)에서도 도형·설정은 지켜져야 한다
+  backupStore.start();
 });
 
 // ── 그레이스풀 셧다운 ──────────────────────────────────────────────────────────
@@ -134,6 +143,9 @@ async function shutdown() {
   stopWatcher();
   incomeLogger.stop();
   dailySummary.stop();
+  // 끄기 직전 상태를 한 번 더 남긴다 — 마지막 몇 시간이 통째로 비는 것을 막는다
+  backupStore.writeSnapshot();
+  backupStore.stop();
   await store.flush();
   server.close(() => {
     // ※ 완료 기록은 `logStore.close()`의 SERVER_STOP 한 줄이다 — 여기서 또 찍으면

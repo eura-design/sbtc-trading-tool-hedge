@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
 import { drawingKey } from "../replay/drawingKeys";
 import { normalizeStructurePoints } from "../chart/deriveStructure";
+import { structAutoParamsOf } from "../chart/structAutoPivots";
 
 // 신규 구조 기본 투명도 — 사용자 지정값. 1.0으로 되돌리지 말 것 ([R2] 참고).
 // 지그재그는 배경처럼 깔리고 CHoCH 마크만 또렷하게 보이도록 한 설정이다.
@@ -240,10 +241,16 @@ export function useStructures(mode = {}) {
   // (`deriveStructure`가 꼬리 기준으로 뽑은 값이고, 꼭짓점 스냅도 같은 기준이다).
   //
   // [SL1] 잠긴 구조는 꼭짓점을 바꾸는 **모든 경로**에서 막힌다 — 여기도 예외가 아니다
-  const commitLiveStructPoint = useCallback((id, pt) => {
-    if (!pt) return;
+  // 자동 이어그리기의 점을 클릭해 확정한다 — 점 하나 또는 **여러 개**를 받는다.
+  // 화면에 보이던 꼭짓점이 통째로 들어와야 한다 (Structures.jsx [R12]).
+  // 하나씩 나눠 넣으면 그 사이 렌더에서 자동 구간이 다시 계산돼 다른 점이 붙는다.
+  // ※ 이름이 commitLiveStructPoint이던 것을 2026-08-26에 바꿨다 —
+  //   진행 중 레그가 삭제되면서 "live"가 가리키던 대상이 사라졌다
+  const commitStructPoints = useCallback((id, pt) => {
+    const add = (Array.isArray(pt) ? pt : [pt]).filter(Boolean);
+    if (!add.length) return;
     store.update(id, item => (item.locked ? {} : {
-      points: normalizeStructurePoints([...item.points, pt]),
+      points: normalizeStructurePoints([...item.points, ...add]),
     }));
   }, [store]);
 
@@ -322,6 +329,34 @@ export function useStructures(mode = {}) {
     store.update(id, { maxChoch: n > 0 ? n : undefined });
   }, [store]);
 
+  /**
+   * 이 구조에서 **자동 이어그리기**를 쓸지 (더블클릭 팝업, **기본 OFF**).
+   *
+   * ⚠ **구조마다 따로**다 — 여러 구조가 각각 켜고, 각자 다른 설정을 가질 수 있다
+   *   (2026-08-26 사용자 요청). 전역 값 하나로 두지 말 것: 켜고 끈 게 어느 구조에
+   *   적용되는지가 화면에 드러나지 않는다 (struct.show_choch에서 겪은 문제).
+   *
+   * 기본이 OFF인 이유는 켜면 그 구조가 **현재 봉까지 점선을 뻗기** 때문이다.
+   * 기본 ON이면 그려둔 구조 전부가 현재를 쫓아 화면이 온통 점선이 된다
+   * (진행 중 레그를 구조 하나로 제한한 것과 같은 이유 — Structures.jsx [R3]).
+   * 켜는 건 명시적 행동이어야 한다.
+   */
+  const toggleStructAuto = useCallback((id) => {
+    store.update(id, item => ({ autoZz: !item.autoZz }));
+  }, [store]);
+
+  /**
+   * 자동 이어그리기 설정 한 가지를 바꾼다 (`left_bars`/`use_filter`/`atr_mult`/`atr_period`).
+   *
+   * ⚠ 기본값을 함께 펴서 저장한다 — 한 값만 담아두면 나중에 기본값이 바뀔 때
+   *   손대지 않은 값들이 조용히 따라 움직인다. 읽기는 `structAutoParamsOf` 하나로.
+   */
+  const setStructAutoParam = useCallback((id, key, value) => {
+    store.update(id, item => ({
+      autoParams: { ...structAutoParamsOf(item), [key]: value },
+    }));
+  }, [store]);
+
   return {
     structures: store.items,
     structMode,       setStructMode,
@@ -330,10 +365,11 @@ export function useStructures(mode = {}) {
     selectedStructId, setSelectedStructId,
     structPart, selectStructPart, clearStructPart,
     cancelStructDraw, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
-    moveStructPoint, normalizeStruct, removeStructPoint, commitLiveStructPoint,
+    moveStructPoint, normalizeStruct, removeStructPoint, commitStructPoints,
     deleteStruct, deleteStructSelection,
     setStructOpacity:  store.setOpacity,
     toggleStructLock:  store.toggleLock,
     toggleStructChoch, toggleStructChochAlert, setStructMaxChoch, toggleStructLegVol,
+    toggleStructAuto, setStructAutoParam,
   };
 }
