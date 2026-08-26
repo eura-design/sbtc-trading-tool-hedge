@@ -308,7 +308,10 @@ export function renderEMA(ctx, emaDataList, xScale, yScale, IW, IH) {
 
 // ── Structure Zigzag (지그재그 + CHoCH) ──────────────────────────────────────
 // 선택 강조색 — 수동 구조(Structures.jsx의 SEL_COLOR)와 같은 금색
-const ZZ_SEL_COLOR = "#f0b90b";
+const ZZ_SEL_COLOR   = "#f0b90b";
+// ⚠ 수동 구조(`Structures.jsx`의 ALERT_COLOR)와 **같은 값이어야 한다** —
+//   같은 알림인데 지표마다 다르게 보이면 안 된다. 한쪽만 바꾸지 말 것
+const ZZ_ALERT_COLOR = "#fbbf24";
 // ※ CHoCH 마크에는 **글자가 없다** — 가로선만 그린다 (2026-08-14 사용자 요청).
 //   `"CHoCH"` → `"C"` → 제거 순으로 줄였다. 마크가 여러 개 붙으면 글자끼리 겹쳐
 //   화면이 복잡해 보인다는 이유. 방향은 색(초록/빨강)과 선 위치가 이미 말해준다.
@@ -326,24 +329,50 @@ export function renderStructureZigzag(ctx, zzData, xScale, yScale, IW, IH, opts 
   if (!segments?.length && !chochs?.length) return;
 
   const selected = !!opts.selected;
+  // ⚠ **알림 ON이면 수동 구조와 똑같이 그린다** (2026-08-26 사용자 요청):
+  //   호박색 + 점선 `6,3` + 굵기 1.5 + 글로우(굵기 6 / 불투명도 0.18).
+  //   그전에는 알림 상태를 **받지도 않아서**, `a`를 눌러도 선이 그대로였다 —
+  //   팝업을 열기 전에는 알림이 켜졌는지 알 수 없었다
+  //   ⚠ **선택(금색)이 알림보다 우선이다** — 클릭했을 때 화면이 반응하지 않으면
+  //     Delete·`[`·`]`가 어느 도형에 걸리는지 알 수 없다 (선·채널·수동 구조와 같은 규칙)
+  const alert    = !!opts.alert;
   const opacity  = selected ? 0.95 : (opts.opacity ?? 1.0);
+  const color    = selected ? ZZ_SEL_COLOR : alert ? ZZ_ALERT_COLOR : CANVAS_C.NEUTRAL;
 
   withClip(ctx, M.left, M.top, IW, IH, () => {
     const [iMin, iMax] = xScale.domain();
 
     // 지그재그 선 (한 번의 path로 배치 스트로크)
     if (segments?.length) {
-      ctx.strokeStyle = selected ? ZZ_SEL_COLOR : CANVAS_C.NEUTRAL;
-      ctx.lineWidth   = selected ? 1.5 : 1;
-      ctx.globalAlpha = 0.8 * opacity;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      for (const s of segments) {
-        if (s.i2 < iMin - 1 || s.i1 > iMax + 1) continue;
-        ctx.moveTo(xScale(s.i1), yScale(s.p1));
-        ctx.lineTo(xScale(s.i2), yScale(s.p2));
+      // 화면 안 구간만 모아 path를 한 번 만든다 — 글로우와 본선이 **같은 path**를 써야
+      // 두 겹이 어긋나지 않는다
+      const trace = () => {
+        ctx.beginPath();
+        for (const s of segments) {
+          if (s.i2 < iMin - 1 || s.i1 > iMax + 1) continue;
+          ctx.moveTo(xScale(s.i1), yScale(s.p1));
+          ctx.lineTo(xScale(s.i2), yScale(s.p2));
+        }
+      };
+
+      // 글로우 — 수동 구조와 같은 굵기 6 / 불투명도 0.18. **점선을 풀고** 그린다:
+      // 점선으로 번지면 조각조각 흩어져 보인다 (수동 구조도 실선 폴리라인 한 겹이다)
+      if (alert || selected) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = 6;
+        ctx.globalAlpha = 0.18;
+        ctx.setLineDash([]);
+        trace();
+        ctx.stroke();
       }
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = (selected || alert) ? 1.5 : 1;
+      ctx.globalAlpha = 0.8 * opacity;
+      ctx.setLineDash(alert && !selected ? [6, 3] : []);
+      trace();
       ctx.stroke();
+      ctx.setLineDash([]);   // 아래 CHoCH가 자기 값을 다시 깔지만 여기서도 되돌려 둔다
     }
 
     // CHoCH 마크 — 돌파된 구조 레벨에 **가로선 하나**. 글자는 없다 (위 주석 참고).

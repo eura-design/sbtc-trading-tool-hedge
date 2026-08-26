@@ -172,7 +172,7 @@ async function cancelExistingAlgoTPSL(positionSide) {
         ctx: "replaceTpsl" });
     }
   } catch (e) {
-    log("ORDER_CANCEL_FAILED", { level: "warn", kind: "TPSL_ALGO", ctx: "cancelExistingAlgo",
+    log("ORDER_CANCEL_FAILED", { level: "warn", kindOf: "TPSL_ALGO", ctx: "cancelExistingAlgo",
       posSide: positionSide, err: errOf(e) });
   }
 }
@@ -212,7 +212,10 @@ async function placeTPSL({ closeSide, tp, sl }) {
     closePosition: "true", workingType: "CONTRACT_PRICE",
   });
   if (slResult && !slResult.error) {
-    results.sl = slResult;
+    // ⚠ **주문 종류를 결과에 실어 보낸다** (2026-08-25). 로그가 "이름으로 미루어
+    //   짐작"하게 두면, 나중에 이 규칙을 바꿨을 때 **과거 로그가 조용히 틀린 뜻**이
+    //   된다. `event` 이름을 식별자로 고정한 것과 같은 이유다
+    results.sl = { ...slResult, orderType: "STOP_MARKET", closePosition: true };
   } else {
     // SL 실패 시 TP는 시도하지 않음 — 포지션은 무방비 상태로 노출
     // (caller가 pushAlert("critical")로 사용자에게 즉시 알림)
@@ -227,7 +230,7 @@ async function placeTPSL({ closeSide, tp, sl }) {
     type: "TAKE_PROFIT_MARKET", triggerPrice: roundPrice(tp),
     closePosition: "true", workingType: "CONTRACT_PRICE",
   });
-  if (tpResult && !tpResult.error) results.tp = tpResult;
+  if (tpResult && !tpResult.error) results.tp = { ...tpResult, orderType: "TAKE_PROFIT_MARKET", closePosition: true };
   else results.failed.push({ type: "TP", error: tpResult?.error || "실패" });
 
   return results;
@@ -263,7 +266,8 @@ async function preplaceTPSL({ closeSide, tp, sl, qty }) {
         algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
         type, triggerPrice: roundPrice(price), quantity, workingType: "CONTRACT_PRICE",
       });
-      return { orderId: r.data.algoId, status: r.data.algoStatus };
+      return { orderId: r.data.algoId, status: r.data.algoStatus,
+        orderType: type, closePosition: false, qty: parseFloat(quantity) };
     } catch (e) {
       const msg = e.response?.data?.msg || e.message;
       log("TPSL_PRESET_FAILED", { level: "error", type: label, posSide: positionSide,
@@ -343,6 +347,9 @@ async function assertCancelKind(orderId, kind) {
     e.status = 409;
     throw e;
   }
+  // ⚠ 알아낸 종류를 **돌려준다** — 취소 로그가 "우리 말"(kindOf)뿐이면 나중에
+  //   그 말의 뜻이 바뀌었을 때 과거 기록을 되짚을 수 없다. 거래소 종류를 같이 남긴다
+  return { orderType: type, orderSide: side, posSide, fullClose: full };
 }
 
 // 해당 방향에 TP / SL이 각각 걸려 있는지 확인 → { hasTP, hasSL, ok }

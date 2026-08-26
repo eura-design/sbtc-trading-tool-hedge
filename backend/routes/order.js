@@ -30,8 +30,7 @@ router.post("/", validateOrder, async (req, res) => {
         p.positionSide === oppositeSide && parseFloat(p.positionAmt) !== 0
       );
       if (hasOppositePos) {
-        log("LEVERAGE_SKIPPED", { requested: leverage, oppositeSide,
-        reason: "반대쪽 포지션이 있어 그쪽 청산가가 움직인다" });
+        log("LEVERAGE_SKIPPED", { requested: leverage, oppositeSide });
       } else {
         await binance("POST", "/fapi/v1/leverage", {
           symbol: "BTCUSDT", leverage: parseInt(leverage),
@@ -49,6 +48,14 @@ router.post("/", validateOrder, async (req, res) => {
     const orderId   = entryOrder.orderId;
     const drawingData = req.body.drawing || null;
     const orderInfo = { side, closeSide, tp, sl, qty: quantity, status: "WATCHING", drawing: drawingData };
+    // ⚠ **주문을 낸 것 자체를 남긴다** (2026-08-25). 예전엔 시장가만 `ENTRY_FILLED`로
+    //   남고 **지정가는 체결될 때까지 아무 흔적이 없었다** — "몇 시에 걸었나",
+    //   "걸고 체결까지 얼마나 걸렸나", "걸었다가 취소된 게 몇 건인가"를 답할 수 없었다.
+    //   시장가도 같이 남긴다: 체결(`ENTRY_FILLED`)과 접수는 다른 사건이고,
+    //   접수는 됐는데 체결 기록이 없는 경우가 곧 사고다
+    log("ENTRY_PLACED", { orderId, orderSide: side, posSide: positionSide, orderType,
+      qty: parseFloat(quantity), price: orderType === "LIMIT" ? entry : null,
+      tp: tp ?? null, sl: sl ?? null, leverage: leverage ?? null, status: entryOrder.status });
 
     if (orderType === "MARKET") {
       const ap = parseFloat(entryOrder.avgPrice);
@@ -74,7 +81,9 @@ router.post("/", validateOrder, async (req, res) => {
           push.pushAlert("critical", `⚠ 시장가 체결됐으나 SL 등록 실패 (orderId=${orderId})`);
         }
       } else {
-        log("TPSL_PLACED", { orderId, posSide: positionSide, tp, sl });
+        log("TPSL_PLACED", { orderId, posSide: positionSide, tp, sl,
+          tpType: tpsl.tp?.orderType ?? null, slType: tpsl.sl?.orderType ?? null,
+          closePosition: true });
       }
 
       // ⚠ 프론트에 TP/SL 갱신을 **반드시 알릴 것.** 없으면 거래소엔 0.2초 만에 걸려 있는데
@@ -117,7 +126,9 @@ router.post("/", validateOrder, async (req, res) => {
           failed: preset.failed.map(f => f.type),
           errors: preset.failed.map(f => ({ type: f.type, msg: f.error })), tp, sl });
       } else {
-        log("TPSL_PRESET", { orderId, posSide: positionSide, tp, sl });
+        log("TPSL_PRESET", { orderId, posSide: positionSide, tp, sl,
+          tpType: preset.tp?.orderType ?? null, slType: preset.sl?.orderType ?? null,
+          closePosition: false, qty: parseFloat(quantity) });
       }
 
       // 지정가가 호가를 먹어 즉시 체결된 경우(박스를 현재가 너머로 올린 경우)
@@ -148,8 +159,12 @@ router.post("/", validateOrder, async (req, res) => {
     // M1: 레버리지는 변경됐지만 주문 실패한 경우 사용자에게 알림
     const fullMsg = leverageChanged ? `${msg} (레버리지 ${leverage}x 변경됨)` : msg;
     // ⚠ `positionSide`는 try 안에서 선언돼 여기서는 안 보인다 — side로 다시 구한다
-    log("ORDER_FAILED", { level: "error", orderSide: side, posSide: sideToPosition(side),
-      orderType, qty: quantity, leverageChanged, err: errOf(err) });
+    // ⚠ 일일 손실 한도(403)는 `checkDailyLoss`가 `DAILY_LOSS_BLOCKED`로 이미 남겼다 —
+    //   여기서 또 적으면 같은 사실이 두 줄이 된다
+    if (err.status !== 403) {
+      log("ORDER_FAILED", { level: "error", orderSide: side, posSide: sideToPosition(side),
+        orderType, qty: quantity, leverageChanged, err: errOf(err) });
+    }
     res.status(err.status || 500).json({ error: fullMsg });
   }
 });
@@ -187,6 +202,13 @@ router.patch("/", async (req, res) => {
       updated.presetTpsl = preset;
     }
     store.set(String(orderId), updated);
+    // ⚠ **성공도 남긴다** (2026-08-25). 예전엔 실패만 기록돼서, 박스를 끌어 손절·익절을
+    //   몇 번 어떻게 옮겼는지가 아무 데도 남지 않았다. 옛 값을 같이 적어야
+    //   "언제 손절을 넓혔나"를 되짚을 수 있다
+    log("TPSL_UPDATED", { orderId, ctx: "pendingOrder", posSide: sideToPosition(existing.side),
+      tp: updated.tp ?? null, sl: updated.sl ?? null,
+      prevTp: existing.tp ?? null, prevSl: existing.sl ?? null,
+      presetFailed: preset?.failed?.map(f => f.type) ?? [] });
     res.json({
       success: true,
       warning: preset?.failed?.length
@@ -194,6 +216,8 @@ router.patch("/", async (req, res) => {
         : null,
     });
   } catch (err) {
+    log("TPSL_UPDATE_FAILED", { level: "error", ctx: "pendingOrder",
+      orderId: req.body?.orderId ?? null, err: errOf(err) });
     res.status(500).json({ error: err.message });
   }
 });

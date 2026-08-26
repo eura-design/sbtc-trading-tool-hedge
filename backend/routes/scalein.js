@@ -42,7 +42,7 @@ router.delete("/", async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
-    await assertCancelKind(orderId, "SCALE_IN");   // 엉뚱한 주문 취소 방지
+    const found = await assertCancelKind(orderId, "SCALE_IN");   // 엉뚱한 주문 취소 방지
     await cancelOrder({ orderId });
     // ⚠ 보통 추가 진입에는 사전 TP/SL이 없다. 다만 **그 사이드에 이미 포지션이 있는 채로
     //   진입 주문이 들어오면**(플랜 박스로는 막혀 있지만 외부·API 경로가 남아 있다)
@@ -54,7 +54,7 @@ router.delete("/", async (req, res) => {
         .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "scaleInCancel", err: errOf(e) }));
     }
     store.delete(String(orderId));
-    log("ORDER_CANCELED", { kindOf: "SCALE_IN", orderIds: [String(orderId)], count: 1 });
+    log("ORDER_CANCELED", { kindOf: "SCALE_IN", orderIds: [String(orderId)], count: 1, ...(found ?? {}) });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.response?.data?.msg || err.message });

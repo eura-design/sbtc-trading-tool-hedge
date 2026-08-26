@@ -1153,19 +1153,19 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 |---|---|
 | 수명 | `SERVER_BOOT` `SERVER_LISTENING` `SERVER_STOPPING` `SERVER_STOP` `API_KEY_MISSING` |
 | 멈춤 | `FREEZE_DETECTED` `FREEZE_REJECTED` |
-| 진입·체결 | `ENTRY_FILLED` `SCALE_IN_PLACED` `SCALE_IN_FILLED` `SPLIT_TP_FILLED` `FILL_DETECTED`(`by`) `ORDER_FAILED` `EXTERNAL_ORDER` |
+| 진입·체결 | `ENTRY_PLACED` `ENTRY_FILLED` `SCALE_IN_PLACED` `SCALE_IN_FILLED` `SPLIT_TP_FILLED` `FILL_DETECTED`(`by`) `ORDER_FAILED` `EXTERNAL_ORDER` |
 | TP/SL | `TPSL_PLACED`(`ctx`) `TPSL_UPDATED` `TPSL_UPDATE_FAILED` `TPSL_PARTIAL` `TPSL_PLACE_FAILED` `TPSL_RETRY` `TPSL_RETRY_FAILED` `TPSL_ALREADY_PRESENT` `TPSL_PLACE_SKIPPED` `TPSL_MISSING_INFO` |
 | 사전 등록 | `TPSL_PRESET` `TPSL_PRESET_FAILED` `PRESET_TPSL_CANCELED` `PRESET_TPSL_CANCEL_FAILED` `PRESET_TPSL_ORPHANED` |
 | 분할 | `SPLIT_TP_PLACED` `SPLIT_TP_REPLACED` `SPLIT_TP_REPLACE_FAILED` `SPLIT_TP_ROLLBACK` `SPLIT_TP_ROLLED_BACK` `SPLIT_TP_ROLLBACK_FAILED` `SPLIT_TP_UNTOUCHED` `PARTIAL_SL_PLACED` `PARTIAL_SL_RESCALED` `PARTIAL_SL_RESCALE_FAILED` `PARTIAL_SL_KEPT` `PARTIAL_TRIGGER_KEPT` |
-| 취소·청산 | `ORDER_CANCELED`(`kindOf`로 종류 구분) `ORDER_CANCEL_FAILED`(`kind`+`ctx`) `ORDER_GONE`(`by`) `ORDER_KEPT`(`by`) `STALE_TRIGGER_CANCELED` `POSITION_CLOSED` `POSITION_CLOSE_FAILED` `POSITION_CLOSE_DETECTED` `POSITION_GONE` `POSITION_OBSERVED` |
+| 취소·청산 | `ORDER_CANCELED`(`kindOf`로 종류 구분) `ORDER_CANCEL_FAILED`(`kindOf`+`ctx`) `ORDER_GONE`(`by`) `ORDER_KEPT`(`by`) `STALE_TRIGGER_CANCELED` `POSITION_CLOSED` `POSITION_CLOSE_FAILED` `POSITION_CLOSE_DETECTED` `POSITION_GONE` `POSITION_OBSERVED` |
 | 레버리지 | `LEVERAGE_CHANGED` `LEVERAGE_FAILED` `LEVERAGE_SKIPPED` |
 | 안전망 | `NAKED_POSITION` `NAKED_CHANGED` `NAKED_RESOLVED` `NAKED_CHECK_FAILED` `NAKED_REPAIR_ATTEMPT` `NAKED_RECOVERY_MATCH` `NAKED_RECOVERED` `NAKED_RECOVERY_PARTIAL` `NAKED_RECOVERY_FAILED` `NAKED_NO_CANDIDATE` |
 | 복구 | `RECOVERY_ORDER_KEPT` `RECOVERY_ORDER_RESTORED` `RECOVERY_ORDER_NO_TPSL` `RECOVERY_FILL_DETECTED` `RECOVERY_FILL_NO_TPSL` `RECOVERY_NONE` `RECOVERY_FAILED` `ORPHAN_RESOLVE_FAILED` |
 | 감시·조회 | `ACCOUNT_STATE` `ACCOUNT_WATCH_FAILED` `RECONCILE_FAILED` `POLL_FILLS_FAILED` `QUERY_FAILED`(`what`+`ctx`) |
 | 체결 스트림 | `UDS_CONNECTED` `UDS_DISCONNECTED` `UDS_RECONNECTING` `UDS_LISTENKEY_FAILED` `UDS_MESSAGE_FAILED` `UDS_START_FAILED` `UDS_ERROR` `UDS_POLLING_MODE` |
-| 돈 | `INCOME`(REALIZED_PNL / COMMISSION / FUNDING_FEE) `INCOME_POLL_FAILED` `TRADE_SETTLED` `TRADE_SETTLE_FAILED` `DAILY_LOSS_CHECK_FAILED` |
+| 돈 | `INCOME`(REALIZED_PNL / COMMISSION / FUNDING_FEE) `INCOME_POLL_FAILED` `TRADE_SETTLED` `TRADE_SETTLE_FAILED` `DAILY_LOSS_BLOCKED` `DAILY_LOSS_CHECK_FAILED` |
 | 거래소 상태 | `API_BANNED` `API_WEIGHT_HIGH` `CLOCK_SYNC` `CLOCK_SYNC_FAILED` |
-| 저장소·푸시 | `STORE_IO_FAILED`(`store`+`op`) `PUSH_SERVER_STARTED` `PUSH_SEND_FAILED` `CLIENT_CONNECTED` |
+| 저장소·푸시 | `STORE_IO_FAILED`(`store`+`op`) `PUSH_SEND_FAILED` `CLIENT_CONNECTED` |
 | 요약 | `DAILY_SUMMARY` (하루 한 줄) |
 | 화면(`kind:"client"`) | `API_CALL` `API_BLOCKED` `CLIENT_ERROR` `MODE_CHANGED` |
 
@@ -1177,7 +1177,7 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   - 이름을 새로 만들기 전에 **위 표에 이미 있는지 볼 것.** 자리마다 새 이름을 만들면
     이름이 수백 개가 되어 표 자체가 쓸모없어진다. 같은 사건이면 **필드로 가른다**:
     `QUERY_FAILED`는 `what`(무엇을 조회했나) + `ctx`(어느 경로였나),
-    `ORDER_CANCEL_FAILED`는 `kind` + `ctx`, `STORE_IO_FAILED`는 `store` + `op`
+    `ORDER_CANCEL_FAILED`는 `kindOf` + `ctx`, `STORE_IO_FAILED`는 `store` + `op`
   - ⚠ **같은 사실을 두 줄로 남기지 말 것.** 옮기면서 `console.error` 바로 아래에 이미
     같은 뜻의 이벤트가 있던 자리 6곳을 지웠다 (`LEVERAGE_FAILED`·`POSITION_CLOSE_FAILED`·
     `CLOCK_SYNC_FAILED`·`API_BANNED`·`TPSL_PARTIAL`×2). 두 줄이면 셀 때 두 배로 잡힌다
@@ -1192,7 +1192,71 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
 - ⚠ **`ACCOUNT_STATE`가 이 로그의 뼈대다.** 사건 기록만으로는 **"언제부터 이랬나"를 못
   짚는다** — 밖에서 낸 주문이나 서버가 꺼져 있던 구간은 사건 자체가 안 남기 때문이다.
   `watchAccount`가 어차피 3초마다 읽고 있으므로 **바뀔 때만** 한 줄 남긴다 (거의 공짜)
+  - ⚠ **첫 관측에서도 반드시 남길 것** (`ctx:"boot"`, 2026-08-25에 고침). 예전엔
+    기준선만 잡고 그냥 빠져나가서 **서버를 켠 시점의 계좌가 기록되지 않았다** —
+    첫 변화 전까지의 구간이 통째로 비어, 정작 이 이벤트가 답하려던 질문을 못 답했다.
+    그 구간이 특히 중요하다: **서버가 꺼져 있던 사이에 벌어진 일의 결과가 거기 있다**
+  - `ctx`는 `boot`(첫 관측) / `change`(변화 감지) 둘뿐이다
 - ⚠ **원본 응답을 통째로 넣지 말 것** — 한 줄이 수 KB가 되면 읽을 수 없다. 요약만
+- ⚠ **줄의 뼈대 필드는 `fields`가 덮을 수 없다** (`logStore.RESERVED`, 2026-08-25에
+  고친 실제 버그). `ts`/`iso`/`boot`/`kind`/`event`/`level` 여섯이다.
+  - 예전엔 `...rest`를 뒤에 펴서, `log("ORDER_CANCEL_FAILED", { kind: "SPLIT_TP" })`가
+    **`kind:"event"`를 덮어썼다** → 그 줄들이 event도 console도 아닌 것이 되어
+    **`kind`로 거르는 조회에서 통째로 새어 나갔다**
+  - 그래서 주문 종류 필드는 **`kindOf`**다 — `kind`(기록의 종류)와 이름이 겹치지 않게.
+    이름이 겹치면 **부르는 쪽 필드를 다른 이름으로** 바꿀 것
+  - `kind:"client"`가 필요한 곳(`routes/log.js`)은 **`logClient()`**라는 통로를 따로 쓴다.
+    보낸 쪽이 `kind`를 정하지 못한다는 원칙(routes/log.js)과 이 보호를 둘 다 지킨다
+- ⚠ **설명 문장(`note`/`reason`/`hint`)을 넣지 말 것** (2026-08-25에 17곳을 걷어냈다).
+  값이 늘 같은 문장이라 **이벤트 이름이 이미 하는 말을 매 줄마다 되풀이**했다.
+  이 로그를 읽는 것은 Claude 하나뿐이고, 설명이 필요하면 **코드 주석**을 보면 된다 —
+  주석은 한 번만 쓰이고 로그 줄을 늘리지 않는다
+  - 값이 **실제로 갈리는** 것만 남기되 짧은 이름표로 (`fallback: "orderIdOnly"|"rejected"`)
+  - ※ 이름표(`kindOf`/`ctx`/`by`/`what`)는 다르다 — **거래소가 알 수 없는 것**이라
+    남기지 않으면 되살릴 수 없다. `ctx`는 어느 경로에서 났는지, `by`는 어느 감지 겹이
+    잡았는지다(`uds`가 놓치고 `poll`이 잡았다면 그 자체가 진단이다)
+- ⚠ **주문 종류는 "이름으로 짐작"하게 두지 말고 값으로 남긴다** (2026-08-25).
+  이 시스템은 규칙이 고정돼 있어(단일 TP/SL=조건부 시장가, 분할 TP=지정가,
+  분할 SL=조건부 시장가) 이벤트 이름만 봐도 종류를 짐작할 수 있었다. 그러나
+  **그 규칙을 바꾸는 순간 과거 로그가 조용히 틀린 뜻이 된다** — `event`를 문구가 아닌
+  식별자로 고정한 것과 같은 이유다. 그래서 다음을 함께 남긴다:
+
+  | 필드 | 뜻 |
+  |---|---|
+  | `orderType` | 거래소가 받은 실제 종류 (`MARKET`/`LIMIT`/`STOP_MARKET`/`TAKE_PROFIT_MARKET`/`STOP`/`TAKE_PROFIT`) |
+  | `closePosition` | `true`=전량("그때 남은 전부") / `false`=수량 지정 |
+  | `reduceOnly`·`timeInForce`·`workingType` | 지정가·트리거의 성질 |
+
+  - 실은 곳: `ENTRY_PLACED` `SCALE_IN_PLACED` `TPSL_PLACED`(`tpType`/`slType`)
+    `TPSL_PRESET` `SPLIT_TP_PLACED` `PARTIAL_SL_PLACED` `ORDER_CANCELED`
+    `ORDER_GONE` `EXTERNAL_ORDER` / `ACCOUNT_STATE`는 원래부터 담고 있었다
+  - ⚠ **`STOP`/`TAKE_PROFIT`(조건부 지정가)는 우리가 만들지 않는다** — 이 종류가 보이면
+    **밖에서 낸 주문**이다. 그게 이 필드의 가장 큰 쓸모다
+  - ⚠ `EXTERNAL_ORDER`는 store에 없는 주문이라 **이 줄이 유일한 기록이다.**
+    `status`만 남기면 시장가였는지 조건부 지정가였는지조차 알 수 없다
+  - ⚠ 가능하면 **거래소가 돌려준 값**을 쓴다(`data.type`) — 우리가 보낸 값이 아니라.
+    깎였거나 다르게 접수됐으면 그것이 사실이다
+  - ⚠ `assertCancelKind`는 취소 전에 이미 종류를 알아낸다 → **돌려주게 해서** 취소
+    로그에 싣는다. 못 찾거나 조회가 실패하면 `undefined`다(막지 않는 게 정책) —
+    `...(found ?? {})`의 `?? {}`를 빼지 말 것
+- ⚠ **주문을 낸 것과 체결된 것은 다른 사건이다** — `ENTRY_PLACED` / `ENTRY_FILLED`
+  (2026-08-25 추가). 예전엔 시장가만 `ENTRY_FILLED`로 남고 **지정가는 체결될 때까지
+  아무 흔적이 없었다**: "몇 시에 걸었나", "걸고 체결까지 얼마나 걸렸나", "걸었다가
+  취소된 게 몇 건인가"를 답할 수 없었다.
+  ⚠ 접수는 있는데 체결도 취소도 없는 주문이 곧 사고다 — 그걸 보려면 둘이 나뉘어야 한다
+- ⚠ **일일 손실 한도 차단은 `DAILY_LOSS_BLOCKED`로 따로 남긴다** (2026-08-25).
+  예전엔 `ORDER_FAILED` 안에 문장으로만 섞여서 **거래소 거절과 구분되지 않았다**.
+  위험 관리가 실제로 작동한 순간이라 따로 셀 수 있어야 한다
+  - ⚠ `routes/order.js`의 catch는 **403이면 `ORDER_FAILED`를 남기지 않는다** —
+    `checkDailyLoss`가 이미 남겼다. 빼면 같은 사실이 두 줄이 된다
+- ⚠ **미체결 주문의 TP/SL 변경(`PATCH /api/order`)도 성공을 남긴다** —
+  `TPSL_UPDATED` + `ctx:"pendingOrder"` + `prevTp`/`prevSl` (2026-08-25).
+  예전엔 실패만 남아서 박스를 끌어 손절을 몇 번 어떻게 옮겼는지 알 수 없었다
+- ⚠ **같은 줄을 개수만큼 찍지 말 것** — 부팅마다 `RECOVERY_ORDER_KEPT`가 주문 수만큼
+  나왔다(내용은 전부 같다). 모아서 **한 줄에 목록으로** 남긴다 (`count` + `orders`)
+- ※ `PUSH_SERVER_STARTED`는 2026-08-25에 제거했다 — `SERVER_LISTENING` 바로 앞에 늘
+  붙는데 웹소켓 서버는 서버가 뜨면 반드시 같이 뜬다. 알려주는 게 없는 줄이었다
+
 
 #### 터미널 출력 — **여기도 사람이 아니라 Claude가 읽는 자리다** (2026-08-25 사용자 지정)
 
@@ -1642,8 +1706,15 @@ SPLIT_TP  (분할 TP 지정가 reduceOnly — 체결/취소 시 store에서 제�
   - ⚠ **차트 위 🔔 아이콘은 없다** (2026-08-14 사용자 요청으로 제거 — 선·채널·원·수동 구조
     **네 종류 모두**). 알림 여부는 **색과 점선만으로** 나타낸다. 되살리려면 넷을 같이.
     켜고 끄는 🔔 토글(더블클릭 팝업 헤더)과 단축키 `a`는 그대로다 — 지운 건 마커뿐이다
-  - ※ **자동 ZZ는 아직 이 스타일이 아니다** (캔버스 렌더라 `overlayRenderers.js` 쪽 작업이 따로 필요).
-    맞출 거면 `renderStructureZigzag`에서 같은 값으로
+  - ✅ **자동 ZZ도 2026-08-26부터 같은 스타일이다** (사용자 요청 "커스텀이랑 똑같이").
+    `renderStructureZigzag`가 `opts.alert`를 받아 캔버스에 같은 값으로 그린다 —
+    호박색 + 점선 `6,3` + 굵기 1.5 + 글로우(6 / 0.18). **한쪽만 바꾸지 말 것**
+    - 알림 상태는 `zzParams.alert_choch`로 이미 넘어가고 있었다 → `candleRenderer`가
+      `=== true`로 읽어 `opts.alert`에 싣는다 (기본 OFF라 `!== false`로 되돌리지 말 것)
+    - ⚠ 글로우와 본선은 **같은 path**를 다시 그린다(`trace()`) — 각자 만들면 두 겹이
+      어긋난다. 글로우는 **점선을 풀고** 그린다(번진 점선은 조각으로 흩어져 보인다)
+    - ⚠ 예전엔 렌더러가 알림 상태를 **받지도 않아서**, `a`를 눌러도 선이 그대로였다.
+      기능은 켜져 있는데 화면에 표시가 없어 "알람이 안 켜진다"로 보였다 (사용자 신고)
   - ⚠ 그래서 `alertChoch`는 **기본 OFF**다 (2026-08-13 사용자 결정, `[R10]`).
     기본이 ON이면 손대지 않은 구조가 전부 알림 스타일이 되어 색이 아무것도 구분해주지 못한다.
 - **근접 알림 없음**: `useTrendLineAlert`은 선/채널/원만 대상. 대신 `drawables.structure.toggleAlert`가
@@ -1859,6 +1930,23 @@ hover에 얹는다** — 손으로 구간을 잡는 도구로 만들었다가 "�
     CHoCH가 한꺼번에 계산된다 ② 자동 ZZ는 **세대(gen) 비교**: TF 전환·파라미터 변경으로
     누적 상태를 버리고 재계산하면 gen이 증가 → 무음으로 기준선만 갱신
     (개수 비교로는 안 된다 — MAX_CHOCHS 초과 시 shift로 길이가 그대로일 수 있음)
+  - ⚠ **수동 구조는 목록이 비면 기준선을 건드리지 않고 빠져나간다** —
+    `if (!live.length) return;` (2026-08-26에 고친 버그). **자동 ZZ의 `gen` 비교에
+    해당하는 장치**로, 둘 다 뜻이 하나다: *지금 값은 못 믿으니 울리지 않는다*
+    - 빈 목록이 들어오는 경우가 둘인데 **둘 다 실제 상태가 아니다**:
+      ① 지표 OFF·표시 TF 아님 → `ChartArea`가 `visibleStructures = []`를 넘기고
+        `Structures`는 그대로 렌더되며 `setStructLiveChochs([])`를 부른다
+      ② TF를 바꿔 캔들을 다시 받는 중 → `Structures`가 `!candles.length`로 일찍
+        빠져나가 ①의 빈 값이 그대로 남는다
+    - 그 빈 값이 기준선을 덮으면 **캔들이 도착한 순간 원래 있던 CHoCH가 처음 보는
+      것이 되어 다시 울린다** — `4h → 1d → 4h`로 재현된다 (사용자 신고)
+    - ⚠ **조건을 둘로 늘리지 말 것.** 한때 `structOn`(지표 ON 여부)을 따로 넘겼는데
+      **지표가 꺼지면 목록도 어차피 비어서** 같은 상황을 두 번 막고 있었다
+    - ※ 지운 구조의 낡은 키는 다음에 목록이 채워질 때 통째 교체되며 정리된다
+    - ※ 자동 ZZ는 `zzAlertOn`에 `showZZ`가 묶여 있고 꺼지면 계산 자체가 멈춘다
+  - ※ **꼭짓점을 드래그하면 한 번 울릴 수 있다** — 레벨 가격이 바뀌면 키가 달라진다.
+    `useChochAlert`에 "편집으로는 울리지 않는다"고 적혀 있었으나 **틀린 말이라 지웠다**
+    (2026-08-26). 막으려면 "방금 드래그했으면 잠시 무음"이 필요한데 아직 없다
   - 판정 신호: ZZ는 `getZzChochSignal()` `{ gen, last }`(last.seq는 초기화돼도 증가),
     수동 구조는 `getStructLiveChochs()` `[{ structId, dir, price }]`
   - **표시 옵션과 독립** — CHoCH를 화면에서 숨겨도 알림은 살아 있다(의도적)

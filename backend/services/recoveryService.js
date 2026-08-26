@@ -14,12 +14,15 @@ async function recoverPendingOrders() {
       o.type === "LIMIT" && (o.status === "NEW" || o.status === "PARTIALLY_FILLED")
     );
 
+    // ⚠ **주문마다 한 줄씩 찍지 않는다** (2026-08-25) — 내용이 전부 같아서,
+    //   미체결이 20건이면 뜻 없는 줄이 20개 쌓인다. 모아서 한 줄에 목록으로 남긴다
+    const kept = [];
     for (const o of limitOrders) {
       const saved = store.get(o.orderId);
 
       // SCALE_IN, SPLIT_TP은 진입 주문이 아님 → 기존 상태 그대로 유지
       if (saved?.status === "SCALE_IN" || saved?.status === "SPLIT_TP") {
-        log("RECOVERY_ORDER_KEPT", { orderId: o.orderId, kindOf: saved.status });
+        kept.push({ orderId: String(o.orderId), kindOf: saved.status });
         continue;
       }
 
@@ -60,6 +63,8 @@ async function recoverPendingOrders() {
       }
     }
 
+    if (kept.length) log("RECOVERY_ORDER_KEPT", { count: kept.length, orders: kept });
+
     // ── 2단계: 서버 다운 중 체결된 주문 감지 ─────────────────────────────
     const openOrderIds = new Set(limitOrders.map(o => String(o.orderId)));
     const MAX_AGE_MS   = 24 * 60 * 60 * 1000; // 24시간 이내 주문만 처리
@@ -76,8 +81,7 @@ async function recoverPendingOrders() {
         const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
 
         if (data.status === "FILLED" && info.tp && info.sl) {
-          log("RECOVERY_FILL_DETECTED", { orderId,
-            note: "서버가 꺼져 있던 사이에 체결됐다" });
+          log("RECOVERY_FILL_DETECTED", { orderId });
           const { data: posData } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
           const orderPosSide = closeToPosition(info.closeSide);
           // 헷지모드: 주문 사이드와 매칭되는 포지션이 있어야만 TP/SL 등록 시도
@@ -103,8 +107,7 @@ async function recoverPendingOrders() {
             }
           }
         } else if (data.status === "FILLED") {
-          log("RECOVERY_FILL_NO_TPSL", { level: "error", orderId,
-            note: "서버가 꺼진 사이 체결됐는데 걸 TP/SL을 모른다 — 수동 확인" });
+          log("RECOVERY_FILL_NO_TPSL", { level: "error", orderId });
         } else if (data.status === "CANCELED" || data.status === "EXPIRED") {
           log("ORDER_GONE", { orderId, status: data.status, by: "recovery" });
           store.delete(orderId);
@@ -168,8 +171,7 @@ async function recoverPendingOrders() {
           }
         } else {
           log("NAKED_NO_CANDIDATE", { level: "error", posSide: openPosSide,
-            tolerancePct: PRICE_TOLERANCE * 100,
-            note: "store에 믿을 만한 TP/SL이 없다 — 거래소에서 직접 걸어야 한다" });
+            tolerancePct: PRICE_TOLERANCE * 100 });
         }
       }
     }

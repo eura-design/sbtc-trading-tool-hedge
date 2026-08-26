@@ -154,7 +154,7 @@ router.put("/", async (req, res) => {
 
   const cancelExisting = (isAlgo, id) =>
     cancelOrder({ orderId: id, algoId: id, isAlgo })
-      .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: id, kind: "TPSL",
+      .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: id, kindOf: "TPSL",
         ctx: "tpslReplace", err: errOf(e) }));
 
   // ⚠ **단일 TP와 분할 TP는 공존한다 — 서로 취소하지 않는다** (2026-08-23 사용자 확정,
@@ -222,13 +222,13 @@ router.delete("/", async (req, res) => {
   const { orderId, isAlgo } = req.body ?? {};
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
-    await assertCancelKind(orderId, "TPSL");   // 엉뚱한 주문 취소 방지 (2026-08-23 감사)
+    const found = await assertCancelKind(orderId, "TPSL");   // 엉뚱한 주문 취소 방지 (2026-08-23 감사)
     await cancelOrder({ orderId, algoId: orderId, isAlgo });
-    log("ORDER_CANCELED", { kindOf: "TPSL", orderIds: [String(orderId)], count: 1 });
+    log("ORDER_CANCELED", { kindOf: "TPSL", orderIds: [String(orderId)], count: 1, ...(found ?? {}) });
     res.json({ success: true });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
-    log("ORDER_CANCEL_FAILED", { level: "error", orderId, kind: "TPSL", ctx: "deleteTpsl", err: errOf(err) });
+    log("ORDER_CANCEL_FAILED", { level: "error", orderId, kindOf: "TPSL", ctx: "deleteTpsl", err: errOf(err) });
     res.status(500).json({ error: msg });
   }
 });
@@ -251,8 +251,12 @@ router.post("/split", async (req, res) => {
       status: "SPLIT_TP", price: parseFloat(roundPrice(price)),
       qty: parseFloat(qty), pct: pct ?? null, side: closeSide, positionSide: side,
     });
+    // 거래소가 돌려준 값을 그대로 (우리가 보낸 값이 아니라) — 깎였거나 다르게
+    // 접수됐으면 그것이 사실이다
     log("SPLIT_TP_PLACED", { posSide: side, qty: parseFloat(qty),
-      price: parseFloat(price), orderId: String(data.orderId) });
+      price: parseFloat(price), orderId: String(data.orderId),
+      orderType: data.type ?? "LIMIT", timeInForce: data.timeInForce ?? null,
+      reduceOnly: data.reduceOnly ?? null, closePosition: false });
     res.json({ success: true, orderId: String(data.orderId),
       price: parseFloat(roundPrice(price)), qty: parseFloat(qty) });
   } catch (err) {
@@ -265,10 +269,10 @@ router.delete("/split", async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
-    await assertCancelKind(orderId, "SPLIT_TP");   // 엉뚱한 주문 취소 방지
+    const found = await assertCancelKind(orderId, "SPLIT_TP");   // 엉뚱한 주문 취소 방지
     await cancelOrder({ orderId });
     store.delete(String(orderId));
-    log("ORDER_CANCELED", { kindOf: "SPLIT_TP", orderIds: [String(orderId)], count: 1 });
+    log("ORDER_CANCELED", { kindOf: "SPLIT_TP", orderIds: [String(orderId)], count: 1, ...(found ?? {}) });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.response?.data?.msg || err.message });
@@ -301,7 +305,9 @@ router.post("/partial-sl", async (req, res) => {
       quantity: parseFloat(qty).toFixed(3), workingType: "CONTRACT_PRICE",
     });
     log("PARTIAL_SL_PLACED", { posSide: side, qty: parseFloat(qty),
-      price: parseFloat(price), orderId: String(data.algoId) });
+      price: parseFloat(price), orderId: String(data.algoId),
+      orderType: data.orderType ?? "STOP_MARKET", closePosition: false,
+      workingType: "CONTRACT_PRICE" });
     res.json({ success: true, orderId: String(data.algoId),
       price: parseFloat(roundPrice(price)), qty: parseFloat(qty) });
   } catch (err) {
@@ -321,9 +327,9 @@ router.delete("/partial-sl", async (req, res) => {
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
     // ⚠ 전량 손절을 여기로 지우지 못하게 막는다 (그 반대도 `DELETE /`가 막는다)
-    await assertCancelKind(orderId, "PARTIAL_SL");
+    const found = await assertCancelKind(orderId, "PARTIAL_SL");
     await cancelOrder({ orderId, algoId: orderId, isAlgo: true });
-    log("ORDER_CANCELED", { kindOf: "PARTIAL_SL", orderIds: [String(orderId)], count: 1 });
+    log("ORDER_CANCELED", { kindOf: "PARTIAL_SL", orderIds: [String(orderId)], count: 1, ...(found ?? {}) });
     res.json({ success: true });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });

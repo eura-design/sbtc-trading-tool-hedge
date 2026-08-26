@@ -23,7 +23,7 @@ const placingTpsl = new Set();
 
 async function safePlaceTPSL(orderId, info) {
   if (placingTpsl.has(String(orderId))) {
-    log("TPSL_PLACE_SKIPPED", { orderId, reason: "이미 등록이 진행 중이다 (중복 호출)" });
+    log("TPSL_PLACE_SKIPPED", { orderId });
     return null;
   }
   placingTpsl.add(String(orderId));
@@ -153,8 +153,7 @@ async function resolveOrphans(entries) {
         store.delete(orderId);
         push.pushUpdate(["position"]);
       } else {
-        log("ORDER_KEPT", { orderId, status: data.status, by: "orphan",
-          reason: "openOrders 응답 지연일 뿐 아직 살아 있다" });
+        log("ORDER_KEPT", { orderId, status: data.status, by: "orphan" });
       }
     } catch (e) {
       // 조회 실패 시엔 **지우지 않는다** — 못 지운 항목은 다음 사이클에 다시 본다
@@ -207,7 +206,7 @@ async function keepAliveListenKey(listenKey) {
     log("UDS_LISTENKEY_FAILED", { level: "warn", fails: listenKeyFailCount,
       max: MAX_LISTENKEY_FAILURES, err: errOf(e) });
     if (listenKeyFailCount >= MAX_LISTENKEY_FAILURES) {
-      log("UDS_RECONNECTING", { level: "error", reason: "listenKey 갱신 연속 실패" });
+      log("UDS_RECONNECTING", { level: "error" });
       listenKeyFailCount = 0;
       // 기존 WS 종료 후 재시작
       if (userDataWS) { try { userDataWS.terminate(); } catch {} userDataWS = null; }
@@ -246,8 +245,7 @@ async function onFilled(orderId, executionData) {
   }
 
   if (!info.tp || !info.sl) {
-    log("TPSL_MISSING_INFO", { level: "error", orderId,
-      note: "체결됐는데 걸 TP/SL 가격이 store에 없다 — 수동 설정 필요" });
+    log("TPSL_MISSING_INFO", { level: "error", orderId });
     store.set(orderId, { ...info, status: "TPSL_MISSING" });
     push.pushAlert("critical", `⚠ 주문 ${orderId} 체결됨 — TP/SL 가격 없음`);
     push.pushUpdate(["position", "balance"]);
@@ -279,7 +277,9 @@ async function onFilled(orderId, executionData) {
     }
   } else {
     store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
-    log("TPSL_PLACED", { orderId, posSide: sideToPosition(info.side), tp: info.tp, sl: info.sl });
+    log("TPSL_PLACED", { orderId, posSide: sideToPosition(info.side), tp: info.tp, sl: info.sl,
+      tpType: tpsl.tp?.orderType ?? null, slType: tpsl.sl?.orderType ?? null,
+      closePosition: true, ctx: "onFilled" });
   }
 
   push.pushUpdate(["position", "balance", "tpsl"]);
@@ -358,8 +358,8 @@ async function runReconcile() {
       //   실제로 매매를 안 한 날 "오후 5시 00분 00초"가 찍혀 오해를 샀다.
       //   차트 진입선이 이 값을 쓰지 않는 이유와 같다 (services/entryTime.js 참고)
       const firstObservation = prevHasLong === null && prevHasShort === null;
-      log("POSITION_OBSERVED", { first: firstObservation, entryFilledAt: currentEntryFilledAt,
-        note: firstObservation ? "서버 시작 시점에 이미 있던 포지션 (새 진입 아님)" : "새 진입 감지" });
+      // `first: true` = 서버를 켰을 때 이미 있던 포지션 (새 진입이 아니다)
+      log("POSITION_OBSERVED", { first: firstObservation, entryFilledAt: currentEntryFilledAt });
     }
 
     // ── 포지션 클로즈 → stats 캐시 무효화 신호 (한쪽만 닫혀도 즉시 갱신) ──
@@ -392,8 +392,7 @@ async function runReconcile() {
       if (openIds.has(String(orderId))) continue;             // 진입 주문이 아직 살아 있다
       const posSide = closeToPosition(info.closeSide);
       if (posSide === "LONG" ? hasLong : hasShort) continue;   // 포지션이 있으면 유효한 TP/SL이다
-      log("PRESET_TPSL_ORPHANED", { level: "warn", orderId, posSide,
-        note: "진입 주문도 포지션도 없는데 사전 TP/SL만 남아 있다 → 취소" });
+      log("PRESET_TPSL_ORPHANED", { level: "warn", orderId, posSide });
       await cancelPresetTPSL(info.presetTpsl)
         .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "reconcile", err: errOf(e) }));
       store.set(orderId, { ...info, presetTpsl: null });
@@ -459,7 +458,7 @@ async function runReconcile() {
               qty: orderQtyOf(o), price: triggerPriceOf(o) });
             await cancelOrder({ orderId: id, algoId: id, isAlgo })
               .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: id,
-                kind: "STALE_TRIGGER", ctx: "reconcile", err: errOf(e) }));
+                kindOf: "STALE_TRIGGER", ctx: "reconcile", err: errOf(e) }));
           }
           if (stale.length) push.pushUpdate(["tpsl"]);
         }
@@ -542,8 +541,7 @@ async function runReconcile() {
       //   사이클(60초)에 다시 본다. 통신이 한 번 튄 것을 SL 사고로 알리면 안 된다
       //   (binanceClient.checkExistingTPSL의 `ok` 주석)
       if (!second.ok) {
-        log("NAKED_CHECK_FAILED", { level: "warn", posSide: side,
-          note: "조회가 실패해 경보 보류 — 다음 사이클에 재확인" });
+        log("NAKED_CHECK_FAILED", { level: "warn", posSide: side });
         continue;
       }
 
@@ -581,11 +579,11 @@ async function runReconcile() {
       try {
         await cancelOrder({ orderId });
       } catch (e) {
-        log("ORDER_CANCEL_FAILED", { level: "warn", orderId, kind: "SCALE_IN", ctx: "reconcile", err: errOf(e) });
+        log("ORDER_CANCEL_FAILED", { level: "warn", orderId, kindOf: "SCALE_IN", ctx: "reconcile", err: errOf(e) });
       }
       store.delete(orderId);
       log("ORDER_CANCELED", { kindOf: "SCALE_IN", orderIds: [String(orderId)], count: 1,
-        posSide, ctx: "reconcile", reason: "그 사이드에 포지션이 없다" });
+        posSide, ctx: "reconcile" });
     }
     if (scaleIns.length) push.pushUpdate(["position"]);
 
@@ -625,8 +623,7 @@ async function runReconcile() {
           push.pushUpdate(["position"]);
         } else {
           // NEW / PARTIALLY_FILLED 등 아직 살아있는 상태 — openOrders 응답 지연일 뿐
-          log("ORDER_KEPT", { orderId, status: data.status, by: "reconcile",
-            reason: "openOrders 응답 지연일 뿐 아직 살아 있다" });
+          log("ORDER_KEPT", { orderId, status: data.status, by: "reconcile" });
         }
       }
     }
@@ -665,6 +662,32 @@ function accountSignature(positions, orders, algos) {
   return p + " # " + o + " # " + a;
 }
 
+// 계좌 스냅샷 한 줄 — 첫 관측(`boot`)과 변화 감지(`change`) 두 곳에서 쓴다.
+// ⚠ **사건 기록만으로는 "언제부터 이랬나"를 못 짚는다.** 밖에서 낸 주문이나 서버가
+//   꺼져 있던 구간은 사건 자체가 안 남기 때문이다. 이 감시는 어차피 3초마다 읽고
+//   있으므로 바뀔 때만 한 줄 남기면 거의 공짜다
+// ⚠ 원본 응답을 통째로 넣지 말 것 — 한 줄이 수 KB가 되어 읽을 수 없다. 요약만
+function logAccountState(posData, ordData, algos, ctx) {
+  try {
+    const positions = posData
+      .filter(p => parseFloat(p.positionAmt) !== 0)
+      .map(p => ({ posSide: p.positionSide, qty: Math.abs(parseFloat(p.positionAmt)),
+                   entry: parseFloat(p.entryPrice), lev: parseInt(p.leverage) || null,
+                   liq: parseFloat(p.liquidationPrice) || null }));
+    const orders = ordData.map(o => ({
+      orderId: String(o.orderId), type: o.type, orderSide: o.side,
+      posSide: o.positionSide, price: parseFloat(o.price) || null,
+      stop: parseFloat(o.stopPrice) || null, qty: parseFloat(o.origQty) || null,
+    }));
+    const algoSummary = algos.map(o => ({
+      orderId: String(o.algoId), type: o.orderType, orderSide: o.side,
+      posSide: o.positionSide, stop: parseFloat(o.triggerPrice) || null,
+      qty: parseFloat(o.quantity) || null,
+    }));
+    log("ACCOUNT_STATE", { ctx, positions, orders, algos: algoSummary });
+  } catch { /* 스냅샷 실패가 감시를 멈추면 안 된다 */ }
+}
+
 async function watchAccount() {
   acct.polls++;
   try {
@@ -687,7 +710,15 @@ async function watchAccount() {
     //   무방비인 상태가 가장 위험하다
     checkNakedFast(posR.value.data, ordR.value.data, algos);
 
-    if (lastAccountSig === null) { lastAccountSig = sig; lastSides = { long: hasLong, short: hasShort }; return; }  // 첫 관측은 기준선만
+    if (lastAccountSig === null) {
+      lastAccountSig = sig; lastSides = { long: hasLong, short: hasShort };
+      // ⚠ **첫 관측에서도 스냅샷을 남긴다** (2026-08-25). 예전엔 기준선만 잡고 그냥
+      //   빠져나가서, **서버를 켠 시점의 계좌가 기록되지 않았다** — 첫 변화가 일어나기
+      //   전까지의 구간이 통째로 비어 "언제부터 이랬나"를 짚을 수 없었다.
+      //   그 구간이 특히 중요하다: 서버가 꺼져 있던 사이에 벌어진 일의 결과가 여기 있다
+      logAccountState(posR.value.data, ordR.value.data, algos, "boot");
+      return;
+    }
     if (sig === lastAccountSig) return;
     lastAccountSig = sig;
     acct.changes++; acct.lastChangeAt = Date.now();
@@ -700,24 +731,7 @@ async function watchAccount() {
     //   남기면 거의 공짜로 "그 시점의 계좌"가 기록된다
     // ⚠ 원본 응답을 통째로 넣지 말 것 — 한 줄이 수 KB가 되어 읽을 수 없다.
     //   포지션·주문 **요약**만 넣는다 (자족적이되 짧게)
-    try {
-      const posSummary = posR.value.data
-        .filter(p => parseFloat(p.positionAmt) !== 0)
-        .map(p => ({ posSide: p.positionSide, qty: Math.abs(parseFloat(p.positionAmt)),
-                     entry: parseFloat(p.entryPrice), lev: parseInt(p.leverage) || null,
-                     liq: parseFloat(p.liquidationPrice) || null }));
-      const ordSummary = ordR.value.data.map(o => ({
-        orderId: String(o.orderId), type: o.type, orderSide: o.side,
-        posSide: o.positionSide, price: parseFloat(o.price) || null,
-        stop: parseFloat(o.stopPrice) || null, qty: parseFloat(o.origQty) || null,
-      }));
-      const algoSummary = algos.map(o => ({
-        orderId: String(o.algoId), type: o.orderType, orderSide: o.side,
-        posSide: o.positionSide, stop: parseFloat(o.triggerPrice) || null,
-        qty: parseFloat(o.quantity) || null,
-      }));
-      log("ACCOUNT_STATE", { positions: posSummary, orders: ordSummary, algos: algoSummary });
-    } catch { /* 스냅샷 실패가 감시를 멈추면 안 된다 */ }
+    logAccountState(posR.value.data, ordR.value.data, algos, "change");
     push.pushUpdate(["position", "balance", "tpsl"]);
     // 우리 주문이 체결됐을 수도 있다 — TP/SL 등록 경로를 바로 태운다
     // (UDS가 죽어 있으면 이게 아니면 reconcile 60초까지 기다린다)
@@ -875,8 +889,7 @@ function accountStatus() { return { ...acct, intervalMs: ACCOUNT_WATCH_MS }; }
 
 function startPolling() {
   if (pollTimer) return;
-  log("UDS_POLLING_MODE", { level: "warn", intervalMs: 30000,
-    note: "체결 감지 WebSocket이 죽어 폴링으로 대신한다" });
+  log("UDS_POLLING_MODE", { level: "warn", intervalMs: 30000 });
   pollTimer = setInterval(pollForFills, 30000);
 }
 
@@ -920,7 +933,14 @@ function connectUserDataStream(listenKey) {
       //   store 항목이 필요한 뒷처리(TP/SL 등록 등)는 아래 분기가 그대로 맡는다
       if (!store.has(o.i)) {
         if (o.X === "FILLED" || o.X === "CANCELED" || o.X === "EXPIRED") {
-          log("EXTERNAL_ORDER", { orderId: o.i, status: o.X });
+          // ⚠ **밖에서 낸 주문은 이 줄이 유일한 기록이다** (store에 없다).
+          //   `status`만 남기면 시장가였는지 조건부 지정가였는지조차 모른다 —
+          //   특히 `STOP`/`TAKE_PROFIT`(조건부 지정가)는 **우리가 만들지 않는 종류**라
+          //   밖에서 들어온 것을 가려내는 유일한 단서다
+          log("EXTERNAL_ORDER", { orderId: o.i, status: o.X, orderType: o.o ?? null,
+            orderSide: o.S ?? null, posSide: o.ps ?? null,
+            price: parseFloat(o.p) || null, stop: parseFloat(o.sp) || null,
+            qty: parseFloat(o.q) || null, closePosition: o.cp ?? null, reduceOnly: o.R ?? null });
           push.pushUpdate(["position", "balance", "tpsl"]);
         }
         return;
@@ -940,7 +960,7 @@ function connectUserDataStream(listenKey) {
           await onFilled(o.i, o);
         }
       } else if (o.X === "CANCELED" || o.X === "EXPIRED") {
-        log("ORDER_GONE", { orderId: o.i, status: o.X, by: "uds" });
+        log("ORDER_GONE", { orderId: o.i, status: o.X, by: "uds", orderType: o.o ?? null });
         await dropPreset(o.i);
         store.delete(o.i);
         push.pushUpdate(["position"]);

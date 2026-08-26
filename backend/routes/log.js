@@ -1,5 +1,5 @@
 const express = require("express");
-const { log }  = require("../store/logStore");
+const { logClient } = require("../store/logStore");
 const router   = express.Router();
 
 /**
@@ -43,10 +43,11 @@ router.post("/", (req, res) => {
       const { ts, event, level, ...rest } = e;
       const fields = {};
       for (const [k, v] of Object.entries(rest)) fields[k] = clip(v);
-      log(event, {
+      // ⚠ `kind:"client"`는 **함수가 정한다**(logClient) — 보낸 쪽 값을 쓰지 않는다.
+      //   fields로 넣던 예전 방식은 logStore의 RESERVED 보호에 막힌다
+      logClient(event, {
         ...fields,
         level: level === "error" || level === "warn" ? level : "info",
-        kind: "client",                       // ⚠ 서버가 정한다 — 보낸 쪽 값을 쓰지 않는다
         session: typeof session === "string" ? session.slice(0, 32) : null,
         clientTs: typeof ts === "number" ? ts : null,
       });

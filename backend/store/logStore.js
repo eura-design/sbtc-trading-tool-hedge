@@ -140,18 +140,37 @@ function writeLine(obj) {
  *
  * 예) log("ENTRY_FILLED", { orderId, orderSide:"BUY", posSide:"LONG", qty, price, tp, sl })
  */
-function log(event, fields = {}) {
+// ⚠ **줄의 뼈대 필드는 `fields`가 덮을 수 없다** (2026-08-25에 고친 실제 버그).
+//   `...rest`를 뒤에 펴 두었더니 `log("ORDER_CANCEL_FAILED", { kind: "SPLIT_TP" })`가
+//   `kind:"event"`를 **덮어써서**, 그 줄들이 event도 console도 아닌 것이 됐다 —
+//   `kind`로 거르는 조회(logq·집계)에서 통째로 새어 나갔다.
+//   이름이 겹치면 **부르는 쪽 필드를 다른 이름으로** 바꾼다 (그래서 `kindOf`다)
+const RESERVED = ["ts", "iso", "boot", "kind", "event", "level"];
+
+function write(kind, event, fields) {
   const { level = "info", ...rest } = fields;
+  for (const k of RESERVED) delete rest[k];   // 뼈대는 언제나 아래 값이 이긴다
   const now = Date.now();
   writeLine({
     ts: now, iso: new Date(now).toISOString(), boot: BOOT,
-    kind: "event", level, event, symbol: rest.symbol || SYMBOL,
+    kind, level, event, symbol: rest.symbol || SYMBOL,
     ...rest,
   });
   // ⚠ 구조화 이벤트도 터미널에 낸다 — 예전엔 **아무리 심각해도 안 떴다**.
   //   `NAKED_POSITION`(손절이 없다)조차 파일에만 남아, 창을 보고 있어도 몰랐다
   toTerm(level, event, "", rest);
 }
+
+function log(event, fields = {}) { write("event", event, fields); }
+
+/**
+ * 화면(브라우저)에서 온 기록 — `kind:"client"`. `routes/log.js` 전용.
+ *
+ * ⚠ **`kind`는 서버가 정한다.** 보낸 쪽이 `kind:"event"`로 위장하지 못하게 하려는 것이고
+ *   (routes/log.js 주석), 위 RESERVED 보호에 걸려 `fields`로는 넣을 수도 없다.
+ *   그래서 통로를 함수로 따로 낸다 — 이 둘 말고 다른 `kind`를 만들지 말 것
+ */
+function logClient(event, fields = {}) { write("client", event, fields); }
 
 /** 거래소 오류를 `err: { code, msg }`로 — 원인을 요약하지 말 것 */
 function errOf(e) {
@@ -293,4 +312,4 @@ function close(reason = "shutdown") {
   fd = null;
 }
 
-module.exports = { install, close, log, errOf, BOOT, DIR };
+module.exports = { install, close, log, logClient, errOf, BOOT, DIR };

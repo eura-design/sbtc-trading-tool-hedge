@@ -41,7 +41,7 @@ router.delete("/", async (req, res) => {
       const why = posRes.reason?.response?.data?.msg || posRes.reason?.message;
       log("QUERY_FAILED", {
         level: "warn", what: "position", ctx: "cancelOrders",
-        fallback: orderId ? "orderId 지정분만 취소" : "취소 거절",
+        fallback: orderId ? "orderIdOnly" : "rejected",
         err: { code: posRes.reason?.response?.data?.code ?? null, msg: why ?? null },
       });
       if (!orderId) {
@@ -63,7 +63,7 @@ router.delete("/", async (req, res) => {
 
     for (const o of entryOrders) {
       await cancelOrder({ orderId: o.orderId })
-        .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.orderId, kind: "ENTRY", err: errOf(e) }));
+        .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.orderId, kindOf: "ENTRY", err: errOf(e) }));
       // ⚠ **사전 등록해 둔 TP/SL도 같이 내린다** (2026-08-23). 안 내리면 진입 주문만
       //   사라지고 트리거 주문이 거래소에 남는다 — 나중에 그 사이드에 포지션이 생기면
       //   엉뚱한 가격에 발동한다 (수량 지정이라 그만큼 잘려 나간다)
@@ -89,7 +89,10 @@ router.delete("/", async (req, res) => {
     }
 
     log("ORDER_CANCELED", { kindOf: "ENTRY", posSide: side ?? null,
-      orderIds: entryOrders.map(o => String(o.orderId)), count: entryOrders.length });
+      orderIds: entryOrders.map(o => String(o.orderId)), count: entryOrders.length,
+      orders: entryOrders.map(o => ({ orderId: String(o.orderId), orderType: o.type,
+        orderSide: o.side, posSide: o.positionSide, price: parseFloat(o.price) || null,
+        qty: parseFloat(o.origQty) || null })) });
     res.json({ success: true, cancelled: entryOrders.length });
   } catch (err) {
     res.status(500).json({ error: err.response?.data?.msg || err.message });

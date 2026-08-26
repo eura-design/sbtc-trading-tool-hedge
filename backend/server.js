@@ -116,7 +116,7 @@ const server = app.listen(PORT, async () => {
   const hasKey = !!(process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET);
   logStore.log("SERVER_LISTENING", { port: PORT, url: `http://localhost:${PORT}`, apiKey: hasKey });
   if (!hasKey) {
-    logStore.log("API_KEY_MISSING", { level: "warn", hint: ".env 에 BINANCE_API_KEY/SECRET 이 없다" });
+    logStore.log("API_KEY_MISSING", { level: "warn" });
   } else {
     await syncServerTime();
     await recoverPendingOrders();

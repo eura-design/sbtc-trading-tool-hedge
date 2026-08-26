@@ -93,13 +93,12 @@ router.post("/", async (req, res) => {
       await Promise.allSettled(
         splitTpOrders.map(o =>
           cancelOrder({ orderId: o.orderId })
-            .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.orderId, kind: "SPLIT_TP", ctx: "closePrepare", err: errOf(e) }))
+            .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.orderId, kindOf: "SPLIT_TP", ctx: "closePrepare", err: errOf(e) }))
         )
       );
       splitTpOrders.forEach(o => store.delete(String(o.orderId)));
     } else if (splitTpOrders.length > 0) {
-      log("SPLIT_TP_UNTOUCHED", { level: "warn", posSide: side, orders: splitTpOrders.length,
-        reason: "포지션 크기를 못 읽어 비율을 다시 계산할 수 없다" });
+      log("SPLIT_TP_UNTOUCHED", { level: "warn", posSide: side, orders: splitTpOrders.length, });
       // notice = 금색 토스트 (pushService 참고) — 익절 쪽이라 손절은 그대로 살아 있다
       push.pushAlert("notice", "포지션 크기를 읽지 못해 분할 TP를 조정하지 못했습니다 — 분할 TP 카드에서 수량을 확인하세요");
       splitTpOrders = [];   // 취소한 적이 없으므로 재등록·롤백 대상에서도 뺀다
@@ -142,10 +141,11 @@ router.post("/", async (req, res) => {
     scaleInToCancel.forEach(o => {
       store.delete(String(o.orderId));
       log("ORDER_CANCELED", { kindOf: "SCALE_IN", orderIds: [String(o.orderId)], count: 1,
-        posSide: side, ctx: "close" });
+        posSide: side, ctx: "close", orderType: o.type ?? null,
+        price: parseFloat(o.price) || null, qty: parseFloat(o.origQty) || null });
     });
   } catch (e) {
-    log("ORDER_CANCEL_FAILED", { level: "warn", kind: "TPSL_SCALE_IN", ctx: "closeAll", posSide: side, err: errOf(e) });
+    log("ORDER_CANCEL_FAILED", { level: "warn", kindOf: "TPSL_SCALE_IN", ctx: "closeAll", posSide: side, err: errOf(e) });
   }
 
   // 2) 시장가 청산
@@ -225,8 +225,8 @@ router.post("/", async (req, res) => {
           });
           await cancelOrder({ orderId: o.id, algoId: o.id, isAlgo: o.isAlgo })
             .catch(e => { anyFailed = true;
-              log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.id, kind: "PARTIAL_SL",
-                ctx: "rescaleOld", note: "겹쳐도 무해", err: errOf(e) }); });
+              log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.id, kindOf: "PARTIAL_SL",
+                ctx: "rescaleOld", err: errOf(e) }); });
           log("PARTIAL_SL_RESCALED", { posSide: side, price: o.price, fromQty: o.origQty, toQty: qty });
         } catch (e) {
           anyFailed = true;
@@ -237,8 +237,7 @@ router.post("/", async (req, res) => {
       const kept = new Set(items.map(x => x.order.id));
       const dropped = partialSlOrders.filter(o => !kept.has(o.id));
       if (dropped.length) {
-        log("PARTIAL_SL_KEPT", { posSide: side, count: dropped.length,
-          reason: "잔여가 최소 수량 미만이라 다시 걸 수 없다" });
+        log("PARTIAL_SL_KEPT", { posSide: side, count: dropped.length });
       }
       if (anyFailed) {
         // ⚠ 여기만 **빨간 배너**다 (위 세 줄은 notice). 분할 SL은 손절이라,

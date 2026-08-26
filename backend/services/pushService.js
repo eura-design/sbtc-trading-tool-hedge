@@ -12,7 +12,6 @@ function init(server) {
     ws.on("error", () => clients.delete(ws));
     log("CLIENT_CONNECTED", { clients: clients.size });
   });
-  log("PUSH_SERVER_STARTED", {});
 }
 
 /**

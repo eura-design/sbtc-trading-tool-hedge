@@ -19,16 +19,20 @@ import { getStructLiveChochs } from "../chart/structRenderState";
 //     과거를 다시 훑는데, 그때 마지막 CHoCH의 seq가 바뀐다 → gen이 변했으면
 //     "새 발생"이 아니라 재계산이므로 소리 없이 기준선만 갱신한다.
 //
-// 수동 구조는 진행 중 레그의 CHoCH만 대상이라(structRenderState 주석) 편집으로는
-// 울리지 않는다. 키는 `구조id|방향|레벨가격`이라 같은 마크가 확정분으로 바뀌어도
-// 다시 울리지 않는다.
+// 수동 구조는 **진행 중 레그의 CHoCH만** 본다 (structRenderState 주석). 키는
+// `구조id|방향|레벨가격`이라 같은 마크가 확정분으로 바뀌어도 다시 울리지 않는다.
+//
+// ⚠ 여기 **"편집으로는 울리지 않는다"고 적혀 있었는데 틀린 말이라 지웠다** (2026-08-26).
+//   꼭짓점을 드래그하면 레벨 가격이 바뀌어 **키가 달라지므로 한 번 울릴 수 있다.**
+//   막으려면 "방금 드래그했으면 잠시 무음" 같은 장치가 필요한데 아직 없다 —
+//   알림 켠 구조를 편집할 때만 생기는 일이라 두기로 했다
 const fmt = p => "$" + p.toLocaleString("ko-KR", { maximumFractionDigits: 1 });
 const dirLabel = dir => (dir === "bull" ? "상승 전환" : "하락 전환");
 
 /**
- * @param structures   현재 표시 중인 수동 구조 목록 (alertChoch 플래그를 읽는다)
- * @param zzAlertOn    자동 ZZ의 CHoCH 알림 on/off (indicatorParams.zz.alert_choch)
- * @param onAlert      알림 표시 콜백 (addToast — 일반 토스트, 30초 자동 닫힘)
+ * @param structures   수동 구조 목록 (alertChoch 플래그를 읽는다)
+ * @param zzAlertOn    자동 ZZ의 CHoCH 알림 on/off (지표 ON + alert_choch)
+ * @param onAlert      알림 표시 콜백 (addToast)
  */
 export function useChochAlert({ structures, zzAlertOn, onAlert }) {
   // 틱마다 재실행되도록 구독 — 값 자체는 쓰지 않는다
@@ -53,6 +57,17 @@ export function useChochAlert({ structures, zzAlertOn, onAlert }) {
 
     // ── 수동 구조 ────────────────────────────────────────────────────────────
     const live = getStructLiveChochs();
+    // ⚠ **목록이 비면 기준선을 건드리지 않고 빠져나간다** (2026-08-26).
+    //   자동 ZZ의 세대(gen) 비교에 해당하는 장치다 — "지금은 재계산 중"이라는 뜻.
+    //   빈 목록이 들어오는 경우가 둘인데 **둘 다 실제 상태가 아니다**:
+    //     ① 지표 OFF·표시 TF 아님 → `ChartArea`가 `visibleStructures = []`를 넘긴다
+    //     ② TF를 바꿔 캔들을 다시 받는 중 → `Structures`가 일찍 빠져나가 ①의 빈 값이 남는다
+    //   그 빈 값이 기준선을 덮으면 **캔들이 도착한 순간 원래 있던 CHoCH가 처음 보는
+    //   것이 되어 다시 울린다** (`4h → 1d → 4h`로 재현). 건드리지 않으면 키가 같아 조용하고,
+    //   그 사이 **새로** 생긴 CHoCH만 한 번 울린다
+    //   ※ 알림이 꺼진 지표에서 울릴 걱정은 없다 — 그때는 목록이 비어 여기서 멈춘다
+    //   ※ 지운 구조의 낡은 키는 다음에 목록이 채워질 때 통째 교체되며 정리된다
+    if (!live.length) return;
     const keys = new Set(live.map(e => `${e.structId}|${e.dir}|${e.price}`));
     const seen = structRef.current;
     structRef.current = keys;

@@ -1,5 +1,6 @@
 const express     = require("express");
 const { binance } = require("../services/binanceClient");
+const { log } = require("../store/logStore");
 const router      = express.Router();
 
 function todayStartUTC() {
@@ -48,6 +49,10 @@ const DAILY_LOSS_EPSILON = 0.01;
 module.exports.checkDailyLoss = async function checkDailyLoss() {
   const { todayPnl, limit } = await computeDailyLoss();
   if (todayPnl + limit < DAILY_LOSS_EPSILON) {
+    // ⚠ **위험 관리가 실제로 작동한 순간이다** — 따로 셀 수 있어야 한다 (2026-08-25).
+    //   예전엔 `ORDER_FAILED` 안에 문장으로만 섞여서 거래소 거절과 구분되지 않았다
+    log("DAILY_LOSS_BLOCKED", { level: "warn", todayPnl: +todayPnl.toFixed(2),
+      limit: +limit.toFixed(2), overBy: +(-(todayPnl + limit)).toFixed(2) });
     const err = new Error(`일일 손실 한도 초과 (오늘 ${todayPnl.toFixed(2)} USDT / 한도 -${limit.toFixed(2)} USDT)`);
     err.status = 403;
     throw err;

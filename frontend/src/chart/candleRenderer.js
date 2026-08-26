@@ -158,7 +158,10 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
     if (ov.showZZ) {
       renderStructureZigzag(
         ctx, computeStructureZigzag(candles, ov.zzParams ?? {}), xScale, yScale, IW, IH,
-        { selected: ov.zzSelected, opacity: ov.zzParams?.opacity },
+        // ⚠ `alert_choch`는 **`=== true`로 읽는다** — 기본 OFF다 (저장값이 없을 때
+        //   켜진 채로 뜨면 손대지 않은 지표가 알림 스타일이 되어 색이 뜻을 잃는다)
+        { selected: ov.zzSelected, opacity: ov.zzParams?.opacity,
+          alert: ov.zzParams?.alert_choch === true },
       );
     }
   }
