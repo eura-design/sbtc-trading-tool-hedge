@@ -115,13 +115,16 @@ export const paperActions = {
     paperActions.executeOrder(get, "LIMIT", isLong);
   },
 
+  // ⚠ 아래 셋은 **성공 여부를 돌려준다** — `placeSplitOrders`가 몇 개까지 나갔는지
+  //   세는 근거다. 실거래 쪽 같은 이름의 액션도 같은 값을 돌려준다 (한쪽만 고치지 말 것)
   scaleIn: (get, side, orderType, price, quantity) => {
     const { paperBroker } = get();
-    if (!paperBroker) return;
+    if (!paperBroker) return false;
     try {
       paperBroker.addScaleIn({ positionSide: side, orderType, price, qty: quantity });
       ok(get, orderType === "MARKET" ? "시장가 추가 진입 완료" : `지정가 추가 진입 등록 ($${price?.toLocaleString()})`);
-    } catch (e) { err(get, e, "추가 진입 실패"); }
+      return true;
+    } catch (e) { err(get, e, "추가 진입 실패"); return false; }
   },
 
   cancelScaleIn: (get, orderId) => {
@@ -144,16 +147,22 @@ export const paperActions = {
 
   addSplitTp: (get, side, price, qty, pct) => {
     const { paperBroker } = get();
-    if (!paperBroker) return;
-    paperBroker.addSplitTp({ positionSide: side, price, qty, pct });
-    ok(get, `분할 TP 등록 ($${price?.toLocaleString()})`);
+    if (!paperBroker) return false;
+    try {
+      paperBroker.addSplitTp({ positionSide: side, price, qty, pct });
+      ok(get, `분할 TP 등록 ($${price?.toLocaleString()})`);
+      return true;
+    } catch (e) { err(get, e, "분할 TP 실패"); return false; }
   },
 
   addPartialSl: (get, side, price, qty) => {
     const { paperBroker } = get();
-    if (!paperBroker) return;
-    paperBroker.addPartialSl({ positionSide: side, price, qty });
-    ok(get, `분할 SL 등록 ($${price?.toLocaleString()})`);
+    if (!paperBroker) return false;
+    try {
+      paperBroker.addPartialSl({ positionSide: side, price, qty });
+      ok(get, `분할 SL 등록 ($${price?.toLocaleString()})`);
+      return true;
+    } catch (e) { err(get, e, "분할 SL 실패"); return false; }
   },
 
   movePartialSl: (get, orderId, newPrice) => {

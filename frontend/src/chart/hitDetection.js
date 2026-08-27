@@ -575,6 +575,8 @@ export function buildHitChain(ctx) {
     structAutoChains, commitStructPoints,   // 자동 점을 눌러 확정 (3.95)
     // 자동 ZZ — 도형이 아니라 지표라 선택만 한다 (드래그/삭제 없음)
     showZZ, zzSegments,
+    // 차트에서 분할 주문 걸기 (2026-08-27) — 켜져 있으면 체인 맨 앞에서 가로챈다
+    orderPick,
   } = ctx;
 
   // 다음에 찍을 꼭짓점 타입 — 직전 점의 반대 (첫 점은 커서 위치로 판정)
@@ -600,6 +602,21 @@ export function buildHitChain(ctx) {
   };
 
   return [
+    // 0.0. **차트에서 분할 주문 걸기** — 켜져 있으면 무엇보다 먼저다 (2026-08-27).
+    //
+    // 누르면 드래그를 시작만 시키고 나머지는 DRAG_HANDLERS.order_pick이 맡는다
+    // (측정 박스와 같은 구조 — 클릭이냐 드래그냐가 손을 뗄 때 정해지므로).
+    //
+    // ⚠ **체인 맨 앞이어야 한다.** 이건 실주문이 나가는 모드라, 도형 그리기가 같이
+    //   켜져 있더라도 "지금 차트를 누르면 무슨 일이 일어나는가"가 하나로 정해져야 한다.
+    //   뒤에 두면 켜 둔 도형 모드가 먼저 잡아서, 주문을 걸려고 눌렀는데 선이 그어진다
+    {
+      when: !!orderPick,
+      handle() {
+        const p = yScale.invert(Math.min(Math.max(pos.y, 0), IH));
+        dragRef.current = { type: "order_pick", startX: pos.x, startY: pos.y, p1: p };
+      },
+    },
     // 0. 채널 그리기 모드
     {
       when: channelMode,

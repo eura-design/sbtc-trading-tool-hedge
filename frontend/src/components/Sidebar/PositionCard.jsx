@@ -44,8 +44,7 @@ function AccordionSection({ label, badge, isOpen, onToggle, theme, posColor, chi
 export function PositionCard({
   posData, side, tpsl, tpslSaving, onClose, lastPrice,
   scaleInOrders, onScaleIn, onCancelScaleIn,
-  onAddSplitTp, onCancelSplitTp,
-  onAddPartialSl, onCancelPartialSl,
+  onCancelSplitTp, onCancelPartialSl,
 }) {
   const { theme } = useTheme();
   const [closePct, setClosePct] = useState(() => Number(lsGet("closePct")) || 100);
@@ -241,8 +240,6 @@ export function PositionCard({
           posData={posData}
           side={side}
           tpsl={tpsl}
-          lastPrice={lastPrice}
-          onAddSplitTp={onAddSplitTp}
           onCancelSplitTp={onCancelSplitTp}
         />
       </AccordionSection>
@@ -262,8 +259,6 @@ export function PositionCard({
           posData={posData}
           side={side}
           tpsl={tpsl}
-          lastPrice={lastPrice}
-          onAddPartialSl={onAddPartialSl}
           onCancelPartialSl={onCancelPartialSl}
         />
       </AccordionSection>

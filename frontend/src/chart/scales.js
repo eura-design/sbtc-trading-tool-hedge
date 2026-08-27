@@ -67,32 +67,48 @@ export function padYDomain(lo, hi, padFrac, isLog) {
   return [safeLo / logPad, safeHi * logPad];
 }
 
-// ⚠ **폴백 도메인은 "화면에 보일 봉"만 본다.** 되돌리지 말 것 (2026-08-15).
-//   예전 y 폴백은 `d3.min/max(candles)` — 로드된 **전체 3000봉**의 고저였다.
-//   x는 300봉인데 y는 3000봉 범위라, 도메인이 비어 있는 짧은 순간(도메인 리셋 직후,
-//   TF 전환 중)마다 캔들이 세로로 눌려 그려졌다 = "차트가 납작하다".
-//   휠을 굴리면 useChartInteraction이 보이는 봉으로 y를 다시 계산해 그때서야 정상으로 보였다.
-//   폭(300)과 패딩(0.06)은 useChartRenderer의 applyInitialDomain과 **같은 값**이어야
-//   폴백에서 확정 도메인으로 넘어갈 때 화면이 튀지 않는다
-const FALLBACK_BARS = 300;
+// ⚠ **세로 범위는 "화면에 보일 봉"만 본다.** 되돌리지 말 것 (2026-08-15).
+//   예전엔 로드된 **전체 3000봉**의 고저를 썼다. x는 300봉인데 y는 3000봉 범위라
+//   캔들이 세로로 눌려 그려졌다 = "차트가 납작하다" (실측: 화면 세로의 12% → 89%).
+//
+// ⚠ **첫 화면·폴백·휠·팬·로그 전환이 전부 아래 두 함수만 쓴다** (2026-08-27).
+//   예전엔 그 다섯 자리가 같은 반복문을 각자 갖고 있었고 **여백 식이 두 벌**이었다:
+//   첫 화면·폴백은 6% 고정, 나머지 셋은 `max(0.08, 보이는칸수 ÷ 전체봉수 × 0.5)`.
+//   봉이 많은 TF에서는 두 식의 답이 6%와 8%로 비슷해 아무도 눈치채지 못했지만,
+//   **월봉은 캔들이 84개뿐이라** 그 비율이 4.2가 되어 여백이 210%까지 튀었다 →
+//   첫 화면은 세로 89%인데 휠·팬을 하는 순간 23%로 바뀌었다 (2026-08-27 사용자 신고).
+//   자리마다 식을 다시 쓰지 말 것 — 그게 이 증상의 원인이다
+const VIEW_BARS = 300;
+const Y_PAD     = 0.06;
+
+// 처음 볼 구간. ⚠ **있는 캔들보다 넓게 잡지 않는다** (2026-08-27).
+//   예전엔 봉 개수와 무관하게 350칸 고정이라, 84개뿐인 월봉은 캔들이 가로의 24%에만
+//   몰려 위아래로 늘어난 것처럼 보였다. 1주봉(365개) 이상은 전부 300을 넘어 영향이 없다
+export function initialXDomain(candles) {
+  const lastIdx = candles.length - 1;
+  const past    = Math.max(1, Math.min(VIEW_BARS, lastIdx)); // 최소 1 — 폭이 0이면 xScale이 죽는다
+  return [lastIdx - past, lastIdx + Math.round(past / 6)];   // 오른쪽 여백 = 폭의 1/6 (300봉이면 50칸, 예전과 같은 값)
+}
+
+// 보이는 봉의 고저 + 여백. ⚠ slice·d3.min/max 대신 직접 루프 — 팬·휠에서 매 프레임 돈다
+export function fitYDomain(candles, xDom, isLog = false) {
+  const lastIdx = candles.length - 1;
+  const i0 = Math.max(0, Math.floor(xDom[0]));
+  const i1 = Math.min(lastIdx, Math.ceil(xDom[1]));
+  let lo = Infinity, hi = -Infinity;
+  for (let i = i0; i <= i1; i++) {
+    const c = candles[i];
+    if (c.l < lo) lo = c.l;
+    if (c.h > hi) hi = c.h;
+  }
+  if (lo === Infinity) { lo = candles[lastIdx].l; hi = candles[lastIdx].h; }
+  return padYDomain(lo, hi, Y_PAD, isLog);
+}
 
 export function getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog = false) {
   if (!candles.length || IW <= 0 || IH <= 0) return null;
-  const lastIdx = candles.length - 1;
-  const xDom = xDomainRef.current ?? [lastIdx - FALLBACK_BARS, lastIdx + 50];
-  let yDom = yDomainRef.current;
-  if (!yDom) {
-    const i0 = Math.max(0, Math.floor(xDom[0]));
-    const i1 = Math.min(lastIdx, Math.ceil(xDom[1]));
-    let lo = Infinity, hi = -Infinity;
-    for (let i = i0; i <= i1; i++) {
-      const c = candles[i];
-      if (c.l < lo) lo = c.l;
-      if (c.h > hi) hi = c.h;
-    }
-    if (lo === Infinity) { lo = candles[lastIdx].l; hi = candles[lastIdx].h; }
-    yDom = padYDomain(lo, hi, 0.06, isLog);
-  }
+  const xDom = xDomainRef.current ?? initialXDomain(candles);
+  const yDom = yDomainRef.current ?? fitYDomain(candles, xDom, isLog);
   const logYDom = isLog ? [Math.max(yDom[0], 1), yDom[1]] : yDom;
   return {
     xScale: d3.scaleLinear().domain(xDom).range([0, IW]),

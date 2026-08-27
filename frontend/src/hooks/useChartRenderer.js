@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import * as d3 from "d3";
-import { getScales, padYDomain } from "../chart/scales";
+import { getScales, fitYDomain, initialXDomain } from "../chart/scales";
 import { renderCandles, renderVolumeCanvas, renderRSICanvas } from "../chart/candleRenderer";
 
 export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, IH, canvasRef, volCanvasRef, rsiCanvasRef, isLog = false, overlaysRef }) {
@@ -66,19 +65,14 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     forceUpdate();
   }, [redrawCanvas, redrawVolume, redrawRSI]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 최근 300봉 기준으로 x/y 도메인을 처음부터 다시 잡는다.
+  // 최근 300봉(또는 있는 만큼) 기준으로 x/y 도메인을 처음부터 다시 잡는다.
   // 캔들이 아직 없으면 아무것도 하지 않고 false — 그때는 isInitialLoadRef를 true로 남겨
   // 캔들이 도착했을 때 아래 [candles] 이펙트가 잡게 한다
   const applyInitialDomain = useCallback((cIn) => {
     const c = cIn ?? candlesRef.current;
     if (!c?.length) return false;
-    const lastIdx = c.length - 1;
-    xDomainRef.current = [lastIdx - 300, lastIdx + 50];
-    const i0 = Math.max(0, lastIdx - 300);
-    const visible = c.slice(i0);
-    const yC = visible.length > 0 ? visible : c;
-    const lo = d3.min(yC, d => d.l), hi = d3.max(yC, d => d.h);
-    yDomainRef.current = padYDomain(lo, hi, 0.06, isLog);
+    xDomainRef.current = initialXDomain(c);
+    yDomainRef.current = fitYDomain(c, xDomainRef.current, isLog);
     isInitialLoadRef.current   = false;
     prevCandleCountRef.current = c.length;
     return true;
@@ -111,16 +105,7 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
   useEffect(() => { redrawChart(); }, [IW, IH]);    // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {                                  // eslint-disable-line react-hooks/exhaustive-deps
     const c = candlesRef.current;
-    if (!c.length || !xDomainRef.current) { redrawChart(); return; }
-    const [i0, i1] = xDomainRef.current;
-    const vi0 = Math.max(0, Math.floor(i0));
-    const vi1 = Math.min(c.length - 1, Math.ceil(i1));
-    const vis = c.slice(vi0, vi1 + 1);
-    const yC  = vis.length > 0 ? vis : c;
-    const lo  = d3.min(yC, d => d.l), hi = d3.max(yC, d => d.h);
-    const zr  = (i1 - i0) / (c.length - 1 || 1);
-    const padFrac = Math.max(0.08, zr * 0.5);
-    yDomainRef.current = padYDomain(lo, hi, padFrac, isLog);
+    if (c.length && xDomainRef.current) yDomainRef.current = fitYDomain(c, xDomainRef.current, isLog);
     redrawChart();
   }, [isLog]);
   useEffect(() => { redrawChart(); }, [isDark]);    // eslint-disable-line react-hooks/exhaustive-deps
@@ -136,7 +121,7 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
   //       **이미 새 데이터**일 때 쓴다. 비우기만 하면 candles identity가 안 바뀌어
   //       [candles] 이펙트가 안 돌고, 아무도 도메인을 다시 잡지 않는다
   // ※ 어느 쪽이든 도메인이 비어 있는 동안은 getScales의 폴백이 그린다.
-  //   그 폴백도 "보이는 봉"만 보므로 납작해지지 않는다 (scales.js FALLBACK_BARS 주석)
+  //   그 폴백도 같은 initialXDomain·fitYDomain을 쓰므로 화면이 튀지 않는다 (scales.js 주석)
   const resetDomain = useCallback((opts) => {
     isInitialLoadRef.current   = true;
     prevCandleCountRef.current = 0;

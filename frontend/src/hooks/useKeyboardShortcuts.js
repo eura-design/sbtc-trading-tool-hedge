@@ -7,6 +7,7 @@ export function useKeyboardShortcuts({
   shortcuts,
   setDrawMode, setCurrent,
   cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelMeasureDraw, cancelStructDraw,
+  setOrderPick,   // 차트에서 분할 주문 걸기 — ESC로 끈다 (2026-08-27)
   setStructMode, structEnabled, structMode, ensureStructTf,
   setFibMode,
   drawables,   // { line, channel, circle, fib, measure, structure, zz } — chart/drawables.js 인터페이스
@@ -28,6 +29,9 @@ export function useKeyboardShortcuts({
         cancelStructDraw();   // 그리던 구조는 확정하지 않고 버린다 (확정은 우클릭/더블클릭)
         clearAllSelections(drawables);
         setSelectedBox(null);
+        // ⚠ **주문 지정 모드도 ESC로 꺼야 한다.** 켜져 있으면 다음 차트 클릭이
+        //   곧 실주문이라, 빠져나오는 길이 사이드바 버튼 하나뿐이면 안 된다
+        setOrderPick?.(null);
         return;
       }
 

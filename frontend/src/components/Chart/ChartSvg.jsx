@@ -7,6 +7,7 @@ import { Fibs }         from "./Fibs";
 import { Measures }     from "./Measures";
 import { Structures }   from "./Structures";
 import { PositionLines } from "./PositionLines";
+import { OrderPickPreview } from "./OrderPickPreview";
 import { BoxOverlay, DrawingCurrent } from "./BoxOverlay";
 import { LEG_VOL_METRICS } from "../../chart/legVolume";
 // 레그 등락률 글자 크기 — 거래량 줄의 x 계산에도 쓰이므로 **한 곳에서 가져온다**
@@ -42,6 +43,7 @@ export function ChartSvg({
   circles, selectedCircleId, circleCenter, circlePreview,
   fibs, selectedFibId, fibStart, fibPreview,
   measures, selectedMeasureId, measureDraft,
+  orderPick, pickDraft,
   structures, selectedStructId, structPart, structDraft, structPreview,
 }) {
   const { isDark } = useTheme();
@@ -108,6 +110,9 @@ export function ChartSvg({
             selected={selectedBox === k} candles={candles} />
         ))}
         <DrawingCurrent current={current} scales={scales} IW={IW} IH={IH} />
+        {/* 분할 주문 미리보기 — **맨 위에 그린다.** 놓는 순간 실주문이 나가는
+            선이라 다른 도형에 가려지면 안 된다 */}
+        <OrderPickPreview orderPick={orderPick} pickDraft={pickDraft} scales={scales} IW={IW} />
       </g>
 
       {/* ※ 박스 오른쪽의 가격 라벨(BoxLabels)은 2026-08-14 사용자 요청으로 제거 —

@@ -98,6 +98,7 @@ export function ChartArea({
     opacityPopup, setOpacityPopup,
     closeConfirm, setCloseConfirm,
     cancelTpsl, cancelScaleIn, cancelSplitTp, cancelPartialSl, closePosition, deleteBox,
+    orderPick, setOrderPick, pickDraft, setPickDraft, placeSplitOrders,
   } = useStore(useShallow(s => ({
     drawings: s.drawings, setDrawing: s.setDrawing,
     drawMode: s.drawMode, setDrawMode: s.setDrawMode,
@@ -112,6 +113,10 @@ export function ChartArea({
     cancelTpsl: s.cancelTpsl, cancelScaleIn: s.cancelScaleIn,
     cancelSplitTp: s.cancelSplitTp, cancelPartialSl: s.cancelPartialSl, closePosition: s.closePosition,
     deleteBox: s.deleteBox,
+    // 차트에서 분할 주문 걸기 (2026-08-27)
+    orderPick: s.orderPick, setOrderPick: s.setOrderPick,
+    pickDraft: s.pickDraft, setPickDraft: s.setPickDraft,
+    placeSplitOrders: s.placeSplitOrders,
   })));
 
   // 마커 옆 × 버튼 클릭 — 무엇을 지우는지는 kind가 정한다 (hitDetection.markerCloseButtons)
@@ -311,6 +316,7 @@ export function ChartArea({
       measureMode, setMeasureDraft,
       measures, selectedMeasureId,
       addMeasure, moveMeasureCorner, setMeasurePosition,
+      orderPick, setOrderPick, setPickDraft, placeSplitOrders,
       structMode, structDraft, structPreview, setStructPreview,
       structures: visibleStructures, selectedStructId, setSelectedStructId,
       addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
@@ -355,6 +361,17 @@ export function ChartArea({
         onMouseLeave={onMouseLeave} onDoubleClick={onDoubleClick}
         onContextMenu={e => {
           e.preventDefault();
+          // ⚠ **주문 지정 모드는 우클릭 한 번으로 끈다** (2026-08-27 사용자 요청) —
+          //   아직 주문을 내지 않은 상태에서 **기능만** 취소한다. ESC와 같은 뜻이지만,
+          //   이 모드는 손이 이미 차트에 가 있으므로 마우스로 끝낼 수 있어야 한다
+          //   ⚠ **끄는 중에도 취소된다 → `dragRef`까지 비운다.** 안 비우면 손을 뗄 때
+          //     `order_pick`의 onUp이 그대로 돌아 **취소했는데 주문이 나간다**
+          //     (측정 박스가 같은 이유로 dragRef를 비운다 — 아래 measureMode)
+          if (orderPick || dragRef.current?.type === "order_pick") {
+            setOrderPick(null);            // pickDraft도 같이 비워진다 (store/uiSlice)
+            dragRef.current = null;
+            return;
+          }
           // 구조는 꼭짓점 개수가 정해져 있지 않으므로 우클릭이 "여기까지" 확정 신호다
           // (선/채널/원은 점 개수가 고정이라 우클릭이 취소)
           if (structMode) { finishStruct(); return; }
@@ -389,6 +406,7 @@ export function ChartArea({
         fibs={fibs} selectedFibId={selectedFibId}
         fibStart={fibStart} fibPreview={fibPreview}
         measures={measures} selectedMeasureId={selectedMeasureId} measureDraft={measureDraft}
+        orderPick={orderPick} pickDraft={pickDraft}
         structures={visibleStructures} selectedStructId={selectedStructId} structPart={structPart}
         structDraft={showStruct ? structDraft : null}
         structPreview={showStruct ? structPreview : null}

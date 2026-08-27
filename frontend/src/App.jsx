@@ -46,7 +46,7 @@ export default function App() {
   const {
     interval_, setInterval_,
     indicators, toggleIndicator,
-    setDrawMode,
+    setDrawMode, setOrderPick,
     drawings, setDrawing, clearDrawings,
     criticalAlerts, dismissCriticalAlert,
     selectedBox, setSelectedBox,
@@ -325,8 +325,11 @@ export default function App() {
   const pivotLevels = usePivotLevels(indicatorParams.pivot, replayOn ? replayNowMs : null);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
-  const { deleteBox, closePosition, scaleIn, cancelScaleIn, addSplitTp, cancelSplitTp,
-          addPartialSl, cancelPartialSl } = useOrderFlow();
+  // ⚠ `addSplitTp`/`addPartialSl`은 여기로 내려보내지 않는다 (2026-08-27) —
+  //   등록은 이제 **차트에서** 하고, `store/orderSlice.placeSplitOrders`가
+  //   스토어 안에서 직접 부른다. 사이드바 카드에는 취소만 남았다
+  const { deleteBox, closePosition, scaleIn, cancelScaleIn, cancelSplitTp,
+          cancelPartialSl } = useOrderFlow();
 
   // ── 단축키 설정 ─────────────────────────────────────────────────────────
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcutSettings();
@@ -452,6 +455,7 @@ export default function App() {
   useKeyboardShortcuts({
     shortcuts,
     setDrawMode,
+    setOrderPick,
     setCurrent,
     cancelDraw:        trendLines.cancelDraw,
     cancelChannelDraw: trendLines.cancelChannelDraw,
@@ -500,23 +504,25 @@ export default function App() {
         <TopBar
           interval_={interval_} onIntervalChange={val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain({ defer: true }); }}
           lineMode={trendLines.lineMode} onLineModeToggle={() => {
-            setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
+            setOrderPick(null); setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             trendLines.setLineMode(m => { if (m) trendLines.cancelDraw(); return !m; });
           }}
           channelMode={trendLines.channelMode} onChannelModeToggle={() => {
-            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
+            setOrderPick(null); setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             trendLines.setChannelMode(m => { if (m) trendLines.cancelChannelDraw(); return !m; });
           }}
           circleMode={trendLines.circleMode} onCircleModeToggle={() => {
-            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
+            setOrderPick(null); setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
           }}
           fibMode={fibTool.fibMode} onFibModeToggle={() => {
+            setOrderPick(null);
             setDrawMode(false);
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             fibTool.setFibMode(m => { if (m) fibTool.cancelFibDraw(); return !m; });
           }}
           measureMode={measureTool.measureMode} onMeasureModeToggle={() => {
+            setOrderPick(null);
             setDrawMode(false);
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
             fibTool.cancelFibDraw(); structs.cancelStructDraw();
@@ -525,6 +531,7 @@ export default function App() {
           structMode={structs.structMode} structEnabled={structOn} onStructModeToggle={() => {
             if (!structOn) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단
             if (!structs.structMode) ensureStructTf();   // 진입할 때만 — 나갈 때 추가하면 엉뚱하다
+            setOrderPick(null);
             setDrawMode(false);
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw();
             structs.setStructMode(m => { if (m) structs.cancelStructDraw(); return !m; });
@@ -620,11 +627,10 @@ export default function App() {
           onClosePosition={closePosition}
           onScaleIn={scaleIn}
           onCancelScaleIn={cancelScaleIn}
-          onAddSplitTp={addSplitTp}
           onCancelSplitTp={cancelSplitTp}
-          onAddPartialSl={addPartialSl}
           onCancelPartialSl={cancelPartialSl}
           onDrawModeToggle={() => {
+            setOrderPick(null);
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
             fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             setDrawMode(m => !m);

@@ -4,11 +4,16 @@ import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from 
 import { paperActions }  from "../replay/paperActions";
 import { riskPctFor }   from "./settingsSlice";
 import { boxKey }       from "./uiSlice";
+import { splitPlan }    from "../utils/splitLevels";
 
 // 리플레이(페이퍼) 모드면 같은 이름의 페이퍼 핸들러로 넘긴다.
 // 각 액션 첫 줄에서 한 번만 갈라지므로 아래 실거래 코드는 원래대로 읽힌다.
 // ⚠ 새 주문 액션을 추가하면 **이 위임 한 줄도 같이 넣을 것.** 빠뜨리면 리플레이
 //   중에 그 액션만 실계좌로 가려다 api() 가드에 막혀 에러가 난다 (조용히 나가지는 않는다).
+
+// 분할 주문 종류의 화면 이름 — 성공·실패 문구가 **어느 카드 얘기인지** 말해야 한다
+// (취소 실패 문구를 넷 다 다르게 둔 것과 같은 이유 — cancelScaleIn 주석)
+const KIND_LABEL = { scale_in: "추가 진입", split_tp: "분할 TP", partial_sl: "분할 SL" };
 
 export const createOrderSlice = (set, get) => ({
 
@@ -199,19 +204,37 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
+  // ⚠ **`side`는 포지션 방향(LONG/SHORT)이다** (2026-08-27에 바꿨다).
+  //   `addSplitTp`·`addPartialSl`과 같은 형식이라 셋을 나란히 부를 수 있다
+  //   (`placeSplitOrders`가 그렇게 쓴다).
+  //
+  //   ⚠ **`POST /api/scale-in`만 주문 방향(BUY/SELL)을 받는다** — 그 라우트가
+  //     `sideToPosition(side)`로 되돌리기 때문이다. 그래서 **여기서 변환한다.**
+  //     예전엔 부르는 쪽(ScaleInCard)이 `isLongToSide()`로 미리 바꿔서 넘겼는데,
+  //     그 탓에 실제로 두 가지가 깨져 있었다:
+  //       ① `placeSplitOrders`가 다른 둘과 같은 형식으로 넘겨 **거래소가
+  //          `Invalid side`로 전부 거절**했다 (2026-08-27 실측)
+  //       ② **연습 모드가 조용히 망가져 있었다** — `paperActions.scaleIn`은
+  //          받은 값을 `positionSide`로 그대로 쓰는데(paperBroker.addScaleIn),
+  //          `"BUY"`가 들어가 `pos["BUY"]`라는 없는 포지션이 만들어졌다
+  //   ⚠ 이 파일의 액션들끼리 형식을 갈라 놓지 말 것 — 라우트마다 다른 것은
+  //     **여기서 흡수한다**. CLAUDE.md의 `orderSide와 posSide를 섞지 말 것`이
+  //     정확히 이 함정이다
   scaleIn: async (side, orderType, price, quantity) => {
     if (get().replayOn) return paperActions.scaleIn(get, side, orderType, price, quantity);
     const { setOrderStatus, _refetchPos } = get();
     setOrderStatus(null);
     try {
-      await api("POST", "/api/scale-in", { side, orderType, price, quantity });
+      await api("POST", "/api/scale-in", { side: positionToSide(side), orderType, price, quantity });
       const msg = orderType === "MARKET"
         ? "시장가 추가 진입 완료"
         : `지정가 추가 진입 등록 완료 ($${price?.toLocaleString()})`;
       setOrderStatus({ type: "success", msg });
       setTimeout(() => { _refetchPos(); }, 1000);
+      return true;
     } catch (e) {
       setOrderStatus({ type: "error", msg: `추가 진입 실패: ${e.message}` });
+      return false;
     }
   },
 
@@ -258,8 +281,10 @@ export const createOrderSlice = (set, get) => ({
       await api("POST", "/api/tpsl/split", { side, price, qty, pct });
       setOrderStatus({ type: "success", msg: `분할 TP 등록 완료 (${price?.toLocaleString()})` });
       setTimeout(() => { _refetchTpsl(); }, 500);
+      return true;
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 TP 실패: ${e.message}` });
+      return false;
     }
   },
 
@@ -277,8 +302,10 @@ export const createOrderSlice = (set, get) => ({
       await api("POST", "/api/tpsl/partial-sl", { side, price, qty });
       setOrderStatus({ type: "success", msg: `분할 SL 등록 완료 (${price?.toLocaleString()})` });
       setTimeout(() => { _refetchTpsl(); }, 500);
+      return true;
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 SL 실패: ${e.message}` });
+      return false;
     }
   },
 
@@ -326,6 +353,89 @@ export const createOrderSlice = (set, get) => ({
       setOrderStatus({ type: "error", msg: `옛 분할 SL 취소 실패 — 목록에서 직접 지우세요: ${e.message}` });
     }
     setTimeout(() => { _refetchTpsl(); }, 500);
+  },
+
+  // ── 차트에서 지정한 구간에 분할 주문 (2026-08-27 사용자 요청) ────────────
+  //
+  // `p1 → p2` 구간에 `count`개를 균등 배치하고 `totalQty`를 나눠 담는다.
+  // **클릭이면 p1 === p2 · count === 1**이라 같은 길로 한 개가 나간다 —
+  // 한 개와 여러 개를 다른 코드로 만들지 말 것 (미리보기와 실제가 갈라진다).
+  //
+  // ⚠ 가격·수량 배분은 `utils/splitLevels.js` 하나가 정한다 — 차트 미리보기가
+  //   같은 함수를 부른다. 각자 계산하면 화면에 뜬 것과 나가는 것이 어긋나고,
+  //   그 어긋남은 **체결된 뒤에야** 보인다
+  //
+  // ⚠ 리플레이 위임은 각 종류의 **기존 단건 액션**이 이미 갖고 있다 —
+  //   여기서 다시 갈라지지 않는다. 아래 `place`가 그 액션들을 부르므로
+  //   연습 모드에서도 페이퍼 브로커로 그대로 흘러간다
+  placeSplitOrders: async (kind, side, p1, p2, count, totalQty) => {
+    const st = get();
+    const { position, liveClose, setOrderStatus, scaleIn, addSplitTp, addPartialSl } = st;
+    const isLong = side === "LONG";
+    const posData = isLong ? position?.long : position?.short;
+
+    // ⚠ `splitOrders`가 아니라 **`splitPlan`**이다 — 큰 조각이 갈 쪽은 **사이드와
+    //   종류**가 정한다(기준가에서 먼 쪽). `splitOrders`를 직접 부르면 **드래그를
+    //   어느 끝에서 시작했느냐로 배분이 갈린다** (2026-08-27에 고친 버그)
+    const orders = splitPlan(p1, p2, count, totalQty, isLong, kind);
+    if (!orders.length) {
+      setOrderStatus({ type: "error", msg: "수량이 최소 단위(0.001 BTC)보다 작습니다" });
+      return;
+    }
+
+    // ── 방향 검증 ───────────────────────────────────────────────────────────
+    // ⚠ **주문을 내는 이 자리에서 한다.** 차트 쪽에 두면 현재가를 계속 봐야 해서
+    //   오버레이가 매 틱 리렌더되고(uiSlice.orderPick 주석), 무엇보다 버튼을 누른
+    //   시점과 손을 뗀 시점 사이에 가격이 움직인다 — 그때 값으로 재야 맞다
+    // ⚠ 기준이 종류마다 다르다: 추가 진입·분할 SL은 **현재가**, 분할 TP는 **진입가**.
+    //   앞의 둘은 그 방향이 아니면 거래소가 -2021로 거절하거나(트리거) 즉시
+    //   체결되고(지정가), 분할 TP는 진입가 반대편이면 애초에 익절이 아니다
+    const mark = liveClose || 0;
+    // ⚠ 기준값이 없으면 **판정을 건너뛰지 말고 거절한다.** 예전 방식대로 0으로 두면
+    //   롱은 "0보다 크다"가 늘 참이라 전부 걸러지고(사유가 엉뚱하다), 숏은 반대로
+    //   **전부 통과해서** 잘못된 쪽에 주문이 나간다 — 조용히 나가는 쪽이 훨씬 나쁘다
+    if (kind === "split_tp" ? !(posData?.entryPrice > 0) : !(mark > 0)) {
+      setOrderStatus({ type: "error",
+        msg: `${KIND_LABEL[kind]} — ${kind === "split_tp" ? "진입가" : "현재가"}를 아직 못 읽었습니다` });
+      return;
+    }
+    const bad = orders.find(o => {
+      if (kind === "split_tp") return isLong ? o.price <= posData.entryPrice
+                                             : o.price >= posData.entryPrice;
+      return isLong ? o.price >= mark : o.price <= mark;
+    });
+    if (bad) {
+      const where = kind === "split_tp"
+        ? (isLong ? "진입가보다 높은" : "진입가보다 낮은")
+        : (isLong ? "현재가보다 낮은" : "현재가보다 높은");
+      setOrderStatus({ type: "error", msg: `${KIND_LABEL[kind]}는 ${where} 쪽에만 걸 수 있습니다` });
+      return;
+    }
+
+    setOrderStatus(null);
+    const place = (o) => {
+      if (kind === "scale_in")  return scaleIn(side, "LIMIT", o.price, o.qty);
+      if (kind === "split_tp")  return addSplitTp(side, o.price, o.qty,
+                                    posData?.size > 0 ? Math.round((o.qty / posData.size) * 100) : 0);
+      return addPartialSl(side, o.price, o.qty);
+    };
+
+    // ⚠ **순차로 보낸다.** 한꺼번에 쏘면 ① 거래소 가중치가 몰리고 ② 추가 진입은
+    //   각각 증거금을 묶으므로 동시에 보내면 서로의 잔고를 모른 채 접수된다.
+    //   ③ 어디까지 나갔는지도 알 수 없어 실패 보고가 부정확해진다
+    // ⚠ **반환값으로 판정한다 — try/catch로는 못 잡는다.** 세 액션은 실패를
+    //   안에서 에러 배너로 처리하고 예외를 밖으로 던지지 않는다. 예외만 보면
+    //   전부 실패해도 `done`이 요청 개수와 같아져 **"3개 등록 완료"로 거짓 보고**된다
+    let done = 0;
+    for (const o of orders) {
+      if (!(await place(o))) break;
+      done++;
+    }
+    // ⚠ **몇 개가 실제로 나갔는지 반드시 알린다.** 중간에 끊기면 화면엔 걸린 것만
+    //   보이는데, 사용자는 요청한 개수가 다 나간 줄 안다 — 나머지를 다시 걸어야 한다
+    setOrderStatus(done === orders.length
+      ? { type: "success", msg: `${KIND_LABEL[kind]} ${done}개 등록 완료` }
+      : { type: "error",   msg: `${KIND_LABEL[kind]} ${orders.length}개 중 ${done}개만 등록됐습니다` });
   },
 
   cancelSplitTp: async (orderId) => {

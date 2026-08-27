@@ -101,6 +101,28 @@ export const createUiSlice = (set, get) => ({
   //   (TP/SL/추가/분할의 × 는 주문 취소일 뿐이라 한 번에 지운다 — 다시 걸면 그만이다)
   closeConfirm:  null,
 
+  // ── 차트에서 주문 가격 지정 (2026-08-27 사용자 요청) ─────────────────────
+  //
+  // 사이드바 카드의 `차트에서 지정`을 켜면 여기 담긴다. 차트는 이것만 보고
+  // **클릭 = 1개 / 세로 드래그 = count개 균등**으로 주문을 낸다.
+  //
+  // ⚠ **어느 종류인지는 "열려 있는 아코디언"이 정한다.** 방향만으로는 못 가른다 —
+  //   롱에서 현재가 **아래**는 추가 진입(지정가 매수)일 수도, 분할 SL(트리거 매도)일
+  //   수도 있어 클릭 위치가 답을 주지 않는다. 포지션 카드는 이미 넷 중 하나만
+  //   열리므로(PositionCard.openSection) 그 하나가 곧 종류다
+  //
+  // ⚠ **현재가·진입가를 여기 담지 말 것.** 방향 판정에 쓰고 싶어지지만 그 값은
+  //   틱마다 바뀌어서, 담는 순간 이 객체가 매 틱 새로 만들어지고 차트 오버레이가
+  //   따라서 매 틱 리렌더된다. 방향 검증은 주문을 내는 `placeSplitOrders`가
+  //   그때그때 살아 있는 값으로 한다 (`+TP`/`+SL`이 검증을 안 하는 것과 같은 자리)
+  //
+  //   { kind:"scale_in"|"split_tp"|"partial_sl", side:"LONG"|"SHORT", count, qty }
+  orderPick: null,
+  // 세로 드래그 중 미리보기 — { p1, p2 }. 손을 떼면 비운다.
+  // ⚠ 클릭(1개)에는 미리보기가 없다 — 마우스 이동마다 상태를 갱신하면 오버레이
+  //   전체가 매번 리렌더된다. 그 자리 가격은 크로스헤어 가격축 태그가 이미 말해 준다
+  pickDraft: null,
+
   // ── 드래그 상태 ──────────────────────────────────────────────────────────
   dragTpsl:    null,
   dragScaleIn: null,
@@ -144,6 +166,13 @@ export const createUiSlice = (set, get) => ({
   setSelectedBox:   (v) => set({ selectedBox: v }),
   setOpacityPopup:  (v) => set({ opacityPopup: v }),
   setCloseConfirm:  (v) => set({ closeConfirm: v }),
+
+  // ⚠ 켤 때 **박스 그리기 모드를 끈다** — 둘 다 켜져 있으면 차트를 눌렀을 때
+  //   무엇이 일어날지가 화면에 안 드러난다. 나머지 그리기 모드는 App의 상단 바
+  //   토글이 서로를 끄는 방식이라 그쪽에서 함께 끈다
+  setOrderPick: (v) => set(v ? { orderPick: v, pickDraft: null, drawMode: false }
+                             : { orderPick: null, pickDraft: null }),
+  setPickDraft: (v) => set({ pickDraft: v }),
 
   setDragTpsl:    (v) => set({ dragTpsl: v }),
   setDragScaleIn: (v) => set({ dragScaleIn: v }),

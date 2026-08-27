@@ -32,8 +32,22 @@ const { log, errOf } = require("../store/logStore");
 
 // 수량 비교 오차 — BTCUSDT 최소 단위가 0.001이라 이보다 훨씬 작게 잡아도 안전하다
 const EPS = 1e-8;
-// limit 500 이하는 weight 5, 초과하면 20. 어차피 **포지션이 바뀐 순간에만** 부른다
+// limit 500 이하는 weight 5, 초과하면 20. 어차피 **포지션이 바뀐 순간에만** 부른다.
+// ⚠ 한 창(7일)에 이보다 많이 체결하면 잘린다 — 이 계좌는 주당 70건 남짓이라 7배 여유다
 const TRADE_LIMIT = 500;
+
+// ⚠ **`startTime`을 주지 않으면 바이낸스가 최근 7일만 돌려준다** (2026-08-27 실측).
+//   `limit: 500`을 줘도 37건/8-20~ 만 왔다 — **limit이 아니라 기간이 벽이다.**
+//   그래서 7일보다 전에 연 포지션은 시작 체결을 못 찾아 `scanEntry`가 null이 됐고,
+//   진입선이 계단 없는 전 폭 직선으로, 청산선도 (진입선의 첫 구간을 따라가므로)
+//   전 폭으로 그려졌다. **기능이 사라진 게 아니라 조용히 값이 안 온 것이다.**
+//   ⚠ `/api/stats`가 2026-08-25에 겪은 것과 **같은 함정**이다(routes/stats.js 주석) —
+//     같은 API 계열인데 여기만 안 고쳐져 있었다. 새 조회를 붙일 때 이걸 먼저 볼 것
+//
+//   ⚠ **startTime과 endTime 사이는 7일을 넘길 수 없다** — 그래서 한 번에 길게 못 받고
+//     7일 창을 뒤로 밀며 여러 번 받는다. 필요한 만큼만 받고 멈춘다(대부분 1~3창)
+const WINDOW_MS   = 7 * 24 * 60 * 60 * 1000;
+const MAX_WINDOWS = 13;   // 약 3개월. 더 오래된 포지션은 포기하고 전 폭 직선으로 둔다
 
 // 그 사이드의 포지션을 **키우는** 체결인가
 const isOpening = (side, t) => (side === "LONG" ? t.side === "BUY" : t.side === "SELL");
@@ -88,19 +102,43 @@ function scanEntry(trades, side, size) {
 async function resolveEntryInfo(pos) {
   const want = { LONG: pos.long, SHORT: pos.short };
   const out  = { LONG: null, SHORT: null };
-  let needFetch = false;
+  const need = [];
 
   for (const side of ["LONG", "SHORT"]) {
     if (!want[side]) { cache[side] = null; continue; }
     if (hit(cache[side], want[side])) out[side] = cache[side].info;
-    else needFetch = true;
+    else need.push(side);
   }
-  if (!needFetch) return out;
+  if (!need.length) return out;
 
-  let trades;
+  // 7일 창을 **뒤로 밀며** 필요한 만큼만 받는다. 창 하나를 받을 때마다 풀리는지 보고,
+  // 양쪽 다 풀리면 거기서 멈춘다 — 최근에 연 포지션은 창 하나로 끝난다
+  let trades  = [];
+  const seen  = new Set();          // 창 경계에서 같은 체결이 두 번 올 수 있다
+  const now   = Date.now();
+  let found   = {};
+
   try {
-    ({ data: trades } = await binance("GET", "/fapi/v1/userTrades",
-      { symbol: "BTCUSDT", limit: TRADE_LIMIT }));
+    for (let w = 0; w < MAX_WINDOWS; w++) {
+      const end   = now - w * WINDOW_MS;
+      const { data } = await binance("GET", "/fapi/v1/userTrades", {
+        symbol: "BTCUSDT", startTime: end - WINDOW_MS, endTime: end, limit: TRADE_LIMIT,
+      });
+      // ⚠ **오래된 창을 앞에 붙인다** — scanEntry는 전체가 시간 오름차순이라고 보고
+      //   뒤에서부터 훑는다. 순서가 섞이면 엉뚱한 체결을 시작점으로 잡는다
+      const fresh = data.filter(t => !seen.has(t.id));
+      for (const t of fresh) seen.add(t.id);
+      trades = fresh.concat(trades);
+
+      found = {};
+      let all = true;
+      for (const side of need) {
+        found[side] = scanEntry(trades, side, want[side].size);
+        if (!found[side]) all = false;
+      }
+      if (all) break;
+      // 그 창에 체결이 하나도 없어도 **계속 뒤로 간다** — 거래를 쉰 주간이 있을 수 있다
+    }
   } catch (e) {
     // 조회 실패는 치명적이지 않다 — 진입선이 전 폭 직선으로 그려질 뿐이다.
     // 캐시에 남기지 않으므로 다음 폴링에서 다시 시도한다
@@ -108,9 +146,8 @@ async function resolveEntryInfo(pos) {
     return out;
   }
 
-  for (const side of ["LONG", "SHORT"]) {
-    if (!want[side] || out[side] !== null) continue;
-    const info = scanEntry(trades, side, want[side].size);
+  for (const side of need) {
+    const info = found[side] ?? null;
     cache[side] = { size: want[side].size, entryPrice: want[side].entryPrice, info };
     out[side] = info;
   }

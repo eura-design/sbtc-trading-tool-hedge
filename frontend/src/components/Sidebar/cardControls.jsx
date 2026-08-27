@@ -1,17 +1,19 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useTheme } from "../../ThemeContext";
-import { PALETTE } from "../../constants";
 import { actionBtn } from "../sidebarBtn";
 import { lsGet, lsSet } from "../../utils/storage";
+import { useStore } from "../../store";
+import { maxSplitCount } from "../../utils/splitLevels";
 
-// localStorage에 영속화되는 percent state — 추가진입/분할TP 카드에서 공유
-export function usePersistedPct(storageKey, defaultPct = 50) {
-  const [pct, setPctState] = useState(() => Number(lsGet(storageKey)) || defaultPct);
-  const setPct = useCallback((v) => {
-    setPctState(v);
-    lsSet(storageKey, v);
+// localStorage에 영속화되는 숫자 state — 추가진입/분할TP/분할SL 카드가 공유한다.
+// 비율(%)과 **분할 개수** 둘 다 이걸 쓴다 (그래서 이름이 Pct가 아니다)
+export function usePersistedNum(storageKey, defaultValue) {
+  const [v, setState] = useState(() => Number(lsGet(storageKey)) || defaultValue);
+  const set = useCallback((next) => {
+    setState(next);
+    lsSet(storageKey, next);
   }, [storageKey]);
-  return [pct, setPct];
+  return [v, set];
 }
 
 // 0~100% 슬라이더 (**1% 단위, 최소 1%**) + 상단 라벨/값 + 하단 0~100 가이드
@@ -43,28 +45,80 @@ export function PercentSlider({ pct, onChange, color, label, secondaryText }) {
   );
 }
 
-// "가격" 라벨 + 숫자 입력 + 방향 오류 메시지
-export function PriceField({ price, onChange, error, label = "가격" }) {
+// 분할 개수 슬라이더 — **상한은 총 수량이 정한다** (utils/splitLevels.maxSplitCount).
+//
+// ⚠ 상한을 안 묶으면 0.002 BTC를 5분할하는 설정을 만들 수 있고, 그때 뒤쪽 셋은
+//   수량 0이라 조용히 빠진다 — 화면엔 5개라고 적혀 있는데 실제로는 2개만 나간다
+// ⚠ 고를 게 하나뿐이면(총 수량이 최소 단위 한 칸) **아예 그리지 않는다.**
+//   끌리는데 값이 안 변하는 죽은 컨트롤을 남기지 않는다는 이 앱의 규칙과 같다
+//   (PercentSlider의 1~4% 죽은 구간 주석 참고)
+export function CountSlider({ count, onChange, qty, color }) {
   const { theme } = useTheme();
+  const max = maxSplitCount(qty);
+  if (max <= 1) return null;
+  return (
+    <div style={{ marginBottom: "6px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+        <span style={{ fontSize: "11px", color: theme.textMuted }}>분할 개수</span>
+        <span style={{ fontSize: "12px", color, fontWeight: "600" }}>{Math.min(count, max)}</span>
+      </div>
+      <input
+        type="range" min={1} max={max} step={1} value={Math.min(count, max)}
+        onChange={e => onChange(Number(e.target.value))}
+        style={{ width: "100%", accentColor: color, cursor: "pointer", height: "3px" }}
+      />
+    </div>
+  );
+}
+
+/**
+ * `차트에서 지정` 모드의 on/off — 켜져 있는 동안 스토어의 `orderPick`을 들고 있는다.
+ *
+ * ⚠ **슬라이더를 움직이면 켜져 있는 모드의 값도 따라가야 한다.** 버튼을 누른 시점의
+ *   개수·수량으로 굳어 버리면, 켜 둔 채로 슬라이더를 만지고 차트를 눌렀을 때
+ *   화면에 보이는 값과 **다른 주문이 나간다**
+ * ⚠ 카드가 사라지면(아코디언을 닫거나 포지션이 없어지면) **스스로 끈다.**
+ *   안 끄면 차트만 주문 모드로 남아, 화면 어디에도 켜져 있다는 표시가 없는 채로
+ *   다음 클릭이 실주문이 된다
+ */
+export function useChartPick({ kind, side, count, qty }) {
+  const orderPick    = useStore(s => s.orderPick);
+  const setOrderPick = useStore(s => s.setOrderPick);
+  const active = orderPick?.kind === kind && orderPick?.side === side;
+
+  useEffect(() => {
+    if (active) setOrderPick({ kind, side, count, qty });
+  }, [active, kind, side, count, qty, setOrderPick]);
+
+  useEffect(() => () => {
+    const cur = useStore.getState().orderPick;
+    if (cur?.kind === kind && cur?.side === side) useStore.getState().setOrderPick(null);
+  }, [kind, side]);
+
+  return { active, toggle: () => setOrderPick(active ? null : { kind, side, count, qty }) };
+}
+
+// `차트에서 지정` 버튼 + 켜져 있을 때의 조작 안내 한 줄
+export function ChartPickButton({ active, onToggle, disabled, color, count, qty }) {
+  const { theme } = useTheme();
+  const n = Math.min(count, maxSplitCount(qty));
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: "6px",
-        marginBottom: error ? "4px" : "8px" }}>
-        <span style={{ fontSize: "11px", color: theme.textMuted, flexShrink: 0 }}>{label}</span>
-        <input
-          type="number" value={price}
-          onChange={e => onChange(e.target.value)}
-          style={{
-            flex: 1, padding: "4px 6px", borderRadius: "4px",
-            background: theme.bgCard,
-            border: `1px solid ${error ? PALETTE.short : theme.borderSec}`,
-            color: theme.textPrimary, fontSize: "12px", fontFamily: "inherit", outline: "none",
-          }}
-        />
-      </div>
-      {error && (
-        <div style={{ fontSize: "10px", color: PALETTE.short, marginBottom: "8px" }}>
-          {error}
+      <button
+        disabled={disabled}
+        onClick={onToggle}
+        style={{
+          ...actionBtn(theme, color, disabled),
+          background: active ? `${color}22` : "transparent",
+          borderStyle: active ? "solid" : "dashed",
+        }}
+      >
+        차트에서 지정
+      </button>
+      {active && (
+        <div style={{ fontSize: "10px", color: theme.textFaint,
+          textAlign: "center", marginTop: "4px" }}>
+          클릭 1개 · 세로 드래그 {n}개
         </div>
       )}
     </>

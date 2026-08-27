@@ -1,5 +1,5 @@
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
-import { padYDomain } from "./scales";
+import { fitYDomain } from "./scales";
 import { snapToStructurePoint } from "./hitDetection";
 
 // 두 가격(p1, p2)을 마우스 드래그 vector에 따라 같이 이동시킨다.
@@ -28,6 +28,32 @@ function moveTimeDelta(xScale, pos, drag, candles) {
 //   훑어 "있는 것"을 고르면 두 박스가 겹쳐 있을 때 엉뚱한 쪽이 끌려간다.
 const boxOf = (state, drag) => state?.drawings?.[drag.isLong ? "long" : "short"] ?? null;
 
+// 세로 드래그로 가격 하나만 바꾸는 마커들 — 셋의 차이는 **어느 상태를 쓰느냐**뿐이다
+function movePriceDrag() {
+  const make = (setDrag, commit, stateKey) => ({
+    onMove({ pos, scales, IH, setters, drag }) {
+      const price = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
+      setters[setDrag]({ orderId: drag.orderId, price });
+      setters.setCursor("ns-resize");
+    },
+    onUp({ setters, state }) {
+      const d = state[stateKey];
+      if (d) setters[commit](d.orderId, d.price);
+      setters[setDrag](null);
+    },
+  });
+  return {
+    scale_in:   make("setDragScaleIn",   "moveScaleIn",   "dragScaleIn"),
+    split_tp:   make("setDragSplitTp",   "moveSplitTp",   "dragSplitTp"),
+    partial_sl: make("setDragPartialSl", "movePartialSl", "dragPartialSl"),
+  };
+}
+
+// 세로로 이만큼 안 움직였으면 **클릭**으로 본다 (px).
+// ⚠ 가로 움직임은 보지 않는다 — 분할 주문에 시간축은 아무 뜻이 없다.
+//   사각형으로 그리게 하면 결과에 영향도 없는 가로 폭을 매번 신경 쓰게 된다
+const PICK_CLICK_PX = 6;
+
 export const DRAG_HANDLERS = {
   pan: {
     onMove({ pos, drag, candles, IW, setters }) {
@@ -39,20 +65,7 @@ export const DRAG_HANDLERS = {
       const newI0    = i0 - di;
       const newI1    = i1 - di;
       xDomainRef.current = [newI0, newI1];
-      const vi0 = Math.max(0, Math.floor(newI0));
-      const vi1 = Math.min(candles.length - 1, Math.ceil(newI1));
-      // slice + d3.min/max 대신 직접 루프 (배열 복사 없음, D3 콜백 오버헤드 없음)
-      let lo = Infinity, hi = -Infinity;
-      for (let i = vi0; i <= vi1; i++) {
-        const c = candles[i];
-        if (c.l < lo) lo = c.l;
-        if (c.h > hi) hi = c.h;
-      }
-      if (lo !== Infinity) {
-        const zr  = span / (candles.length - 1 || 1);
-        const padFrac = Math.max(0.08, zr * 0.5);
-        yDomainRef.current = padYDomain(lo, hi, padFrac, setters.isLog);
-      }
+      yDomainRef.current = fitYDomain(candles, xDomainRef.current, setters.isLog);
       if (setters.overlaysRef) setters.overlaysRef.current._panning = true;
       // redrawChart = redrawCanvas + redrawVolume + redrawRSI + forceUpdate
       // forceUpdate → scales 재계산 → 선/원/채널/구조 등 SVG 오버레이도 즉시 따라옴
@@ -242,40 +255,55 @@ export const DRAG_HANDLERS = {
     },
   },
 
-  scale_in: {
-    onMove({ pos, scales, IH, setters, drag }) {
-      const newPrice = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
-      setters.setDragScaleIn({ orderId: drag.orderId, price: newPrice });
-      setters.setCursor("ns-resize");
-    },
-    onUp({ setters, state }) {
-      if (state.dragScaleIn) setters.moveScaleIn(state.dragScaleIn.orderId, state.dragScaleIn.price);
-      setters.setDragScaleIn(null);
-    },
-  },
+  // ── 등록된 마커를 세로로 끌어 **가격만** 옮긴다 ───────────────────────────
+  //
+  // 추가 진입·분할 TP·분할 SL 셋이 하는 일이 **글자 그대로 같다** — 예전엔 11줄짜리
+  // 복사본이 세 벌 있었다. 한 벌로 둘 것: 나뉘어 있으면 한쪽만 고쳐서 같은 조작인데
+  // 마커 종류에 따라 다르게 움직이는 상태가 조용히 생긴다.
+  //
+  // ⚠ **취소·등록 순서의 차이는 여기가 아니라 `store/orderSlice.js`에 있다.**
+  //   `movePartialSl`만 **등록 → 취소**이고 나머지 둘은 **취소 → 등록**이다
+  //   (손절은 거절당해도 옛것이 남아야 한다). 그 차이는 commit 함수 안쪽이라
+  //   이렇게 묶어도 그대로 유지된다 — 묶었다고 순서를 맞추지 말 것
+  ...movePriceDrag(),
 
-  split_tp: {
-    onMove({ pos, scales, IH, setters, drag }) {
-      const newPrice = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
-      setters.setDragSplitTp({ orderId: drag.orderId, price: newPrice });
+  // ── 차트에서 분할 주문 걸기 (2026-08-27 사용자 요청) ──────────────────────
+  //
+  //   클릭        → 그 가격에 **1개**
+  //   세로 드래그  → 그 구간에 **count개 균등**
+  //
+  // ⚠ 둘을 다른 코드로 만들지 말 것 — 클릭은 `p1 === p2 · count 1`인 드래그일 뿐이라
+  //   `placeSplitOrders` 한 길로 흘려보낸다. 나누면 미리보기와 실제가 갈라진다
+  // ⚠ 가격 유효성은 **여기서 보지 않는다** — `placeSplitOrders`가 살아 있는
+  //   현재가·진입가로 판정하고 거절 사유를 배너로 띄운다.
+  //   (`+TP`/`+SL` 드래그가 검증을 안 하는 것과 같은 자리·같은 이유)
+  order_pick: {
+    onMove({ pos, drag, scales, IH, setters }) {
+      if (!scales) return;
+      const p = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
+      // 클릭 범위 안이면 미리보기를 띄우지 않는다 — 누르자마자 선 여러 개가
+      // 번쩍였다 사라지면 손이 미끄러진 것인지 구간을 잡은 것인지 알 수 없다
+      setters.setPickDraft(
+        Math.abs(pos.y - drag.startY) < PICK_CLICK_PX ? null : { p1: drag.p1, p2: p });
       setters.setCursor("ns-resize");
     },
-    onUp({ setters, state }) {
-      if (state.dragSplitTp) setters.moveSplitTp(state.dragSplitTp.orderId, state.dragSplitTp.price);
-      setters.setDragSplitTp(null);
-    },
-  },
-
-  // 분할 SL — 분할 TP와 같은 구조 (2026-08-24)
-  partial_sl: {
-    onMove({ pos, scales, IH, setters, drag }) {
-      const newPrice = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
-      setters.setDragPartialSl({ orderId: drag.orderId, price: newPrice });
-      setters.setCursor("ns-resize");
-    },
-    onUp({ setters, state }) {
-      if (state.dragPartialSl) setters.movePartialSl(state.dragPartialSl.orderId, state.dragPartialSl.price);
-      setters.setDragPartialSl(null);
+    onUp({ pos, drag, scales, IH, setters, state }) {
+      setters.setPickDraft(null);
+      setters.setCursor("crosshair");
+      const pick = state.orderPick;
+      if (!scales || !pick) return;
+      const p2      = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
+      const isClick = Math.abs(pos.y - drag.startY) < PICK_CLICK_PX;
+      setters.placeSplitOrders(
+        pick.kind, pick.side,
+        isClick ? p2 : drag.p1, p2,
+        isClick ? 1 : pick.count,
+        pick.qty,
+      );
+      // ⚠ **한 번 걸면 모드를 끈다** (측정 박스가 다 그리면 꺼지는 것과 같다).
+      //   켜 둔 채로 두면 그다음 차트 클릭이 곧 또 하나의 실주문이 된다 —
+      //   도형 모드와 달리 되돌릴 수 없으므로 켜져 있는 시간을 짧게 둔다
+      setters.setOrderPick(null);
     },
   },
 

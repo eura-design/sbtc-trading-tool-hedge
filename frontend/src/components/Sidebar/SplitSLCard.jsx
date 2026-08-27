@@ -1,7 +1,6 @@
 import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
-import { useAutoUpdatedPrice } from "../../hooks/useAutoUpdatedPrice";
-import { usePersistedPct, PercentSlider, PriceField, SubmitButton, CardWrapper } from "./cardControls";
+import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, CardWrapper } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
 
 /**
@@ -14,56 +13,37 @@ import { iconBtn } from "../sidebarBtn";
  * ⚠ **전량 손절과 공존한다.** 합계가 포지션을 채우면 "덮였다"로 판정하므로
  *   (backend `utils/orderKind.js`의 `coversPosition`) 전량 손절 없이 분할 SL만으로도 된다.
  *   다만 수량이 고정이라 **추가 진입이 체결되면 덮는 비율이 떨어진다** — 그때는 무방비
- *   경보가 `일부만 덮습니다 (0.140 / 0.190)`으로 알려준다. 전량 손절(`closePosition`)은
- *   "남은 전부"라 그 문제가 없다
+ *   경보가 `일부만 덮습니다 (0.140 / 0.190)`으로 알려준다
  *
- * ⚠ **기본 가격이 평단가다** (분할 TP는 현재가 ±3%). 이 카드의 출발점이 본전 청산이라
- *   그렇고, 값은 자유롭게 바꿀 수 있다
+ * ⚠ **가격은 차트에서 정한다** (2026-08-27 사용자 요청). 예전에는 기본값이 **평단가**였고
+ *   (이 카드의 출발점이 본전 청산이라), 평단이 현재가 반대편이면 현재가에서 3% 떨어뜨렸다.
+ *   그 계산(`useAutoUpdatedPrice`의 compute)은 통째로 사라졌다 — 차트를 누른 자리가 곧
+ *   가격이라 기본값이라 할 게 없다.
+ *   방향 검증(롱은 현재가 아래·숏은 위, 아니면 -2021 거절)은 `placeSplitOrders`가
+ *   **주문을 내는 순간** 살아 있는 현재가로 한다
+ *
+ * ⚠ 개수를 늘릴수록 **찌꺼기도 늘어난다** — 수량을 지정한 트리거 주문은 포지션이
+ *   0이 돼도 거래소에 남는다(2026-08-24 ETH 실측). 정리는 orderWatcher의
+ *   `STALE_TRIGGER_CANCELED`가 맡지만 그만큼 여러 건이 생긴다
  */
-export function SplitSLCard({ posData, side, tpsl, lastPrice, onAddPartialSl, onCancelPartialSl, embedded }) {
+export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }) {
   const { theme } = useTheme();
   const isLong = side === "LONG";
-  const [pct, setPct] = usePersistedPct("partialSlPct");
-  // ── 기본 가격 (2026-08-24) ────────────────────────────────────────────────
-  //
-  // **평단가를 쓰되, 그게 유효하지 않으면 현재가에서 3% 떨어뜨린다.**
-  //
-  //   수익 중  -> 평단가        이 카드의 목적이 "본전까지 오면 절반 청산"이다
-  //   손실 중  -> 현재가 ∓3%    평단이 현재가 반대편이라 그대로 두면 즉시 발동으로 거절된다
-  //
-  // ⚠ 손절은 **현재가 반대편**이어야 한다 (롱은 아래·숏은 위). 분할 TP가 유리한 쪽으로
-  //   3% 떨어뜨리는 것과 **방향이 반대다** — 한쪽을 보고 다른 쪽을 맞추지 말 것
-  // ⚠ 손실 중에는 애초에 "본전 청산"이 성립하지 않는다. 그 자리에 걸고 싶으면
-  //   그건 익절이므로 분할 TP 카드다 (가격을 잘못 넣으면 아래 안내가 그렇게 알려준다)
-  const [price, setPrice] = useAutoUpdatedPrice(
-    posData?.entryPrice || lastPrice || 0,
-    () => {
-      const entry = posData?.entryPrice;
-      const mark  = lastPrice;
-      if (!mark) return entry ?? null;
-      const entryUsable = entry != null && (isLong ? entry < mark : entry > mark);
-      return entryUsable ? entry : mark * (isLong ? 0.97 : 1.03);
-    },
-  );
-
-  if (!posData) return null;
+  const [pct, setPct]     = usePersistedNum("partialSlPct", 50);
+  const [count, setCount] = usePersistedNum("partialSlCount", 3);
 
   const color      = isLong ? PALETTE.long : PALETTE.short;
   const partialSls = tpsl?.partialSls ?? [];
   const allocQty   = partialSls.reduce((s, o) => s + o.qty, 0);
-  const remaining  = Math.max(0, posData.size - allocQty);
+  const remaining  = Math.max(0, (posData?.size ?? 0) - allocQty);
 
   // 슬라이더는 **잔여 대비 %** — 분할 TP와 같은 규칙이다. 끝까지 밀면 "남은 것 전부"
-  const floor3     = (v) => Math.floor(v * 1000) / 1000;
-  const addQty     = Math.min(parseFloat((remaining * pct / 100).toFixed(3)), floor3(remaining));
-  const priceNum   = parseFloat(price);
+  const floor3 = (v) => Math.floor(v * 1000) / 1000;
+  const addQty = Math.min(parseFloat((remaining * pct / 100).toFixed(3)), floor3(remaining));
 
-  // ⚠ 판정 기준이 **현재가**다 (분할 TP는 진입가 기준). 손절은 트리거 주문이라
-  //   잘못된 쪽에 걸면 바이낸스가 "즉시 발동할 주문"이라며 -2021로 거절한다.
-  //   롱 손절은 현재가 아래, 숏 손절은 위여야 한다
-  const mark        = lastPrice || 0;
-  const directionOk = mark > 0 && (isLong ? priceNum < mark : priceNum > mark);
-  const valid       = priceNum > 0 && addQty >= 0.001 && directionOk;
+  const pick = useChartPick({ kind: "partial_sl", side, count, qty: addQty });
+
+  if (!posData) return null;
 
   return (
     <CardWrapper embedded={embedded} title="분할 SL">
@@ -86,29 +66,17 @@ export function SplitSLCard({ posData, side, tpsl, lastPrice, onAddPartialSl, on
         </div>
       )}
 
-      <PriceField
-        price={price} onChange={setPrice}
-        error={priceNum > 0 && !directionOk
-          ? (isLong ? "▲ LONG 분할 SL은 현재가보다 낮아야 합니다 (위는 분할 TP)"
-                    : "▼ SHORT 분할 SL은 현재가보다 높아야 합니다 (아래는 분할 TP)")
-          : null}
-      />
-
-      {/* ⚠ 잔여가 0일 때 띄우던 `분할 SL이 포지션 전체를 덮고 있습니다 — 추가하려면
-             기존 항목을 지우세요` 안내는 2026-08-24 사용자 요청으로 제거했다.
-             슬라이더는 그대로 두고 `추가` 버튼만 비활성이 된다 (`valid` 가 addQty 를 본다).
-             ※ 분할 TP 카드에는 같은 안내가 아직 남아 있다 — 여기만 뺀 것이다 */}
+      {/* ⚠ 잔여가 0일 때 띄우던 `분할 SL이 포지션 전체를 덮고 있습니다` 안내는
+             2026-08-24 사용자 요청으로 제거했다. 슬라이더는 그대로 두고 버튼만
+             비활성이 된다. ※ 분할 TP 카드에는 같은 안내가 아직 남아 있다 */}
       <PercentSlider
         pct={pct} onChange={setPct} color={color}
         label="수량" secondaryText={`${pct}% (${addQty} BTC)`}
       />
+      <CountSlider count={count} onChange={setCount} qty={addQty} color={color} />
 
-      <SubmitButton
-        disabled={!valid} color={color}
-        onClick={() => onAddPartialSl(side, parseFloat(price), addQty)}
-      >
-        {isLong ? "▲ 분할 SL 추가" : "▼ 분할 SL 추가"}
-      </SubmitButton>
+      <ChartPickButton active={pick.active} onToggle={pick.toggle}
+        disabled={addQty < 0.001} color={color} count={count} qty={addQty} />
     </CardWrapper>
   );
 }

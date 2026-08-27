@@ -1,6 +1,6 @@
 import { useCallback, useRef, useEffect } from "react";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
-import { getScales, padYDomain, tsToIdx } from "../chart/scales";
+import { getScales, fitYDomain, tsToIdx } from "../chart/scales";
 import { idxToTimestamp } from "../utils/coordUtils";
 import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
@@ -48,6 +48,9 @@ export function useChartInteraction({
   measureMode, setMeasureDraft,
   measures, selectedMeasureId,
   addMeasure, moveMeasureCorner, setMeasurePosition,
+  // 차트에서 분할 주문 걸기 (2026-08-27) — 켜져 있으면 히트 체인 맨 앞에서 가로챈다.
+  // 그리는 중 상태(pickDraft)는 DRAG_HANDLERS가 갱신하고 화면에 그리는 건 ChartArea다
+  orderPick, setOrderPick, setPickDraft, placeSplitOrders,
   // 수동 구조
   structMode, structDraft, structPreview, setStructPreview,
   structures, selectedStructId, setSelectedStructId,
@@ -119,18 +122,7 @@ export function useChartInteraction({
       if (newI1 - newI0 < 3) return;
 
       xDomainRef.current = [newI0, newI1];
-      const vi0 = Math.max(0, Math.floor(newI0));
-      const vi1 = Math.min(candles.length - 1, Math.ceil(newI1));
-      let lo = Infinity, hi = -Infinity;
-      for (let i = vi0; i <= vi1; i++) {
-        const c = candles[i];
-        if (c.l < lo) lo = c.l;
-        if (c.h > hi) hi = c.h;
-      }
-      if (lo === Infinity) { lo = candles[0].l; hi = candles[0].h; }
-      const zr  = (newI1 - newI0) / (candles.length - 1 || 1);
-      const padFrac = Math.max(0.08, zr * 0.5);
-      yDomainRef.current = padYDomain(lo, hi, padFrac, isLog);
+      yDomainRef.current = fitYDomain(candles, xDomainRef.current, isLog);
       if (overlaysRef) overlaysRef.current._panning = true;
       redrawChart();
       clearTimeout(wheelSyncTimerRef.current);
@@ -171,6 +163,7 @@ export function useChartInteraction({
       fibMode, fibStart, setFibStart, fibPreview,
       fibs, selectedFibId, addFib,
       measureMode, setMeasureDraft,
+      orderPick,
       measures, selectedMeasureId,
       structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
       structures, selectedStructId, structPart, selectStructPart,
@@ -183,7 +176,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, partialSls, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, measureMode, measures, selectedMeasureId, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitStructPoints, showZZ]);
+  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, partialSls, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, measureMode, measures, selectedMeasureId, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitStructPoints, showZZ, orderPick]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -313,7 +306,7 @@ export function useChartInteraction({
       // 지그재그 레그 hover 라벨 (등락률 + 거래량 + 직전 동일방향 레그 대비).
       // 드래그·그리기 중에는 방해되므로 끈다.
       // 커서 위치만 쓰는 imperative 라벨이라 React 상태를 건드리지 않는다.
-      if (scales && !drag && !structMode && !drawMode && !measureMode && pos.y >= 0 && pos.y <= IH) {
+      if (scales && !drag && !structMode && !drawMode && !measureMode && !orderPick && pos.y >= 0 && pos.y <= IH) {
         const leg = findHoveredLeg({
           px: pos.x, py: pos.y,
           structures,
@@ -371,7 +364,7 @@ export function useChartInteraction({
             structAutoChains: getStructAutoChains(), isLog });
           if (cursor) { setCursor(cursor); return; }
         }
-        setCursor((drawMode || lineMode || channelMode || circleMode || fibMode || measureMode || structMode) ? "crosshair" : "grab"); return;
+        setCursor((orderPick || drawMode || lineMode || channelMode || circleMode || fibMode || measureMode || structMode) ? "crosshair" : "grab"); return;
       }
 
       // 드래그 핸들러 위임
@@ -386,9 +379,10 @@ export function useChartInteraction({
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
         updateFibEndpoint, setFibPosition,
         setMeasureDraft, addMeasure, moveMeasureCorner, setMeasurePosition,
+        setPickDraft, placeSplitOrders, setOrderPick,
         moveStructPoint, normalizeStruct,
       };
-      const state = { drawings, dragTpsl, dragScaleIn, dragSplitTp, dragPartialSl };
+      const state = { drawings, dragTpsl, dragScaleIn, dragSplitTp, dragPartialSl, orderPick };
 
       if (drag.type === "pan") {
         const rect2 = svgRef.current?.getBoundingClientRect();
@@ -423,12 +417,13 @@ export function useChartInteraction({
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
         updateFibEndpoint, setFibPosition,
         setMeasureDraft, addMeasure, moveMeasureCorner, setMeasurePosition,
+        setPickDraft, placeSplitOrders, setOrderPick,
         moveStructPoint, normalizeStruct, clearStructPart,
       },
       // position은 `draw.onUp`이 **같은 사이드 포지션 보유 시 박스 그리기를 막는 데** 쓴다
-      state: { drawings, dragTpsl, dragScaleIn, dragSplitTp, dragPartialSl, position },
+      state: { drawings, dragTpsl, dragScaleIn, dragSplitTp, dragPartialSl, position, orderPick },
     });
-  }, [candles, drawings, dragTpsl, dragSplitTp, dragPartialSl, dragScaleIn, position, saveTpsl, moveSplitTp, movePartialSl, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
+  }, [candles, drawings, dragTpsl, dragSplitTp, dragPartialSl, dragScaleIn, position, orderPick, placeSplitOrders, saveTpsl, moveSplitTp, movePartialSl, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
 
   const onDoubleClick = useCallback(e => {
     const pos    = getSvgPos(e);
