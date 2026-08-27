@@ -21,7 +21,7 @@ import { lsGet, lsRemove } from "../utils/storage.js";
 
 const PREFIX = "replay_";
 
-export const DRAWING_KEYS = ["trendLines", "trendChannels", "trendCircles", "fibs", "structures"];
+export const DRAWING_KEYS = ["trendLines", "trendChannels", "trendCircles", "fibs", "measures", "structures"];
 
 /**
  * @param base     원래 키 ("trendLines" 등)

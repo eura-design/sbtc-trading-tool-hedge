@@ -37,6 +37,55 @@ export function findHitCircle(px, py, circles, xScale, yScale, candles, threshol
   });
 }
 
+// ── 측정 박스 ────────────────────────────────────────────────────────────────
+
+/**
+ * 사각형의 화면 좌표. `t1/p1`이 드래그를 시작한 모서리라 순서가 곧 등락률의 부호다
+ * (chart/measure.js) — 여기서 min/max로 정렬한 값(xa…yb)은 **그리기·히트 전용**이다.
+ */
+export function measureXYs(m, candles, xScale, yScale) {
+  const x1 = xScale(tsToIdx(m.t1, candles)), x2 = xScale(tsToIdx(m.t2, candles));
+  const y1 = yScale(m.p1), y2 = yScale(m.p2);
+  return {
+    x1, y1, x2, y2,
+    xa: Math.min(x1, x2), xb: Math.max(x1, x2),
+    ya: Math.min(y1, y2), yb: Math.max(y1, y2),
+  };
+}
+
+/**
+ * 측정 박스 히트 → 그 도형 (없으면 undefined).
+ *
+ * ⚠ **테두리만 잡는다 — 안쪽은 비워 둔다.** 면까지 잡으면 박스를 크게 그렸을 때
+ *   그 영역에서 차트를 끌 수도, 밑에 깔린 도형을 고를 수도 없다.
+ *   원이 테두리만 잡는 것과 같은 이유다 (이 앱에서 면은 표시일 뿐 손잡이가 아니다)
+ */
+export function findHitMeasure(px, py, measures, xScale, yScale, candles, threshold = 8) {
+  return (measures ?? []).find(m => {
+    const { xa, xb, ya, yb } = measureXYs(m, candles, xScale, yScale);
+    const inX = px >= xa - threshold && px <= xb + threshold;
+    const inY = py >= ya - threshold && py <= yb + threshold;
+    const nearV = inY && (Math.abs(px - xa) < threshold || Math.abs(px - xb) < threshold);
+    const nearH = inX && (Math.abs(py - ya) < threshold || Math.abs(py - yb) < threshold);
+    return nearV || nearH;
+  });
+}
+
+/**
+ * 커서가 잡은 모서리 → 고칠 좌표 키. 사각형의 네 모서리는 `t1|t2` × `p1|p2`
+ * 조합이라 키 두 개면 전부 표현된다 (좌표를 네 벌로 늘리지 말 것).
+ * @returns { tKey, pKey } | null
+ */
+export function measureCornerHit(m, px, py, xScale, yScale, candles, threshold = 10) {
+  const { x1, y1, x2, y2 } = measureXYs(m, candles, xScale, yScale);
+  for (const [tKey, cxv] of [["t1", x1], ["t2", x2]]) {
+    for (const [pKey, cyv] of [["p1", y1], ["p2", y2]]) {
+      if (Math.hypot(px - cxv, py - cyv) < threshold) return { tKey, pKey };
+    }
+  }
+  return null;
+}
+
 // ── 피보나치 되돌림 ──────────────────────────────────────────────────────────
 
 /**
@@ -517,6 +566,9 @@ export function buildHitChain(ctx) {
     // 피보나치 되돌림 — 표시할 레벨은 도형별이라 findHitFib가 직접 읽는다 ([F1])
     fibMode, fibStart, setFibStart, fibPreview,
     fibs, selectedFibId, addFib,
+    // 측정 박스 — **드래그로 그린다** (2클릭이 아니다, useMeasures.js)
+    measureMode, setMeasureDraft,
+    measures, selectedMeasureId,
     // 수동 구조
     structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
     structures, selectedStructId, structPart, selectStructPart,
@@ -576,6 +628,18 @@ export function buildHitChain(ctx) {
         } else {
           addCircle(circleCenter.t, circleCenter.p, t, p);
         }
+      },
+    },
+    // 0.55. 측정 박스 그리기 모드 — **드래그다** (2026-08-26 사용자 지정).
+    //       선·원·피보나치는 2클릭이지만 사각형은 플랜 박스와 같은 조작이 자연스럽다.
+    //       그래서 여기서 클릭을 처리하지 않고 **드래그를 시작만** 시킨다 —
+    //       나머지는 DRAG_HANDLERS.measure_draw가 맡는다 (chart/dragStateMachine.js)
+    {
+      when: measureMode,
+      handle() {
+        const { t, p } = snapToOHLC(pos, candles, xScale, yScale);
+        setMeasureDraft({ t1: t, p1: p, t2: t, p2: p });
+        dragRef.current = { type: "measure_draw", startX: pos.x, startY: pos.y, t1: t, p1: p };
       },
     },
     // 0.6. 피보나치 그리기 모드 — 2클릭 (원과 같은 구조).
@@ -960,6 +1024,27 @@ export function buildHitChain(ctx) {
         return false;
       },
     },
+    // 4.9 선택된 측정 박스 드래그 — 모서리 우선, 그다음 테두리를 잡아 전체 이동
+    {
+      when: selectedMeasureId !== null && !measureMode && !drawMode,
+      handle() {
+        const m = (measures ?? []).find(x => x.id === selectedMeasureId);
+        if (!m || m.locked) return false;
+        const corner = measureCornerHit(m, pos.x, pos.y, xScale, yScale, candles);
+        if (corner) {
+          dragRef.current = { type:"measure_ep", measureId:selectedMeasureId, ...corner };
+          return true;
+        }
+        // 테두리 = 몸통. 안쪽은 비워 둔다 (findHitMeasure 주석 참고)
+        if (findHitMeasure(pos.x, pos.y, [m], xScale, yScale, candles)) {
+          dragRef.current = { type:"measure_move", measureId:selectedMeasureId,
+            startX:pos.x, startY:pos.y,
+            startT1:m.t1, startP1:m.p1, startT2:m.t2, startP2:m.p2 };
+          return true;
+        }
+        return false;
+      },
+    },
     // 5. 도형 선택/해제 (drawMode 중에는 실행 안 함)
     {
       when: !drawMode,
@@ -974,6 +1059,10 @@ export function buildHitChain(ctx) {
         // 다만 x 범위가 두 앵커 사이로 한정돼 있어 구조·ZZ만큼 화면을 덮지는 않는다
         const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, isLog);
         if (hitFb) { selectDrawable(drawables, "fib",     hitFb.id); setSelectedBox(null); return true; }
+        // 측정 박스 — 테두리만 잡으므로 피보나치처럼 화면을 넓게 삼키지는 않는다.
+        // 그래도 사각형이라 걸치는 x 범위가 넓어 구조·ZZ보다는 앞이다
+        const hitMs = findHitMeasure(pos.x, pos.y, measures ?? [], xScale, yScale, candles);
+        if (hitMs) { selectDrawable(drawables, "measure", hitMs.id); setSelectedBox(null); return true; }
         // 구조는 여러 봉에 걸친 폴리라인이라 클릭을 많이 삼키므로 맨 뒤에서 판정
         const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
         if (hitSt) { selectDrawable(drawables, "structure", hitSt.id); setSelectedBox(null); return true; }

@@ -1,7 +1,7 @@
 import { HIT } from "../constants";
 import { distToSeg } from "../utils/hitTest";
 import { tsToIdx } from "./scales";
-import { channelXYs, lineXY, findStructEndpointHit, findHitFib, fibXs, structAutoCommitHit } from "./hitDetection";
+import { channelXYs, lineXY, findStructEndpointHit, findHitFib, fibXs, structAutoCommitHit, findHitMeasure, measureCornerHit } from "./hitDetection";
 
 // 구조 끝점 연결 커서 — **크기를 직접 정한 작은 + 표시** (2026-08-15 사용자 지정)
 //
@@ -229,6 +229,29 @@ export const CURSOR_RULES = [
       if (Math.hypot(pos.x - xa, pos.y - yScale(fb.p1)) < 10) return false;
       if (Math.hypot(pos.x - xb, pos.y - yScale(fb.p2)) < 10) return false;
       return !!findHitFib(pos.x, pos.y, [fb], xScale, yScale, candles, isLog);
+    },
+    cursor: "move",
+  },
+  // 측정 박스 선택 시 모서리 핸들 (네 귀퉁이 — hitDetection.measureCornerHit)
+  {
+    test: ({ selectedMeasureId, measures, pos, xScale, yScale, candles }) => {
+      if (selectedMeasureId == null || !measures?.length) return false;
+      const m = measures.find(x => x.id === selectedMeasureId);
+      if (!m) return false;
+      return !!measureCornerHit(m, pos.x, pos.y, xScale, yScale, candles);
+    },
+    cursor: "move",
+  },
+  // 측정 박스 선택 시 테두리 — 잡으면 전체가 따라온다.
+  // ⚠ 안쪽(면)에는 커서 규칙이 없다. 히트 판정도 테두리만 본다 —
+  //   둘이 어긋나면 커서는 바뀌는데 눌리지 않는 자리가 생긴다
+  {
+    test: ({ selectedMeasureId, measures, pos, xScale, yScale, candles }) => {
+      if (selectedMeasureId == null || !measures?.length) return false;
+      const m = measures.find(x => x.id === selectedMeasureId);
+      if (!m) return false;
+      if (measureCornerHit(m, pos.x, pos.y, xScale, yScale, candles)) return false;
+      return !!findHitMeasure(pos.x, pos.y, [m], xScale, yScale, candles);
     },
     cursor: "move",
   },

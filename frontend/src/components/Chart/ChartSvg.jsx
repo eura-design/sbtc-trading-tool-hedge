@@ -4,6 +4,7 @@ import { TrendLines }   from "./TrendLines";
 import { Channels }     from "./Channels";
 import { Circles }      from "./Circles";
 import { Fibs }         from "./Fibs";
+import { Measures }     from "./Measures";
 import { Structures }   from "./Structures";
 import { PositionLines } from "./PositionLines";
 import { BoxOverlay, DrawingCurrent } from "./BoxOverlay";
@@ -40,6 +41,7 @@ export function ChartSvg({
   channels, selectedChannelId, channelStep, channelPoints, channelPreview,
   circles, selectedCircleId, circleCenter, circlePreview,
   fibs, selectedFibId, fibStart, fibPreview,
+  measures, selectedMeasureId, measureDraft,
   structures, selectedStructId, structPart, structDraft, structPreview,
 }) {
   const { isDark } = useTheme();
@@ -72,6 +74,11 @@ export function ChartSvg({
         <Fibs fibs={fibs} selectedFibId={selectedFibId}
           fibStart={fibStart} fibPreview={fibPreview}
           scales={scales} IW={IW} candles={candles} isLog={isLog} />
+        {/* 측정 박스 — 값을 읽는 도형이라 다른 도형 **위**에 온다 (글자가 가려지면 쓸모가 없다).
+            지그재그·구조보다 뒤에 그려 겹쳐도 숫자가 보이게 한다 */}
+        <Measures measures={measures} selectedMeasureId={selectedMeasureId}
+          measureDraft={measureDraft}
+          scales={scales} IW={IW} IH={IH} candles={candles} />
         <Structures structures={structures} selectedStructId={selectedStructId} structPart={structPart}
           structDraft={structDraft} structPreview={structPreview}
           scales={scales} candles={candles} candlesRef={candlesRef} IW={IW} />

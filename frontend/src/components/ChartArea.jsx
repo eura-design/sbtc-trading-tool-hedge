@@ -68,7 +68,11 @@ export function ChartArea({
   fibs, fibMode, fibStart, setFibStart, fibPreview, setFibPreview,
   selectedFibId, setSelectedFibId,
   addFib, updateFibEndpoint, setFibPosition,
-  cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw,
+  // 측정 박스 (useMeasures) — **드래그로 그린다.** 그리는 중 상태는 draft 하나뿐이다
+  measures, measureMode, measureDraft, setMeasureDraft,
+  selectedMeasureId,
+  addMeasure, moveMeasureCorner, setMeasurePosition,
+  cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelMeasureDraw,
   // 수동 구조 (useStructures)
   structures, structMode, structDraft, structPreview, setStructPreview,
   selectedStructId, setSelectedStructId,
@@ -304,6 +308,9 @@ export function ChartArea({
       fibMode, fibStart, setFibStart, fibPreview, setFibPreview,
       fibs, selectedFibId, setSelectedFibId,
       addFib, updateFibEndpoint, setFibPosition,
+      measureMode, setMeasureDraft,
+      measures, selectedMeasureId,
+      addMeasure, moveMeasureCorner, setMeasurePosition,
       structMode, structDraft, structPreview, setStructPreview,
       structures: visibleStructures, selectedStructId, setSelectedStructId,
       addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, finishStruct,
@@ -355,6 +362,9 @@ export function ChartArea({
           if (channelMode) cancelChannelDraw();
           if (circleMode) cancelCircleDraw();
           if (fibMode) cancelFibDraw();
+          // 측정 박스는 **끄는 중에도** 취소된다 → dragRef까지 비워야 한다.
+          // 안 그러면 다음 마우스 이동에서 measure_draw가 draft를 다시 만든다
+          if (measureMode) { cancelMeasureDraw(); dragRef.current = null; }
           if (drawMode || dragRef.current?.type === "draw") {
             setDrawMode(false); setCurrent(null); dragRef.current = null;
           }
@@ -378,6 +388,7 @@ export function ChartArea({
         circleCenter={circleCenter} circlePreview={circlePreview}
         fibs={fibs} selectedFibId={selectedFibId}
         fibStart={fibStart} fibPreview={fibPreview}
+        measures={measures} selectedMeasureId={selectedMeasureId} measureDraft={measureDraft}
         structures={visibleStructures} selectedStructId={selectedStructId} structPart={structPart}
         structDraft={showStruct ? structDraft : null}
         structPreview={showStruct ? structPreview : null}

@@ -17,6 +17,7 @@ import { useRSI }                    from "./hooks/useRSI";
 import { usePivotLevels }            from "./hooks/usePivotLevels";
 import { useTrendLines }             from "./hooks/useTrendLines";
 import { useFibs }                   from "./hooks/useFibs";
+import { useMeasures }               from "./hooks/useMeasures";
 import { useStructures }             from "./hooks/useStructures";
 import { useOrderFlow }              from "./hooks/useOrderFlow";
 import { useFVG }                    from "./hooks/useFVG";
@@ -197,6 +198,10 @@ export default function App() {
   // 지표 토글이 없으므로 "꺼지면 draft 정리" 이펙트도 없다 (선/채널/원과 같다)
   const fibTool = useFibs(drawingMode);
 
+  // 측정 박스 — 사각형을 끌면 그 구간의 등락률·가격 차이·기간을 보여준다 (2026-08-26).
+  // 선·원·피보나치와 같은 계열의 도형이라 저장·투명도·잠금·삭제가 전부 같은 경로다
+  const measureTool = useMeasures(drawingMode);
+
   // ── 수동 구조 (지그재그 + 자동 CHoCH) ─────────────────────────────────────
   const structs = useStructures(drawingMode);
 
@@ -214,11 +219,12 @@ export default function App() {
   // 연습 캔버스에 실거래에서 그리던 선이 이어져 그려진다.
   useEffect(() => {
     trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
-    fibTool.cancelFibDraw(); structs.cancelStructDraw();
+    fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
     trendLines.setSelectedLineId(null);
     trendLines.setSelectedChannelId(null);
     trendLines.setSelectedCircleId(null);
     fibTool.setSelectedFibId(null);
+    measureTool.setSelectedMeasureId(null);
     structs.setSelectedStructId(null);
   }, [replayOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -364,6 +370,17 @@ export default function App() {
       toggleLevel:   fibTool.toggleFibLevel,   // 표시할 레벨 체크박스 (팝업)
       resetLevels:   fibTool.resetFibLevels,   // 〃 기본값 버튼
     },
+    // 측정 박스 — 선·원과 같은 평범한 도형이다 (2026-08-26).
+    // ⚠ `toggleAlert`가 **없다** — 근접 알림 대상이 아니라서다. 그래서 단축키 `a`는
+    //   이 도형에서 아무 일도 하지 않고, 팝업에도 🔔이 뜨지 않는다 (LineOpacityPopup).
+    //   넣으려면 useTrendLineAlert에 사각형 근접 판정을 먼저 만들어야 한다
+    measure: {
+      id: measureTool.selectedMeasureId, items: measureTool.measures,
+      setSelectedId: measureTool.setSelectedMeasureId,
+      delete:        measureTool.deleteMeasure,
+      toggleLock:    measureTool.toggleMeasureLock,
+      setOpacity:    measureTool.setMeasureOpacity,
+    },
     // 자동 ZZ — 도형이 아니라 지표지만, 선택(금색)·투명도·CHoCH 알림을 다른 도형과
     // 똑같이 조작하려고 같은 인터페이스로 감쌌다 (chart/drawables.js의 "zz" 참고).
     // 항목이 하나뿐이라 id는 상수 ZZ_ID, 삭제·잠금은 no-op.
@@ -422,6 +439,8 @@ export default function App() {
     fibTool.selectedFibId, fibTool.fibs, fibTool.setSelectedFibId,
     fibTool.deleteFib, fibTool.toggleFibAlert, fibTool.toggleFibLock, fibTool.setFibOpacity,
     fibTool.toggleFibLevel, fibTool.resetFibLevels,
+    measureTool.selectedMeasureId, measureTool.measures, measureTool.setSelectedMeasureId,
+    measureTool.deleteMeasure, measureTool.toggleMeasureLock, measureTool.setMeasureOpacity,
     structs.selectedStructId, structs.structures, structs.setSelectedStructId,
     structs.deleteStructSelection, structs.toggleStructLock, structs.setStructOpacity,
     structs.toggleStructChoch, structs.toggleStructChochAlert, structs.toggleStructLegVol,
@@ -438,6 +457,7 @@ export default function App() {
     cancelChannelDraw: trendLines.cancelChannelDraw,
     cancelCircleDraw:  trendLines.cancelCircleDraw,
     cancelFibDraw:     fibTool.cancelFibDraw,
+    cancelMeasureDraw: measureTool.cancelMeasureDraw,
     cancelStructDraw:  structs.cancelStructDraw,
     setStructMode:     structs.setStructMode,
     structEnabled:     structOn,
@@ -480,27 +500,33 @@ export default function App() {
         <TopBar
           interval_={interval_} onIntervalChange={val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain({ defer: true }); }}
           lineMode={trendLines.lineMode} onLineModeToggle={() => {
-            setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); structs.cancelStructDraw();
+            setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             trendLines.setLineMode(m => { if (m) trendLines.cancelDraw(); return !m; });
           }}
           channelMode={trendLines.channelMode} onChannelModeToggle={() => {
-            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); structs.cancelStructDraw();
+            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             trendLines.setChannelMode(m => { if (m) trendLines.cancelChannelDraw(); return !m; });
           }}
           circleMode={trendLines.circleMode} onCircleModeToggle={() => {
-            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw(); fibTool.cancelFibDraw(); structs.cancelStructDraw();
+            setDrawMode(false); trendLines.cancelDraw(); trendLines.cancelChannelDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             trendLines.setCircleMode(m => { if (m) trendLines.cancelCircleDraw(); return !m; });
           }}
           fibMode={fibTool.fibMode} onFibModeToggle={() => {
             setDrawMode(false);
-            trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); structs.cancelStructDraw();
+            trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             fibTool.setFibMode(m => { if (m) fibTool.cancelFibDraw(); return !m; });
+          }}
+          measureMode={measureTool.measureMode} onMeasureModeToggle={() => {
+            setDrawMode(false);
+            trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
+            fibTool.cancelFibDraw(); structs.cancelStructDraw();
+            measureTool.setMeasureMode(m => { if (m) measureTool.cancelMeasureDraw(); return !m; });
           }}
           structMode={structs.structMode} structEnabled={structOn} onStructModeToggle={() => {
             if (!structOn) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단
             if (!structs.structMode) ensureStructTf();   // 진입할 때만 — 나갈 때 추가하면 엉뚱하다
             setDrawMode(false);
-            trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw();
+            trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw();
             structs.setStructMode(m => { if (m) structs.cancelStructDraw(); return !m; });
           }}
           isDark={isDark} onThemeToggle={toggleTheme}
@@ -564,6 +590,7 @@ export default function App() {
           drawables={drawables}
           {...trendLines}
           {...fibTool}
+          {...measureTool}
           {...structs}
         />
       </div>
@@ -599,7 +626,7 @@ export default function App() {
           onCancelPartialSl={cancelPartialSl}
           onDrawModeToggle={() => {
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();
-            fibTool.cancelFibDraw(); structs.cancelStructDraw();
+            fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
             setDrawMode(m => !m);
           }}
         />

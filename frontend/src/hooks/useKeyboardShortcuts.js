@@ -6,10 +6,10 @@ const INTERVAL_VALUES = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
 export function useKeyboardShortcuts({
   shortcuts,
   setDrawMode, setCurrent,
-  cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelStructDraw,
+  cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelMeasureDraw, cancelStructDraw,
   setStructMode, structEnabled, structMode, ensureStructTf,
   setFibMode,
-  drawables,   // { line, channel, circle, fib, structure, zz } — chart/drawables.js 인터페이스
+  drawables,   // { line, channel, circle, fib, measure, structure, zz } — chart/drawables.js 인터페이스
   setSelectedBox,
   drawings, hasPending, locked,
   selectedBox,
@@ -24,7 +24,7 @@ export function useKeyboardShortcuts({
     const onKey = e => {
       if (match(e, "escape")) {
         setDrawMode(false); setCurrent(null);
-        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw();
+        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw(); cancelMeasureDraw();
         cancelStructDraw();   // 그리던 구조는 확정하지 않고 버린다 (확정은 우클릭/더블클릭)
         clearAllSelections(drawables);
         setSelectedBox(null);
@@ -49,7 +49,7 @@ export function useKeyboardShortcuts({
 
       if (match(e, "drawBox")) {
         if (!locked) {
-          cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw(); cancelStructDraw();
+          cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw(); cancelMeasureDraw(); cancelStructDraw();
           setDrawMode(m => !m);
         }
         return;
@@ -59,7 +59,7 @@ export function useKeyboardShortcuts({
         if (!structEnabled) return;   // 지표 OFF면 그려도 안 보이므로 진입 차단 (TopBar 버튼도 동일)
         if (!structMode) ensureStructTf?.();   // 진입 시 현재 TF를 표시 목록에 편입 (TopBar 버튼과 동일)
         setDrawMode(false);
-        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw();
+        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelFibDraw(); cancelMeasureDraw();
         setStructMode(m => { if (m) cancelStructDraw(); return !m; });
         return;
       }
@@ -67,14 +67,17 @@ export function useKeyboardShortcuts({
       // 피보나치는 지표 관문이 없다 — 선/채널/원과 같다 (chart/fib.js [F1], 2026-08-15)
       if (match(e, "drawFib")) {
         setDrawMode(false);
-        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelStructDraw();
+        cancelDraw(); cancelChannelDraw(); cancelCircleDraw(); cancelMeasureDraw(); cancelStructDraw();
         setFibMode(m => { if (m) cancelFibDraw(); return !m; });
         return;
       }
 
       const sel = getSelectedDrawable(drawables);
 
-      if (match(e, "alert")) { sel?.toggleAlert(sel.id); return; }
+      // ⚠ `?.` — 측정 박스에는 toggleAlert가 **없다** (근접 알림 대상이 아니다).
+      //   호출부에서 막지 말고 여기서 흘려보낸다: 도형이 늘 때마다 이 자리에
+      //   종류 분기를 넣기 시작하면 drawables 인터페이스의 뜻이 사라진다
+      if (match(e, "alert")) { sel?.toggleAlert?.(sel.id); return; }
       if (match(e, "lock"))  { sel?.toggleLock(sel.id);  return; }
 
       if (match(e, "opacityDown") || match(e, "opacityUp")) {
@@ -108,7 +111,7 @@ export function useKeyboardShortcuts({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [shortcuts, drawables, selectedBox, drawings, hasPending, locked, deleteBox, interval_, onIntervalChange,
-      setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelStructDraw,
+      setDrawMode, setCurrent, cancelDraw, cancelChannelDraw, cancelCircleDraw, cancelFibDraw, cancelMeasureDraw, cancelStructDraw,
       setStructMode, structEnabled, structMode, ensureStructTf,
       setFibMode, setSelectedBox]);
 }

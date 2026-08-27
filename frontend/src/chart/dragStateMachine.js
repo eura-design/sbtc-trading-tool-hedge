@@ -305,6 +305,65 @@ export const DRAG_HANDLERS = {
   },
 
   // ── 원 드래그 ─────────────────────────────────────────────────────────────
+  // ── 측정 박스 (2026-08-26) ────────────────────────────────────────────────
+  // ⚠ **드래그로 그린다** (사용자 지정). 선·원·피보나치는 2클릭이라 그리기가
+  //   hitDetection의 클릭 핸들러에서 끝나지만, 이건 플랜 박스(`draw`)처럼
+  //   눌러서 끌고 놓는다 — 그래서 그리기가 여기 드래그 핸들러로 온다.
+  //   시작 모서리(t1/p1)는 hitDetection이 dragRef에 실어 둔다 (부호의 기준이라
+  //   나중에 min/max로 정렬해서 다시 만들면 안 된다 — chart/measure.js)
+  measure_draw: {
+    onMove({ pos, drag, scales, candles, IW, IH, setters }) {
+      if (!scales || !candles.length) return;
+      const { t, p } = {
+        t: idxToTimestamp(scales.xScale.invert(Math.min(Math.max(pos.x, 0), IW)), candles),
+        p: scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH)),
+      };
+      setters.setMeasureDraft({ t1: drag.t1, p1: drag.p1, t2: t, p2: p });
+      setters.setCursor("crosshair");
+    },
+    onUp({ pos, drag, scales, candles, IW, IH, setters }) {
+      setters.setCursor("crosshair");
+      if (!scales || !candles.length) { setters.setMeasureDraft(null); return; }
+      const ex = Math.min(Math.max(pos.x, 0), IW);
+      const ey = Math.min(Math.max(pos.y, 0), IH);
+      // 너무 작으면 버리되 **모드는 켜 둔다** — 손이 미끄러진 것뿐인데 도구까지
+      // 꺼지면 버튼을 다시 눌러야 한다 (성공하면 addMeasure가 모드를 끈다)
+      if (Math.abs(ex - drag.startX) < 10 || Math.abs(ey - drag.startY) < 10) {
+        setters.setMeasureDraft(null);
+        return;
+      }
+      setters.addMeasure(
+        drag.t1, drag.p1,
+        idxToTimestamp(scales.xScale.invert(ex), candles),
+        scales.yScale.invert(ey),
+      );
+    },
+  },
+  measure_ep: {
+    onMove({ pos, drag, scales, candles, IW, IH, setters }) {
+      if (!scales || !candles.length) return;
+      const t = idxToTimestamp(scales.xScale.invert(Math.min(Math.max(pos.x, 0), IW)), candles);
+      const p = scales.yScale.invert(Math.min(Math.max(pos.y, 0), IH));
+      setters.moveMeasureCorner(drag.measureId, drag.tKey, drag.pKey, t, p);
+      setters.setCursor("move");
+    },
+    onUp({ setters }) { setters.setCursor("crosshair"); },
+  },
+  measure_move: {
+    onMove({ pos, drag, scales, candles, setters }) {
+      if (!scales) return;
+      const dt = moveTimeDelta(scales.xScale, pos, drag, candles);
+      // 로그 스케일이면 가격 **비율**로 옮긴다 — 선·채널과 같은 규칙(movePricePair).
+      // 등락률이 이 도형의 값이라, 로그 차트에서 평행이동하면 값이 유지되는 게 맞다
+      const { newP1, newP2 } = movePricePair(scales.yScale, pos, drag, setters.isLog);
+      setters.setMeasurePosition(drag.measureId,
+        drag.startT1 + dt, newP1,
+        drag.startT2 + dt, newP2);
+      setters.setCursor("move");
+    },
+    onUp({ setters }) { setters.setCursor("crosshair"); },
+  },
+
   circle_move: {
     onMove({ pos, drag, scales, candles, IW, IH, setters }) {
       if (!scales) return;

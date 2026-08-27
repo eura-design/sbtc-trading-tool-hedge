@@ -13,7 +13,7 @@ import { structAutoParamsOf } from "../../chart/structAutoPivots";
 //   예전엔 둘 다 `구조`라, 팝업만 봐서는 무엇을 더블클릭했는지 알 수 없었다
 //   (지표 메뉴의 `Auto` / `Custom` 짝과 같은 이유 — IndicatorMenu의 INDICATORS)
 const KIND_LABEL = {
-  line: "선", channel: "채널", circle: "원", fib: "피보나치",
+  line: "선", channel: "채널", circle: "원", fib: "피보나치", measure: "측정",
   structure: "커스텀 구조", zz: "자동 구조",
 };
 
@@ -31,7 +31,10 @@ const CHOCH_KINDS = new Set(["structure", "zz"]);
 //   한쪽만 다시 갈릴 때 어느 줄을 끄는 건지가 이름으로 남아 있어야 한다.
 const LEGVOL_KINDS = new Set(["structure", "zz"]);
 // 드래그로 움직일 수 있는 것만 잠금이 의미 있다. ZZ는 지표라 제외
-const LOCK_KINDS = new Set(["line", "channel", "circle", "fib", "structure"]);
+const LOCK_KINDS = new Set(["line", "channel", "circle", "fib", "measure", "structure"]);
+// ※ 측정 박스는 **투명도 + 잠금뿐**이다 — 근접 알림(PROXIMITY_ALERT_KINDS)에 넣지 말 것.
+//   측정은 "지금 얼마나 움직였나"를 읽는 도구고, 가격을 지키라고 그은 선이 아니다.
+//   넣으면 🔔이 생기는데 useTrendLineAlert에는 대응하는 경로가 없어 죽은 버튼이 된다
 // 자동 이어그리기를 갖는 종류 — **커스텀 구조뿐이다** (2026-08-26).
 // 자동 구조(zz)는 그 자체가 자동이라 넣을 것이 없다. 그리고 두 지표의 설정은
 // **서로 영향을 주지 않는다** — 사용자가 공유를 취소하고 구조별로 옮겼다

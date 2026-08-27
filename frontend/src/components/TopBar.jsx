@@ -7,7 +7,7 @@ import { NotificationMenu }  from "./NotificationMenu";
 import { ShortcutMenu }      from "./ShortcutMenu";
 
 
-export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
+export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, measureMode, onMeasureModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
@@ -92,6 +92,21 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
         color: fibMode ? "#000" : theme.textMuted,
         transition:"all 0.15s",
       }}>피보나치</button>
+
+      {/* 측정 박스 — **드래그**로 그린다 (2026-08-26 사용자 지정).
+          다른 도형은 클릭으로 점을 찍지만 사각형은 플랜 박스와 같은 조작이 자연스럽다.
+          ⚠ 이름이 `측정`이다 — 이 시스템에서 `박스`는 이미 진입/TP/SL 플랜 박스를 뜻해서
+            그대로 쓰면 어느 쪽인지 알 수 없다 (사용자가 고른 이름) */}
+      <button onClick={onMeasureModeToggle}
+        title="측정 — 드래그로 사각형을 그리면 그 구간의 등락률·가격 차이·기간을 보여준다" style={{
+        height:"22px", padding:"0 7px", borderRadius:"3px",
+        cursor:"pointer", flexShrink:0,
+        fontSize:"12px", fontFamily:"inherit", fontWeight:"400",
+        background: measureMode ? "#60a5fa" : "transparent",
+        border:`1px solid ${measureMode ? "#60a5fa" : theme.textFaint}`,
+        color: measureMode ? "#000" : theme.textMuted,
+        transition:"all 0.15s",
+      }}>측정</button>
 
       {/* 지표가 꺼져 있거나 현재 TF가 표시 대상이 아니면 그려도 화면에 안 나오므로 아예 막는다 (App.jsx에서도 가드) */}
       <button onClick={onStructModeToggle} disabled={!structEnabled}

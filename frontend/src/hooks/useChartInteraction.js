@@ -6,7 +6,7 @@ import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
 import { getCursor } from "../chart/cursorRules";
-import { buildHitChain, findHitChannel, findHitCircle, findHitFib, findHitStructure, findHitZzLeg, findHoveredLeg, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
+import { buildHitChain, findHitChannel, findHitCircle, findHitFib, findHitMeasure, findHitStructure, findHitZzLeg, findHoveredLeg, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
 import { legPeakVolume, fmtVol, volChangePct, LEG_VOL_METRICS } from "../chart/legVolume";
 import { getZzSegments } from "../chart/structureZigzag";
 import { getStructAutoChains } from "../chart/structRenderState";
@@ -43,6 +43,11 @@ export function useChartInteraction({
   fibMode, fibStart, setFibStart, fibPreview, setFibPreview,
   fibs, selectedFibId, setSelectedFibId,
   addFib, updateFibEndpoint, setFibPosition,
+  // 측정 박스 — 드래그로 그린다. 그리는 중 상태(measureDraft)는 DRAG_HANDLERS가 갱신하고
+  // **화면에 그리는 건 ChartArea → Measures**라, 이 훅은 setter만 들면 된다
+  measureMode, setMeasureDraft,
+  measures, selectedMeasureId,
+  addMeasure, moveMeasureCorner, setMeasurePosition,
   // 수동 구조
   structMode, structDraft, structPreview, setStructPreview,
   structures, selectedStructId, setSelectedStructId,
@@ -165,6 +170,8 @@ export function useChartInteraction({
       addCircle, moveCircle,
       fibMode, fibStart, setFibStart, fibPreview,
       fibs, selectedFibId, addFib,
+      measureMode, setMeasureDraft,
+      measures, selectedMeasureId,
       structMode, structDraft, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft,
       structures, selectedStructId, structPart, selectStructPart,
       structAutoChains: getStructAutoChains(), commitStructPoints,
@@ -176,7 +183,7 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, partialSls, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitStructPoints, showZZ]);
+  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, partialSls, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, measureMode, measures, selectedMeasureId, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitStructPoints, showZZ]);
 
   const refreshCrosshair = useCallback((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -306,7 +313,7 @@ export function useChartInteraction({
       // 지그재그 레그 hover 라벨 (등락률 + 거래량 + 직전 동일방향 레그 대비).
       // 드래그·그리기 중에는 방해되므로 끈다.
       // 커서 위치만 쓰는 imperative 라벨이라 React 상태를 건드리지 않는다.
-      if (scales && !drag && !structMode && !drawMode && pos.y >= 0 && pos.y <= IH) {
+      if (scales && !drag && !structMode && !drawMode && !measureMode && pos.y >= 0 && pos.y <= IH) {
         const leg = findHoveredLeg({
           px: pos.x, py: pos.y,
           structures,
@@ -360,11 +367,11 @@ export function useChartInteraction({
       if (!drag) {
         if (scales) {
           const { xScale, yScale } = scales;
-          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawings, scaleInOrders, splitTps, partialSls, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedStructId, structures, structMode, structDraft,
+          const cursor = getCursor({ selectedLineId, lines, pos, xScale, yScale, candles, hasPos, tpsl, drawings, scaleInOrders, splitTps, partialSls, selectedChannelId, channels, selectedCircleId, circles, selectedFibId, fibs, selectedMeasureId, measures, selectedStructId, structures, structMode, structDraft,
             structAutoChains: getStructAutoChains(), isLog });
           if (cursor) { setCursor(cursor); return; }
         }
-        setCursor((drawMode || lineMode || channelMode || circleMode || fibMode || structMode) ? "crosshair" : "grab"); return;
+        setCursor((drawMode || lineMode || channelMode || circleMode || fibMode || measureMode || structMode) ? "crosshair" : "grab"); return;
       }
 
       // 드래그 핸들러 위임
@@ -378,6 +385,7 @@ export function useChartInteraction({
         isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
         updateFibEndpoint, setFibPosition,
+        setMeasureDraft, addMeasure, moveMeasureCorner, setMeasurePosition,
         moveStructPoint, normalizeStruct,
       };
       const state = { drawings, dragTpsl, dragScaleIn, dragSplitTp, dragPartialSl };
@@ -392,7 +400,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, dragPartialSl, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, partialSls, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ, zzShowVol]);
+  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, dragPartialSl, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, partialSls, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, measureMode, selectedMeasureId, measures, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ, zzShowVol]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;
@@ -414,6 +422,7 @@ export function useChartInteraction({
         updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,
         moveCircle, updateLineEndpoint, setLinePosition, overlaysRef,
         updateFibEndpoint, setFibPosition,
+        setMeasureDraft, addMeasure, moveMeasureCorner, setMeasurePosition,
         moveStructPoint, normalizeStruct, clearStructPart,
       },
       // position은 `draw.onUp`이 **같은 사이드 포지션 보유 시 박스 그리기를 막는 데** 쓴다
@@ -445,6 +454,9 @@ export function useChartInteraction({
     const hitFb = findHitFib(pos.x, pos.y, fibs ?? [], xScale, yScale, candles, isLog);
     if (hitFb) { onLineDoubleClick?.(hitFb.id, "fib", e.clientX, e.clientY); return; }
 
+    const hitMs = findHitMeasure(pos.x, pos.y, measures ?? [], xScale, yScale, candles);
+    if (hitMs) { onLineDoubleClick?.(hitMs.id, "measure", e.clientX, e.clientY); return; }
+
     const hitSt = findHitStructure(pos.x, pos.y, structures ?? [], xScale, yScale, candles);
     if (hitSt) { onLineDoubleClick?.(hitSt.id, "structure", e.clientX, e.clientY); return; }
 
@@ -453,14 +465,17 @@ export function useChartInteraction({
     if (showZZ && findHitZzLeg(pos.x, pos.y, getZzSegments(), xScale, yScale)) {
       onLineDoubleClick?.(ZZ_ID, "zz", e.clientX, e.clientY);
     }
-  }, [candles, lines, channels, circles, fibs, structures, structMode, finishStruct, drawings, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, lines, channels, circles, fibs, measures, structures, structMode, finishStruct, drawings, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMouseLeave = useCallback(() => {
     dragRef.current = null;
     setCurrent(null);
+    // 그리다 만 측정 박스는 버린다 — 차트 밖에서 버튼을 놓으면 onMouseUp이 안 와서
+    // 점선 사각형이 화면에 그대로 얼어붙는다 (플랜 박스의 setCurrent(null)과 같은 이유)
+    setMeasureDraft?.(null);
     setCursor("crosshair");
     hideCrosshair?.();
-  }, [setCurrent, hideCrosshair]);
+  }, [setCurrent, setMeasureDraft, hideCrosshair]);
 
   // wheel 이벤트는 React prop으로 등록하면 passive가 되어 preventDefault()가 무시됨
   useEffect(() => {

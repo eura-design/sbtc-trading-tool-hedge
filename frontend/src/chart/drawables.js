@@ -21,7 +21,11 @@
 // 선보다 뒤에 두는 이유: 도형 하나가 가로선 7~10개라 히트 범위가 넓다 (hitDetection.js).
 // **전역 파라미터가 하나도 없다** — 표시할 레벨까지 도형별이라 지표 메뉴에 행이 없고,
 // 투명도·잠금·알림과 함께 더블클릭 팝업에서 조작한다 (chart/fib.js [F1], 2026-08-15).
-export const DRAWABLE_KINDS = ["channel", "circle", "line", "fib", "structure", "zz"];
+// "measure"(측정 박스)는 선·원과 같은 평범한 도형이다 — 투명도·잠금·삭제만 갖는다.
+// 근접 알림이 없어(toggleAlert 없음) 단축키 `a`는 이 도형에서 아무 일도 하지 않는다:
+// 측정은 "지금 얼마나 움직였나"를 읽는 도구지 가격을 지키는 선이 아니기 때문이다.
+// 순서는 히트 체인(hitDetection의 5번)과 같게 유지할 것
+export const DRAWABLE_KINDS = ["channel", "circle", "line", "fib", "measure", "structure", "zz"];
 
 // 자동 ZZ 가짜 drawable의 고정 id (선택 상태를 boolean 대신 id로 표현)
 export const ZZ_ID = "zz";
