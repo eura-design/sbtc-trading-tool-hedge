@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useTheme } from "../../ThemeContext";
-import { actionBtn } from "../sidebarBtn";
+import { actionBtn, primaryBtn, ghostBtn, CONFIRM_ROW } from "../sidebarBtn";
+import { PALETTE } from "../../constants";
 import { lsGet, lsSet } from "../../utils/storage";
 import { useStore } from "../../store";
 import { maxSplitCount } from "../../utils/splitLevels";
@@ -122,6 +123,51 @@ export function ChartPickButton({ active, onToggle, disabled, color, count, qty 
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * `전체 취소` — 이 카드(=이 사이드, 이 종류)의 주문을 한 번에 지운다 (2026-08-27 사용자 요청).
+ *
+ * 세 카드(추가 진입·분할 TP·분할 SL)가 **같은 것을 쓴다** — 하는 일이 같아서,
+ * 나누면 카드마다 확인 방식이나 문구가 조용히 갈린다.
+ *
+ * ⚠ **버튼 두 개로 확인받는다** (사용자 지정: "시장가 청산할 때처럼").
+ *   누르면 그 자리가 `✓ 확인` / `✕ 취소`로 바뀐다 — 차트 마커의 `×`처럼 두 번
+ *   누르는 방식이 아니다. 저건 한 건짜리고 이건 여러 건을 한꺼번에 지운다
+ * ⚠ 확인 상태는 **저절로 풀리지 않는다** (시장가 청산과 같다). 대신 아코디언을
+ *   닫거나 다른 것을 열면 이 카드가 통째로 언마운트되며 같이 사라진다 —
+ *   접힌 채로 `✓ 확인`이 남아 있으면 다시 펼쳤을 때 한 번 클릭으로 다 날아간다
+ * ⚠ **지울 게 없으면 그리지 않는다** — 눌러도 아무 일 안 하는 버튼을 남기지
+ *   않는다는 이 앱의 규칙과 같다 (`CountSlider`의 max<=1 주석 참고)
+ * ⚠ 색은 빨강(`PALETTE.short`) — 목록의 각 주문 옆 `✕`와 같은 색이다.
+ *   롱 카드에서도 빨강이다: 여기서 빨강은 "숏"이 아니라 **지운다**는 뜻이다
+ */
+export function CancelAllButton({ kind, side, count }) {
+  const { theme } = useTheme();
+  const [confirming, setConfirming] = useState(false);
+  const cancelSplitOrders = useStore(s => s.cancelSplitOrders);
+  // ⚠ 훅은 early return **앞**이어야 한다 (React 규칙) — 마지막 주문을 지우는
+  //   순간 count가 0이 되는데, 그때 훅 개수가 달라지면 안 된다
+  if (!count) return null;
+
+  return confirming ? (
+    <div style={{ ...CONFIRM_ROW, marginBottom: "8px" }}>
+      <button
+        onClick={() => { setConfirming(false); cancelSplitOrders(kind, side); }}
+        style={primaryBtn(theme, PALETTE.short)}
+      >✓ 확인</button>
+      <button onClick={() => setConfirming(false)} style={ghostBtn(theme)}>✕ 취소</button>
+    </div>
+  ) : (
+    <button
+      onClick={() => setConfirming(true)}
+      style={{ ...actionBtn(theme, PALETTE.short), marginBottom: "8px" }}
+      onMouseEnter={e => { e.currentTarget.style.background = `${PALETTE.short}22`; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+    >
+      전체 취소
+    </button>
   );
 }
 

@@ -17,6 +17,11 @@ import { computePaperDailyLoss } from "./dailyLoss";
 import { riskPctFor } from "../store/settingsSlice";
 import { boxKey } from "../store/uiSlice";
 
+// 분할 주문 종류의 화면 이름.
+// ⚠ **`store/orderSlice.js`의 같은 이름 상수와 값을 맞출 것** — 갈리면 같은 버튼인데
+//   실거래와 연습에서 다른 말이 뜬다 (이 파일의 문구가 실거래와 짝을 이루는 이유)
+const KIND_LABEL = { scale_in: "추가 진입", split_tp: "분할 TP", partial_sl: "분할 SL" };
+
 const ok = (get, msg) => {
   get().syncPaper();
   // 주문으로 바뀐 계좌도 저장한다 — 안 그러면 새로고침 시 마지막 틱 시점으로 되돌아가
@@ -186,6 +191,33 @@ export const paperActions = {
   cancelSplitTp: (get, orderId) => {
     get().paperBroker?.cancelSplitTp(orderId);
     ok(get, "분할 TP 취소 완료");
+  },
+
+  // 카드의 `전체 취소` — orderSlice.cancelSplitOrders의 페이퍼 짝 (2026-08-27).
+  //
+  // ⚠ 목록을 뽑는 규칙은 실거래와 **같아야 한다** — 페이퍼 스냅샷이 백엔드 라우트와
+  //   같은 모양이라(`paperBroker`) 같은 식이 그대로 성립한다. 여기만 다르게 뽑으면
+  //   연습에서 지워지는 대상이 실거래와 달라진다
+  cancelSplitOrders: (get, kind, side) => {
+    const { position, tpsl, paperBroker } = get();
+    if (!paperBroker) return;
+    const sideKey = side === "LONG" ? "long" : "short";
+    const ids =
+      kind === "scale_in" ? (position?.scaleInOrders ?? [])
+                              .filter(o => o.side === (side === "LONG" ? "BUY" : "SELL"))
+                              .map(o => o.orderId)
+    : kind === "split_tp" ? (tpsl?.[sideKey]?.splitTps   ?? []).map(o => o.orderId)
+    :                       (tpsl?.[sideKey]?.partialSls ?? []).map(o => o.orderId);
+    if (!ids.length) return;
+
+    for (const id of ids) {
+      if      (kind === "scale_in") paperBroker.cancelScaleIn(id);
+      else if (kind === "split_tp") paperBroker.cancelSplitTp(id);
+      else                          paperBroker.cancelPartialSl(id);
+    }
+    // 페이퍼는 취소가 실패할 일이 없다(내 장부에서 지우는 것뿐) — 그래서 실거래와 달리
+    // "몇 개 중 몇 개"가 없다. 개수는 그대로 적는다
+    ok(get, `${KIND_LABEL[kind]} ${ids.length}개 취소 완료`);
   },
 
   moveSplitTp: (get, orderId, newPrice) => {

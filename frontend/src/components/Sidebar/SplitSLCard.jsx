@@ -1,6 +1,6 @@
 import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
-import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, CardWrapper } from "./cardControls";
+import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, CardWrapper, CancelAllButton } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
 
 /**
@@ -58,6 +58,8 @@ export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }
             style={iconBtn(PALETTE.short, "12px")}>✕</button>
         </div>
       ))}
+
+      <CancelAllButton kind="partial_sl" side={side} count={partialSls.length} />
 
       {partialSls.length > 0 && remaining > 0.0001 && (
         <div style={{ fontSize: "10px", color: theme.textFaint,

@@ -1,6 +1,6 @@
 import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
-import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, CardWrapper } from "./cardControls";
+import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, CardWrapper, CancelAllButton } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
 
 /**
@@ -62,6 +62,8 @@ export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) 
             style={iconBtn(PALETTE.short, "12px")}>✕</button>
         </div>
       ))}
+
+      <CancelAllButton kind="split_tp" side={side} count={splitTps.length} />
 
       {splitTps.length > 0 && (
         <div style={{ marginBottom: "6px" }}>

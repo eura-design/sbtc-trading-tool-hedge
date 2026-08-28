@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
-import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, SubmitButton, CardWrapper } from "./cardControls";
+import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, SubmitButton, CardWrapper, CancelAllButton } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
 
 /**
@@ -63,6 +63,9 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
             style={iconBtn(PALETTE.short, "12px")}>✕</button>
         </div>
       ))}
+
+      {/* 목록에 대한 동작이라 목록 바로 아래에 둔다 */}
+      <CancelAllButton kind="scale_in" side={side} count={scaleInOrders?.length ?? 0} />
 
       <div style={{ display: "flex", gap: "4px", marginBottom: "8px",
         background: theme.bgCard, borderRadius: "4px", padding: "2px" }}>

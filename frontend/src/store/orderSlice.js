@@ -438,6 +438,56 @@ export const createOrderSlice = (set, get) => ({
       : { type: "error",   msg: `${KIND_LABEL[kind]} ${orders.length}개 중 ${done}개만 등록됐습니다` });
   },
 
+  /**
+   * 카드의 `전체 취소` — 그 **사이드**의 그 **종류** 주문을 모두 취소한다
+   * (2026-08-27 사용자 요청). `placeSplitOrders`의 짝이라 인자 모양도 같다.
+   *
+   * ⚠ **셋을 각각의 액션으로 나누지 말 것.** 하는 일이 글자 그대로 같고
+   *   달라지는 건 목록을 어디서 뽑느냐와 어느 경로로 지우느냐 둘뿐이다
+   *   (`movePriceDrag`가 마커 셋을 한 벌로 묶은 것과 같은 이유)
+   * ⚠ **id는 스토어에서 뽑는다** — 카드가 넘긴 목록을 그대로 믿으면, 카드가
+   *   사이드를 잘못 거른 순간 **반대쪽 주문이 조용히 날아간다**
+   * ⚠ 백엔드에 일괄 취소 라우트를 만들지 않았다. 기존 단건 취소가 이미
+   *   종류 검증(`assertCancelKind`)·사전 TP/SL 정리·store 정리·기록을 다 한다 —
+   *   여기서 **개수만큼 순서대로 부르면 그게 전부 그대로 돌아간다**
+   */
+  cancelSplitOrders: async (kind, side) => {
+    if (get().replayOn) return paperActions.cancelSplitOrders(get, kind, side);
+    const { position, tpsl, setOrderStatus, _refetchPos, _refetchTpsl } = get();
+    const sideKey = side === "LONG" ? "long" : "short";
+
+    // 추가 진입만 사이드가 **주문 방향**(BUY/SELL)으로 들어 있다 — 분할 TP/SL은
+    // `tpsl[사이드]` 아래에 이미 갈려 있다 (routes/tpsl.js가 갈라서 준다)
+    const ids =
+      kind === "scale_in" ? (position?.scaleInOrders ?? [])
+                              .filter(o => o.side === positionToSide(side))
+                              .map(o => o.orderId)
+    : kind === "split_tp" ? (tpsl?.[sideKey]?.splitTps   ?? []).map(o => o.orderId)
+    :                       (tpsl?.[sideKey]?.partialSls ?? []).map(o => o.orderId);
+    if (!ids.length) return;
+
+    const path = kind === "scale_in" ? "/api/scale-in"
+               : kind === "split_tp" ? "/api/tpsl/split"
+               :                       "/api/tpsl/partial-sl";
+
+    setOrderStatus(null);
+    // ⚠ **순차로 보낸다** (`placeSplitOrders`와 같은 이유 — 어디까지 지워졌는지
+    //   알 수 있어야 한다). 다만 등록과 달리 **중간에 실패해도 멈추지 않는다**:
+    //   한 건이 방금 체결돼 -2011이 났다고 나머지를 남기면, 사용자는
+    //   "전체 취소를 눌렀는데 몇 개가 남아 있다"를 겪는다
+    let done = 0;
+    for (const orderId of ids) {
+      try { await api("DELETE", path, { orderId }); done++; } catch { /* 나머지를 계속 지운다 */ }
+    }
+    setTimeout(() => { if (kind === "scale_in") _refetchPos(); else _refetchTpsl(); }, 500);
+
+    // ⚠ **몇 개가 실제로 지워졌는지 반드시 알린다.** 하나가 방금 체결돼 취소에
+    //   실패했는데 `취소 완료`라고만 띄우면, 남아 있는 주문을 모르고 넘어간다
+    setOrderStatus(done === ids.length
+      ? { type: "success", msg: `${KIND_LABEL[kind]} ${done}개 취소 완료` }
+      : { type: "error",   msg: `${KIND_LABEL[kind]} ${ids.length}개 중 ${done}개 취소 — ${ids.length - done}개 실패` });
+  },
+
   cancelSplitTp: async (orderId) => {
     if (get().replayOn) return paperActions.cancelSplitTp(get, orderId);
     const { setOrderStatus, _refetchTpsl } = get();
