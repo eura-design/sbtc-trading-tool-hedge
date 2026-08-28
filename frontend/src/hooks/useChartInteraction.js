@@ -137,7 +137,7 @@ export function useChartInteraction({
       xDomainRef.current = [newI0, newI1];
       yDomainRef.current = fitYDomain(candles, xDomainRef.current, isLog);
       if (overlaysRef) overlaysRef.current._panning = true;
-      redrawChart();
+      redrawChart(true);   // 팬과 같은 이유 — 여기도 rAF 콜백 안이다
       clearTimeout(wheelSyncTimerRef.current);
       wheelSyncTimerRef.current = setTimeout(() => {
         if (overlaysRef) overlaysRef.current._panning = false;

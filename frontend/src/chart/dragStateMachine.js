@@ -70,7 +70,9 @@ export const DRAG_HANDLERS = {
       // redrawChart = redrawCanvas + redrawVolume + redrawRSI + forceUpdate
       // forceUpdate → scales 재계산 → 선/원/채널/구조 등 SVG 오버레이도 즉시 따라옴
       // _panning 플래그가 FVG/OB/SR/EMA 캔버스 렌더는 스킵하므로 성능 유지
-      setters.redrawChart?.();
+      // sync=true — 캔들과 **같은 프레임**에 SVG 오버레이까지 커밋한다.
+      // 여기는 onMouseMove의 rAF 콜백 안이라 flushSync를 쓸 수 있는 자리다
+      setters.redrawChart?.(true);
       setCursor("grabbing");
     },
     onUp({ setters }) {

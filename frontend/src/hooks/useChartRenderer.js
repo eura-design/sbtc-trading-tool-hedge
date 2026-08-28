@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { flushSync } from "react-dom";
 import { getScales, fitYDomain, initialXDomain } from "../chart/scales";
 import { renderCandles, renderVolumeCanvas, renderRSICanvas } from "../chart/candleRenderer";
 
@@ -9,7 +10,23 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
   const prevCandleCountRef = useRef(0);
   const isInitialLoadRef   = useRef(true);
   const [renderTick, setRenderTick] = useState(0);
-  const forceUpdate = () => setRenderTick(n => n + 1);
+
+  // sync=true면 **캔버스와 같은 프레임 안에서** SVG 오버레이까지 커밋한다.
+  //
+  // ⚠ 캔버스는 동기, React는 비동기라 그냥 두면 **SVG가 한 프레임 이상 늦는다.**
+  //   팬·줌처럼 좌표계 전체가 움직일 때 그 차이가 그대로 어긋남으로 보인다 —
+  //   특히 꼭짓점이 캔들에 박혀 있는 도형(수동 구조·측정 박스)에서 눈에 띈다.
+  //   직선(추세선)이나 수평선은 밀려도 자기 자신과 겹쳐서 티가 안 날 뿐 같이 늦는다.
+  //   (한 좌표계를 캔버스와 SVG가 나눠 갖는 이상 우선순위로는 못 없앤다 —
+  //    프레임워크 커밋을 렌더 루프에 종속시키는 것이 정석이다)
+  //
+  // ⚠ **rAF 안에서만 sync=true로 부를 것.** 이벤트 핸들러나 렌더 도중에 부르면
+  //   React가 경고한다. 지금 부르는 곳은 팬(dragStateMachine)과 휠 줌 둘뿐이고
+  //   둘 다 requestAnimationFrame 콜백 안이다.
+  const forceUpdate = sync => {
+    if (sync) flushSync(() => setRenderTick(n => n + 1));
+    else setRenderTick(n => n + 1);
+  };
 
   // ⚠ **candlesRef를 읽는 콜백은 deps에 candlesRef를 넣어야 한다** (2026-08-15, 실측 버그).
   //   `App.jsx`가 `replayOn ? replay : live`로 고르기 때문에 **모드를 바꾸면 ref 객체
@@ -58,11 +75,11 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
   }, [IW, isDark]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Canvas + SVG 오버레이 동기화 (pan 종료, 줌, 데이터 변경 시 사용)
-  const redrawChart = useCallback(() => {
+  const redrawChart = useCallback((sync = false) => {
     redrawCanvas();
     redrawVolume();
     redrawRSI();
-    forceUpdate();
+    forceUpdate(sync);
   }, [redrawCanvas, redrawVolume, redrawRSI]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 최근 300봉(또는 있는 만큼) 기준으로 x/y 도메인을 처음부터 다시 잡는다.
