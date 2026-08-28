@@ -12,6 +12,18 @@ import { getZzSegments } from "../chart/structureZigzag";
 import { getStructAutoChains } from "../chart/structRenderState";
 import { ZZ_ID } from "../chart/drawables";
 
+// 축소 하한 — "가진 캔들을 전부 펼친 데서 멈춘다".
+// 7/6은 initialXDomain이 쓰는 오른쪽 여백(폭의 1/6)과 같은 비율이라,
+// 하한 = 처음 화면과 같은 여백을 두고 전 구간이 보이는 지점이 된다.
+//
+// ⚠ **화면 px이 아니라 봉 개수에 묶는다.** px으로 걸면(예: 봉당 0.5px 이상)
+//   봉이 적은 TF에서는 사실상 하한이 없어진다 — 화면 폭은 TF가 바뀌어도 그대로인데
+//   로드되는 봉은 5분봉 3000개 / 주봉 365개 / 월봉 84개로 36배까지 차이 나기 때문이다.
+//   실제로 px 기준이던 동안 월봉은 캔들이 화면의 2.7%(42px)가 될 때까지 축소됐다.
+//   지금은 어느 TF에서든 캔들이 화면의 85.7%를 채운 지점에서 멈춘다
+// (확대 하한은 아래 wheel 핸들러의 "3봉" 조건이 맡는다 — 둘이 한 쌍이다)
+const MAX_VIEW_RATIO = 7 / 6;
+
 export function useChartInteraction({
   candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, showLegPct, onLineDoubleClick,
   scalesRef,
@@ -119,7 +131,8 @@ export function useChartInteraction({
       const newI0    = mouseIdx - (mouseIdx - i0) * factor;
       const newI1    = mouseIdx + (i1 - mouseIdx) * factor;
 
-      if (newI1 - newI0 < 3) return;
+      if (newI1 - newI0 < 3) return;                     // 확대 하한 — 3봉
+      if (newI1 - newI0 > candles.length * MAX_VIEW_RATIO) return;  // 축소 하한 — 전 구간
 
       xDomainRef.current = [newI0, newI1];
       yDomainRef.current = fitYDomain(candles, xDomainRef.current, isLog);

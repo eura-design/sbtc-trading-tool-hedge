@@ -1,6 +1,6 @@
 import * as d3 from "d3";
 import { M, CANVAS_C } from "../constants";
-import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
+import { initCanvas, withClip, getVisibleRange, barBodyWidth } from "./canvasUtils";
 import { renderFVG, renderOrderBlock, renderPivotLevels, renderEMA, renderStructureZigzag,
          computeRsiZones, clearRsiZones, renderRsiZones } from "./overlayRenderers";
 import { computeStructureZigzag } from "./structureZigzag";
@@ -35,8 +35,8 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   const downColor = isDark ? CANVAS_C.BEAR_DARK : CANVAS_C.BEAR_LIGHT;
 
   const [i0, i1] = getVisibleRange(xScale, candles.length);
-  const bw        = Math.max((xScale(1) - xScale(0)) * 0.65, 1);
   const pxPerBar  = xScale(1) - xScale(0);
+  const bw        = barBodyWidth(pxPerBar);
 
   const ov = overlaysRef?.current ?? {};
 

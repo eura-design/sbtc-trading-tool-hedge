@@ -1,5 +1,5 @@
 import { M, CANVAS_C } from "../constants";
-import { initCanvas, withClip, getVisibleRange } from "./canvasUtils";
+import { initCanvas, withClip, getVisibleRange, barBodyWidth } from "./canvasUtils";
 
 // [V1] 이 렌더는 틱마다 호출된다 (useChartRenderer.redrawVolumeTick).
 //      진행 중 봉의 거래량 높이와 양봉/음봉 색이 실시간으로 따라와야 한다는 사용자 확정 사양.
@@ -27,7 +27,7 @@ function renderVolumePanel(ctx, candles, xScale, IW, volH, isDark, volColorMode)
 
     const [i0, i1] = getVisibleRange(xScale, candles.length);
     const pxPerBar = xScale(1) - xScale(0);
-    const barW     = Math.max(1, pxPerBar * 0.6);
+    const barW     = barBodyWidth(pxPerBar);
 
     let maxVol = 0;
     for (let i = i0; i <= i1; i++) { if (candles[i].v > maxVol) maxVol = candles[i].v; }
