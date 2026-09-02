@@ -2,6 +2,8 @@ import { useRef, useCallback } from "react";
 import * as d3 from "d3";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
 import { LEG_VOL_METRICS } from "../chart/legVolume";
+import { fmtPrice } from "../utils/price";
+import { useStore } from "../store";
 
 // ── 축 위의 크로스헤어 태그 (2026-08-24 사용자 요청 — 트레이딩뷰와 같은 자리) ──────
 //
@@ -14,7 +16,9 @@ import { LEG_VOL_METRICS } from "../chart/legVolume";
 // ⚠ 가격 형식은 **가격축 눈금과 같은 `,.0f`**로 맞춘다 (candleRenderer의 Y축).
 //   태그만 소수점을 붙이면 같은 축에 두 가지 정밀도가 나란히 뜨고, 자릿수가 늘면
 //   폭 72px(M.right) 밖으로 넘친다
-const fmtTagPrice = d3.format(",.0f");
+// ⚠ 자릿수는 **호가 단위**가 정한다 (2026-09-02). `,.0f` 고정이면 DOGE(0.2)에서
+//   태그에 `0`만 뜬다. 축(candleRenderer)은 눈금 간격에서 뽑는데, 여기는 스케일이
+//   없고 가격만 인자로 받으므로 스토어의 tick을 본다 — 결과 자릿수는 같다
 
 // ⚠ 날짜 태그에는 **한글을 쓰지 않는다** (X축 눈금의 `%d일 %H:%M`과 다른 점).
 //   태그 폭을 글자 수 × 등폭 한 칸으로 계산하는데, 한글은 폴백 폰트라 두 칸을
@@ -156,7 +160,11 @@ export function useCrosshair(interval_) {
         T.priceBg.setAttribute("width", M.right);
         T.priceBg.setAttribute("height", TAG_H);
         T.priceBg.setAttribute("display", "inline");
-        T.priceText.textContent = fmtTagPrice(price);
+        // ⚠ update는 `useCallback(…, [])`이라 값을 가둔다. 호가 단위는 심볼을 바꿀 때만
+        //   변하므로 **그 자리에서 스토어를 읽는다** (useCandles의 setLiveClose와 같은 방식) —
+        //   ref를 하나 더 두는 것보다 읽는 곳이 분명하다
+        const tick = useStore.getState().symbolFilters.tick;
+        T.priceText.textContent = fmtPrice(price, tick);
         T.priceText.setAttribute("x", M.left + IW + 6);
         T.priceText.setAttribute("y", svgY);
         T.priceText.setAttribute("display", "inline");

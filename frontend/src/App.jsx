@@ -109,9 +109,11 @@ export default function App() {
   useEffect(() => {
     setSymbolFilters({ step: symbolFilters.qtyStep, minQty: symbolFilters.minQty,
                        tick: symbolFilters.tickSize,
-                       base: symbolFilters.filters?.baseAsset ?? symbol.replace(/USDT$/, "") });
+                       base: symbolFilters.filters?.baseAsset ?? symbol.replace(/USDT$/, ""),
+                       onboardMs: symbolFilters.filters?.onboardDate ?? null });
   }, [symbolFilters.qtyStep, symbolFilters.minQty, symbolFilters.tickSize,
-      symbolFilters.filters?.baseAsset, symbol, setSymbolFilters]);
+      symbolFilters.filters?.baseAsset, symbolFilters.filters?.onboardDate,
+      symbol, setSymbolFilters]);
 
   // ── 지표 표시 여부 ────────────────────────────────────────────────────────
   // RSI — 지표 토글은 **전 TF 공통**이다. RSI 패널(선)은 어느 프레임에서든 보인다.
@@ -258,6 +260,11 @@ export default function App() {
   const onTickRef = useRef(null);
   const live   = useCandles(interval_, onTickRef, !replayOn, symbol);
   const replay = useReplay({
+    // ⚠ **심볼을 반드시 넘긴다** (2026-09-02에 빠뜨렸다가 잡음).
+    //   안 넘기면 useReplay가 BTCUSDT 기본값으로 떨어져, ETH를 보다 리플레이에
+    //   들어가면 **화면엔 ETH라고 쓰여 있는데 BTC 캔들이 재생된다.**
+    //   선택기는 리플레이 *중*에만 잠기고 들어가는 것 자체는 막지 않는다
+    symbol,
     enabled: replayOn, tf: interval_, onTickRef,
     startMs: replayStartMs,
     // ⚠ 여기서 `?? Date.now()`로 채우지 말 것. 렌더마다 새 값이 나와 useReplay의

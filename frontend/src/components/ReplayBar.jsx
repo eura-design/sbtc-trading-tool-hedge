@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../ThemeContext";
 import { FIRST_LISTING_MS } from "../replay/klines.js";
+import { useStore } from "../store";
 import { clearReplayDrawings } from "../replay/drawingKeys.js";
 
 // 리플레이 컨트롤 바 — 리플레이 모드일 때 TopBar 아래에 나타난다
@@ -44,6 +45,11 @@ function toLocalInput(ms) {
 
 export function ReplayBar({ replay, startMs, onRangeChange, onExit, onSeek, onDrawingsCleared }) {
   const { theme } = useTheme();
+  // ⚠ **상장일은 심볼마다 다르다** (BTC 2019-09-08 / ETH 2019-11-27 / DOGE 2020-07-10, 실측).
+  //   하나로 박아 두면 늦게 상장된 코인에서 그 이전 구간을 고를 수 있고,
+  //   그때는 **빈 캔들이 재생된다**. 값은 exchangeInfo가 준다(useSymbolFilters).
+  //   못 받았으면 BTC 값으로 떨어진다 — 그건 가장 이른 날짜라 최소한 넘치지는 않는다
+  const listingMs = useStore(s => s.symbolFilters.onboardMs) || FIRST_LISTING_MS;
   const {
     playing, play, pause, speed, setSpeed,
     stepTick, resetPaper,
@@ -91,7 +97,7 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, onSeek, onDr
   // 날짜를 직접 고르면 "그때 무슨 일이 있었는지" 이미 알고 시작하게 된다
   const pickRandom = () => {
     const latest = Date.now() - 30 * 86400_000;
-    changeRange(Math.floor(FIRST_LISTING_MS + Math.random() * (latest - FIRST_LISTING_MS)));
+    changeRange(Math.floor(listingMs + Math.random() * (latest - listingMs)));
   };
 
   const onResetClick = () => {
@@ -127,7 +133,7 @@ export function ReplayBar({ replay, startMs, onRangeChange, onExit, onSeek, onDr
           const v = e.target.value ? new Date(e.target.value).getTime() : null;
           if (v) changeRange(v);
         }}
-        min={toLocalInput(FIRST_LISTING_MS)}
+        min={toLocalInput(listingMs)}
         style={{
           height: "22px", fontSize: "11px", fontFamily: "inherit", padding: "0 4px",
           background: "transparent", color: theme.textPrimary,

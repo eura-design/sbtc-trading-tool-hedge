@@ -32,7 +32,8 @@ const DEFAULT_SYMBOL = "BTCUSDT";
 // 바꾸지 말 것 — 바꾸면 "캐시가 비었을 때"의 동작이 조용히 달라진다
 const SEED = {
   BTCUSDT: { symbol: "BTCUSDT", tickSize: "0.10", stepSize: "0.001",
-             minQty: "0.001", minNotional: "100", seeded: true },
+             minQty: "0.001", minNotional: "100",
+             onboardDate: 1567965300000, seeded: true },   // 2019-09-08
 };
 
 // exchangeInfo는 자주 바뀌지 않는다 (상장·상장폐지·필터 변경 정도).
@@ -64,6 +65,10 @@ async function load() {
         contractType: s.contractType,    // PERPETUAL / CURRENT_QUARTER / …
         quoteAsset:   s.quoteAsset,
         baseAsset:    s.baseAsset,
+        // 상장일 — 리플레이가 그 이전 구간을 고르지 못하게 막는다.
+        // ⚠ 코인마다 다르다: BTC 2019-09-08 / ETH 2019-11-27 / DOGE 2020-07-10 (실측).
+        //   하나로 박아 두면 늦게 상장된 코인에서 **빈 캔들이 재생된다**
+        onboardDate:  s.onboardDate ?? null,
       });
     }
     if (!next.size) throw new Error("exchangeInfo에 심볼이 없다");
@@ -130,8 +135,8 @@ const roundQty = (qty, symbol = DEFAULT_SYMBOL) =>
 function listTradable() {
   return [..._map.values()]
     .filter(s => s.quoteAsset === "USDT" && s.contractType === "PERPETUAL" && s.status === "TRADING")
-    .map(({ symbol, baseAsset, tickSize, stepSize, minQty, minNotional }) =>
-      ({ symbol, baseAsset, tickSize, stepSize, minQty, minNotional }))
+    .map(({ symbol, baseAsset, tickSize, stepSize, minQty, minNotional, onboardDate }) =>
+      ({ symbol, baseAsset, tickSize, stepSize, minQty, minNotional, onboardDate }))
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 

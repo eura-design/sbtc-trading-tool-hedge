@@ -4,6 +4,8 @@ import { posEntryRows, TPSL_BTN, closeBtnRect, qtyBadgeRect, pctBadgeRect, pendi
   from "../../chart/hitDetection";
 import { tsToIdx } from "../../chart/scales";
 import { entryPathSegments } from "../../chart/entryPath";
+import { fmtQty as qtyFmt } from "../../utils/qty";
+import { useStore } from "../../store";
 
 function inView(px, IH) { return px !== null && px >= -20 && px <= IH + 20; }
 
@@ -63,13 +65,14 @@ function QtyBadge({ rect, color, text }) {
 // 수량 표기는 **BTC 수량 하나로 통일**한다 (2026-08-22 사용자 확정 — USD 명목가 대신).
 // ⚠ USD로 바꾸지 말 것: 현재가 기준이면 **틱마다** 값이 바뀌어 PositionLines가 매 틱
 //   리렌더된다(지금은 포지션이 바뀔 때만 돈다). 자릿수는 QTY_STEP(0.001)에 맞춘 3자리
-// ⚠ **단위 글자 `BTC`는 붙이지 않는다 — 숫자만이다** (2026-08-22 사용자 요청).
-//   이 앱은 BTCUSDT 하나만 다뤄서 매 배지마다 같은 글자가 반복될 뿐이었고,
-//   그 세 글자가 배지 폭의 절반을 먹었다(60 → 36px). 심볼이 여러 개가 되면 그때 다시 볼 것
+// ⚠ **단위 글자는 붙이지 않는다 — 숫자만이다** (2026-08-22 사용자 요청).
+//   매 배지마다 같은 글자가 반복될 뿐인데 그 세 글자가 배지 폭의 절반을 먹었다(60 → 36px).
+//   심볼이 여러 개가 된 지금도 그대로 둔다 — 어느 코인인지는 상단바가 늘 보여준다
 // ⚠ **1 미만이면 앞의 `0`을 뗀다** (`0.001` → `.001`, 2026-08-27 사용자 요청).
 //   1 이상은 그대로다(`1.001`) — 그쪽은 뗄 정수부가 실제로 있다.
-//   소수점 아래 세 자리는 QTY_STEP(0.001)에 맞춘 값이라 그대로 둔다
-const fmtQty = q => Number(q).toFixed(3).replace(/^0\./, ".");
+//   ⚠ 자릿수는 **심볼의 수량 단위**를 따른다 (2026-09-02) — 0.001 고정이면
+//     DOGE(단위 1)에서 `123.000`이 된다
+const fmtQtyBadge = (q, step) => qtyFmt(q, step).replace(/^0\./, ".");
 
 // `추가`/`분할`이 포지션 전체의 몇 %인가 (2026-08-22 사용자 요청).
 //
@@ -281,6 +284,8 @@ function EntryLine({ yPx, color, label, row, qtyText, IH, path, confirm, closeHo
 }
 
 export const PositionLines = memo(function PositionLines({ position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, partialSls, dragPartialSl, closeConfirm, drawings, scales, candles, IW, IH }) {
+  // 배지 수량의 자릿수는 심볼의 수량 단위를 따른다 (DOGE는 1이라 소수가 없다)
+  const qStep = useStore(s => s.symbolFilters.step);
   if (!position || !scales) return null;
   const { yScale, xScale } = scales;
 
@@ -368,11 +373,11 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
           (2026-08-15 사용자 요청). 전 폭 가로선이면 "언제 들어갔나"가 안 보인다 —
           왼쪽 끝이 진입 시점이라 보유 기간이 선 길이로 읽힌다. 좌표는 entryPath() 참고 */}
       {position.long  && <EntryLine yPx={yScale(position.long.entryPrice)}  color={CL} label="LONG"  IH={IH}
-        row={rowOf("long")}  qtyText={fmtQty(position.long.size)}
+        row={rowOf("long")}  qtyText={fmtQtyBadge(position.long.size, qStep)}
         path={entryPath(position.long)}
         confirm={closeConfirm === "LONG"}  {...closeProps("entry-LONG")} />}
       {position.short && <EntryLine yPx={yScale(position.short.entryPrice)} color={CS} label="SHORT" IH={IH}
-        row={rowOf("short")} qtyText={fmtQty(position.short.size)}
+        row={rowOf("short")} qtyText={fmtQtyBadge(position.short.size, qStep)}
         path={entryPath(position.short)}
         confirm={closeConfirm === "SHORT"} {...closeProps("entry-SHORT")} />}
 
@@ -405,7 +410,7 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
             showHandle={!tpslSaving}
             // ⚠ 단일 TP/SL은 `closePosition`이라 대상 수량이 곧 **포지션 전체**다.
             //   그래서 이 값이 보이면 진입 라벨은 수량을 감춘다 (posEntryRows의 showQty)
-            qtyText={position[sideKey] ? fmtQty(position[sideKey].size) : null}
+            qtyText={position[sideKey] ? fmtQtyBadge(position[sideKey].size, qStep) : null}
             dragCenterText={m.label} dragCenterWidth={40}
             onHandleEnter={() => m.setHover(m.side)}
             onHandleLeave={() => m.setHover(null)}
@@ -429,7 +434,7 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
             //   이건 **이미 걸린 주문을 옮기는** 핸들이다
             handleChar="추가"
             isActive={isActive} isDragging={isDragging}
-            qtyText={fmtQty(o.qty)}
+            qtyText={fmtQtyBadge(o.qty, qStep)}
             pctText={fmtPct(o.qty, position[o.side === "BUY" ? "long" : "short"]?.size)}
             dragCenterText="추가진입" dragCenterWidth={72}
             onHandleEnter={() => setHoveredScaleIn(o.orderId)}
@@ -452,7 +457,7 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
           handleChar="대기"
           dashed draggable={false}
           isActive={hoveredPending === p.orderId} isDragging={false}
-          qtyText={fmtQty(p.qty)}
+          qtyText={fmtQtyBadge(p.qty, qStep)}
           onHandleEnter={() => setHoveredPending(p.orderId)}
           onHandleLeave={() => setHoveredPending(null)}
           {...closeProps(`pending-${p.orderId}`)}
@@ -476,7 +481,7 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
             //      네 글자가 한 벌이다: `TP` `SL` `분TP` `분SL`
             handleChar="분TP"
             isActive={isActive} isDragging={isDragging}
-            qtyText={fmtQty(o.qty)}
+            qtyText={fmtQtyBadge(o.qty, qStep)}
             pctText={fmtPct(o.qty, position[o.side === "SELL" ? "long" : "short"]?.size)}
             dragCenterText="분할TP" dragCenterWidth={60}
             onHandleEnter={() => setHoveredSplitTp(o.orderId)}
@@ -501,7 +506,7 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
             //   **색까지 같다**(SELL/LONG = 초록). 자리도 같은 좌측 레인이라 글자가 유일한 단서다
             handleChar="분SL"
             isActive={isActive} isDragging={isDragging}
-            qtyText={fmtQty(o.qty)}
+            qtyText={fmtQtyBadge(o.qty, qStep)}
             pctText={fmtPct(o.qty, position[isLong ? "long" : "short"]?.size)}
             dragCenterText="분할SL" dragCenterWidth={60}
             onHandleEnter={() => setHoveredPartialSl(o.orderId)}

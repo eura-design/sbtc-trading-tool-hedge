@@ -213,7 +213,14 @@ export function renderCandles(canvas, candles, xScale, yScale, IW, IH, interval_
   ctx.fillStyle    = CANVAS_C.YTICK;
   ctx.textAlign    = "left";
   ctx.textBaseline = "middle";
+  // ⚠ **정수로 찍지 말 것** (2026-09-02). `d3.format(",.0f")`은 BTC(70,000)에서나
+  //   맞는 선택이고, DOGE(0.2)에서는 축 전체가 `0`으로 찍혀 차트를 못 읽는다.
+  //   자릿수는 **눈금 간격**이 정한다 — 심볼 정보를 여기까지 흘릴 필요가 없고,
+  //   축이 실제로 구분하는 만큼만 보여주므로 어떤 가격대에서도 맞는다
+  const gap = yTicks.length > 1 ? Math.abs(yTicks[1] - yTicks[0]) : 0;
+  const dec = gap > 0 && gap < 1 ? Math.min(8, Math.ceil(-Math.log10(gap))) : 0;
+  const fmtY = d3.format(`,.${dec}f`);
   for (const v of yTicks) {
-    ctx.fillText(d3.format(",.0f")(v), M.left + IW + 6, M.top + yScale(v));
+    ctx.fillText(fmtY(v), M.left + IW + 6, M.top + yScale(v));
   }
 }

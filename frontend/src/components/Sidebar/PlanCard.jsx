@@ -1,19 +1,21 @@
 import { useState } from "react";
-import * as d3 from "d3";
 import { useTheme } from "../../ThemeContext";
 import { calcRR } from "../../utils/format";
 import { qtyLabel } from "../../utils/qty";
+import { fmtPriceUsd } from "../../utils/price";
 import { useStore } from "../../store";
 
 export function PlanCard({ drawing, posCalc, leverage, riskPct, position, hasPending, onConfirm, onCancel }) {
   const { theme } = useTheme();
   // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1).
   // ⚠ 훅은 아래 조기 반환보다 **앞**이어야 한다 (React 규칙)
-  const { step: qStep, base: qBase } = useStore(s => s.symbolFilters);
+  const { step: qStep, base: qBase, tick: qTick } = useStore(s => s.symbolFilters);
   const [orderType, setOrderType] = useState("LIMIT");
   if (!drawing) return null;
-  const fmtI  = p => `$${d3.format(",.0f")(p)}`;
-  const fmt   = p => `$${d3.format(",.2f")(p)}`;
+  // 가격 자릿수는 호가 단위가 정한다 (DOGE는 0.00001이라 두 자리로는 뭉개진다).
+  // ⚠ 아래 손익·리스크 금액은 **USDT라 두 자리가 맞다** — 섞지 말 것
+  const fmtI  = p => fmtPriceUsd(p, qTick);
+  const fmt   = p => fmtPriceUsd(p, qTick);
   const color = drawing.isLong ? "#0ecb81" : "#f6465d";
   const sameSidePos = drawing.isLong ? position?.long : position?.short;
 

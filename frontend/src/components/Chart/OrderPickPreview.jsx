@@ -1,6 +1,7 @@
 import { PALETTE } from "../../constants";
 import { useStore } from "../../store";
 import { splitPlan } from "../../utils/splitLevels";
+import { fmtQty } from "../../utils/qty";
 
 /**
  * 분할 주문 미리보기 (2026-08-27 사용자 요청) — **세로로 끄는 동안에만** 뜬다.
@@ -50,7 +51,7 @@ export function OrderPickPreview({ orderPick, pickDraft, scales, IW }) {
                 같은 세 글자가 반복될 뿐이다 (진입선 수량 배지와 같은 규칙) */}
             <text x={IW - 6} y={y - 3} textAnchor="end"
               fontSize="10" fill={color} opacity={0.95}>
-              {o.qty.toFixed(3)}
+              {fmtQty(o.qty, qStep)}
             </text>
           </g>
         );

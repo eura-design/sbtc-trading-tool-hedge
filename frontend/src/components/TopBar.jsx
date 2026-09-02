@@ -1,5 +1,5 @@
-import * as d3 from "d3";
 import { INTERVALS } from "../constants";
+import { fmtPriceUsd } from "../utils/price";
 import { useTheme } from "../ThemeContext";
 import { useStore } from "../store";
 import { IndicatorMenu }      from "./IndicatorMenu";
@@ -11,7 +11,9 @@ import { SymbolPicker }      from "./SymbolPicker";
 export function TopBar({ symbol, symbols, onSymbolChange, interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, measureMode, onMeasureModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
-  const fmtI  = p => `$${d3.format(",.0f")(p)}`;
+  // ⚠ 자릿수는 호가 단위가 정한다 — `,.0f` 고정이면 DOGE(0.2)의 현재가가 `$0`이 된다
+  const tick  = useStore(s => s.symbolFilters.tick);
+  const fmtI  = p => fmtPriceUsd(p, tick);
   const price   = liveClose ?? last?.c ?? 0;
   const isGreen = last ? price >= last.o : true;
 

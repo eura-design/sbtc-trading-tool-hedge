@@ -154,7 +154,7 @@ export const createSettingsSlice = (set, get) => ({
   //   paperActions)에도 있어서, 훅 반환값을 props로 흘리면 그 두 곳에 닿지 않는다.
   // ⚠ 처음 값은 BTCUSDT 것이다 — 못 받았을 때 화면이 멈추는 것보다 낫지만,
   //   다른 코인에서 이 값이 그대로면 수량이 틀린다. 그래서 선택기가 목록을 못 받으면 죽는다
-  symbolFilters: { step: QTY_STEP, minQty: MIN_QTY, tick: 0.1, base: "BTC" },
+  symbolFilters: { step: QTY_STEP, minQty: MIN_QTY, tick: 0.1, base: "BTC", onboardMs: null },
   indicators: (() => {
     try { return JSON.parse(lsGet("indicators") || "{}"); }
     catch { return {}; }

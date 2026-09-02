@@ -2,6 +2,9 @@ import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
 import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, CardWrapper, CancelAllButton } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
+import { floorQty, qtyLabel } from "../../utils/qty";
+import { fmtPrice } from "../../utils/price";
+import { useStore } from "../../store";
 
 /**
  * 분할 TP — 수량을 지정한 청산 방향 지정가.
@@ -18,6 +21,8 @@ import { iconBtn } from "../sidebarBtn";
  */
 export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) {
   const { theme } = useTheme();
+  // 수량 자릿수·코인 이름·호가 단위는 심볼마다 다르다 (SOL 0.01 / DOGE 1)
+  const { step: qStep, base: qBase, tick: qTick } = useStore(s => s.symbolFilters);
   const isLong = side === "LONG";
   const [pct, setPct]     = usePersistedNum("splitTpPct", 50);
   const [count, setCount] = usePersistedNum("splitTpCount", 3);
@@ -38,8 +43,8 @@ export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) 
   //   여기만 잔여 기준으로 저장하면 같은 화면에서 뜻이 둘이 된다
   //   → 그 환산은 이제 `placeSplitOrders`가 **주문 하나하나마다** 한다
   //     (분할이면 조각마다 비율이 다르므로 카드에서 미리 하나로 낼 수 없다)
-  const floor3 = (v) => Math.floor(v * 1000) / 1000;
-  const addQty = Math.min(parseFloat((remaining * pct / 100).toFixed(3)), floor3(remaining));
+  // ⚠ 내림 폭은 **심볼의 수량 단위**다. 0.001 고정이면 DOGE(단위 1)에서 소수가 남는다
+  const addQty = Math.min(floorQty(remaining * pct / 100, qStep), floorQty(remaining, qStep));
 
   // ⚠ 훅은 early return **앞**이어야 한다 (React 규칙). 포지션이 사라지는 순간에도
   //   훅 개수가 같아야 하고, 그때 useChartPick의 정리 이펙트가 차트에 남은 주문 모드를 끈다
@@ -56,7 +61,7 @@ export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) 
           alignItems: "center", padding: "5px 8px", marginBottom: "4px",
           borderRadius: "4px", background: `${color}18`, border: `1px solid ${color}44` }}>
           <span style={{ fontSize: "11px", color }}>
-            ${o.price?.toLocaleString()} · {o.qty.toFixed(3)} BTC{o.pct ? ` (${o.pct}%)` : ""}
+            ${fmtPrice(o.price, qTick)} · {qtyLabel(o.qty, qStep, qBase)}{o.pct ? ` (${o.pct}%)` : ""}
           </span>
           <button onClick={() => onCancelSplitTp(o.orderId)}
             style={iconBtn(PALETTE.short, "12px")}>✕</button>
@@ -70,7 +75,7 @@ export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) 
           {allocQty > posData.size + 0.0001 && (
             <div style={{ fontSize: "10px", color: PALETTE.short, marginBottom: "4px",
               padding: "4px 6px", background: `${PALETTE.short}18`, borderRadius: "3px" }}>
-              ⚠ 분할 TP 합계 {allocQty.toFixed(3)} BTC &gt; 포지션 {posData.size} BTC
+              ⚠ 분할 TP 합계 {qtyLabel(allocQty, qStep, qBase)} &gt; 포지션 {qtyLabel(posData.size, qStep, qBase)}
               — 부분 청산 후 초과분은 바이낸스에서 자동 취소됩니다
             </div>
           )}
@@ -82,7 +87,7 @@ export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) 
           {remaining > 0.0001 && allocQty > 0.0001 && (
             <div style={{ fontSize: "10px", color: theme.textFaint, marginBottom: "4px",
               padding: "2px 2px" }}>
-              잔여 {remaining.toFixed(3)} BTC
+              잔여 {qtyLabel(remaining, qStep, qBase)}
             </div>
           )}
         </div>
@@ -98,7 +103,7 @@ export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) 
         <>
           <PercentSlider
             pct={pct} onChange={setPct} color={color}
-            label="수량" secondaryText={`${pct}% (${addQty} BTC)`}
+            label="수량" secondaryText={`${pct}% (${qtyLabel(addQty, qStep, qBase)})`}
           />
           <CountSlider count={count} onChange={setCount} qty={addQty} color={color} />
         </>

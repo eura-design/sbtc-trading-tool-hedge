@@ -2,7 +2,7 @@ import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
 import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, CardWrapper, CancelAllButton } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
-import { qtyLabel } from "../../utils/qty";
+import { floorQty, qtyLabel } from "../../utils/qty";
 import { useStore } from "../../store";
 
 /**
@@ -42,8 +42,9 @@ export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }
   const remaining  = Math.max(0, (posData?.size ?? 0) - allocQty);
 
   // 슬라이더는 **잔여 대비 %** — 분할 TP와 같은 규칙이다. 끝까지 밀면 "남은 것 전부"
-  const floor3 = (v) => Math.floor(v * 1000) / 1000;
-  const addQty = Math.min(parseFloat((remaining * pct / 100).toFixed(3)), floor3(remaining));
+  // ⚠ 내림 폭은 **심볼의 수량 단위**다 (분할 TP 카드와 같은 규칙).
+  //   0.001 고정이면 DOGE(단위 1)에서 소수가 남아 거래소가 거절한다
+  const addQty = Math.min(floorQty(remaining * pct / 100, qStep), floorQty(remaining, qStep));
 
   const pick = useChartPick({ kind: "partial_sl", side, count, qty: addQty });
 
@@ -77,7 +78,7 @@ export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }
              비활성이 된다. ※ 분할 TP 카드에는 같은 안내가 아직 남아 있다 */}
       <PercentSlider
         pct={pct} onChange={setPct} color={color}
-        label="수량" secondaryText={`${pct}% (${addQty} BTC)`}
+        label="수량" secondaryText={`${pct}% (${qtyLabel(addQty, qStep, qBase)})`}
       />
       <CountSlider count={count} onChange={setCount} qty={addQty} color={color} />
 

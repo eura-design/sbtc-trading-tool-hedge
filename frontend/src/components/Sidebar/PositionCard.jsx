@@ -7,6 +7,7 @@ import { SplitTPCard } from "./SplitTPCard";
 import { SplitSLCard } from "./SplitSLCard";
 import { unrealizedFor } from "../../utils/equity";
 import { fmtQty, floorQty, qtyLabel } from "../../utils/qty";
+import { fmtPriceUsd } from "../../utils/price";
 import { useStore } from "../../store";
 import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow } from "../sidebarBtn";
 import { lsGet, lsSet } from "../../utils/storage";
@@ -50,7 +51,7 @@ export function PositionCard({
 }) {
   const { theme } = useTheme();
   // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1)
-  const { step: qStep, base: qBase } = useStore(s => s.symbolFilters);
+  const { step: qStep, base: qBase, tick: qTick } = useStore(s => s.symbolFilters);
   const [closePct, setClosePct] = useState(() => Number(lsGet("closePct")) || 100);
   const handleClosePct = v => { setClosePct(v); lsSet("closePct", v); };
   const [confirming, setConfirming] = useState(false);
@@ -78,6 +79,10 @@ export function PositionCard({
   //   d3 포맷은 부호를 숫자 앞에 붙이므로 `$` + `-1,202.59`가 되어 달러 기호와 마이너스가
   //   뒤집힌다. 부호를 밖으로 빼고 절댓값을 넣는다 (ReplayStatsCard·StatsCard와 같은 방식).
   //   ※ 부르는 쪽이 양수에 `+`를 덧붙인다 — 여기서 `+`까지 붙이면 `++$x`가 된다
+  // ⚠ **가격과 돈을 나눈다** (2026-09-02). 둘 다 `,.0f`였는데, 가격은 코인마다
+  //   자릿수가 달라야 하고(DOGE 0.2가 `$0`이 됐다) 돈(USDT)은 정수로 보는 게 맞다.
+  //   `fmtMoney`를 가격에 쓰지 말 것 — 그게 원래 버그였다
+  const fmtP    = p => fmtPriceUsd(p, qTick);
   const fmtI = p => `${p < 0 ? "-" : ""}$${d3.format(",.0f")(Math.abs(p))}`;
   const fmt  = p => `${p < 0 ? "-" : ""}$${d3.format(",.2f")(Math.abs(p))}`;
 
@@ -121,7 +126,7 @@ export function PositionCard({
       {expanded && <>
       {/* 포지션 정보 rows */}
       {[
-        ["청산가",     posData.liquidationPrice ? fmtI(posData.liquidationPrice) : "—",                     "#ff4444"],
+        ["청산가",     posData.liquidationPrice ? fmtP(posData.liquidationPrice) : "—",                     "#ff4444"],
         ["손익비 R:R", rrVal ? `1 : ${rrVal}` : "—",                                                        "#a78bfa"],
         ["수량",       qtyLabel(posData.size, qStep, qBase),                                                 "#94a3b8"],
         ["포지션 USD", fmtI(posData.size * posData.entryPrice),                                              "#94a3b8"],
