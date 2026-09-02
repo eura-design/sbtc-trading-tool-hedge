@@ -117,10 +117,20 @@ app.use("/api/log",              require("./routes/log"));
 app.use("/api/backup", require("./routes/backup"));
 
 // ── 서버 시작 ─────────────────────────────────────────────────────────────────
-const server = app.listen(PORT, async () => {
+// ⚠ **127.0.0.1에만 붙인다 — 두 번째 인자를 지우지 말 것** (2026-09-02).
+//   빼면 Node가 0.0.0.0(모든 인터페이스)에 붙는다. 그러면 같은 공유기에 있는 누구든
+//   `curl -X POST http://<이PC>:3002/api/order`로 **실제 주문을 낼 수 있다.**
+//   위 CORS는 이걸 막지 못한다 — origin 헤더는 브라우저만 보낸다.
+//   이 서버에는 로그인도 토큰도 없고, 남은 방어선은 일일 손실 한도뿐이다.
+//
+//   프론트엔드도 `API_BASE = "http://localhost:3002"` 하나만 부르므로 잃는 것이 없다.
+//   ⚠ 나중에 휴대폰 같은 다른 기기에서 열고 싶어지면, 여기를 여는 게 아니라
+//     **인증을 먼저** 붙일 것 (SSH 터널이나 리버스 프록시가 더 쉽다)
+const HOST = "127.0.0.1";
+const server = app.listen(PORT, HOST, async () => {
   push.init(server); // WebSocket push 서버 초기화
   const hasKey = !!(process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET);
-  logStore.log("SERVER_LISTENING", { port: PORT, url: `http://localhost:${PORT}`, apiKey: hasKey });
+  logStore.log("SERVER_LISTENING", { port: PORT, host: HOST, url: `http://localhost:${PORT}`, apiKey: hasKey });
   if (!hasKey) {
     logStore.log("API_KEY_MISSING", { level: "warn" });
   } else {
