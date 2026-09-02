@@ -3,6 +3,7 @@ const { binance, cancelOrder, placeTPSL, checkExistingTPSL, cancelPresetTPSL } =
 const { isStopOrder, isFullClose, coversPosition, orderQtyOf, triggerPriceOf,
   isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES } = require("../utils/orderKind");
 const store          = require("../store/pendingOrders");
+const symbolInfo     = require("./symbolInfo");
 const push           = require("./pushService");
 const { log, errOf } = require("../store/logStore");
 const statsCache     = require("./statsCache");
@@ -62,11 +63,24 @@ const NAKED_RECHECK_MS = 5000;
 //   였는데, 부분 손절(수량 지정)이 생기면 **틀린 말이 된다** — 실측(2026-08-24 경보 테스트):
 //   포지션 0.173 중 0.172(99.4%)에 손절이 걸려 있는데도 `SL이 없습니다`라고 떴다.
 //   수량까지 적어야 "얼마가 비어 있는지"가 화면에서 바로 읽힌다
-const fmtQty = q => Number(q).toFixed(3);
-const nakedMsg = (side, partialQty = 0, posAmt = null) =>
+// ⚠ **수량 자릿수는 심볼마다 다르다** (2026-09-02) — DOGE의 최소 단위는 1이라
+//   `toFixed(3)`이면 `123.000`으로 뜬다. 규칙을 모르면 3자리로 떨어진다 —
+//   심볼 규칙을 못 받았다는 이유로 경보 문구가 안 뜨는 일은 없어야 한다
+function fmtQty(q, symbol) {
+  try { return symbolInfo.roundQty(q, symbol); }
+  catch { return Number(q).toFixed(3); }
+}
+// ⚠ **문구에 심볼이 들어간다** (2026-09-02). 문구가 곧 배너의 키라서
+//   (pushService.pushAlertClear 주석), 심볼이 없으면 ETH 경보를 거두는 순간
+//   BTC 경보까지 같이 사라진다
+const nakedMsg = (symbol, side, partialQty = 0, posAmt = null) =>
   partialQty > 0 && posAmt
-    ? `⚠ ${side} 손절이 포지션의 일부만 덮습니다 (${fmtQty(partialQty)} / ${fmtQty(posAmt)})`
-    : `⚠ ${side} 포지션에 SL이 없습니다`;
+    ? `⚠ ${symbol} ${side} 손절이 포지션의 일부만 덮습니다 (${fmtQty(partialQty, symbol)} / ${fmtQty(posAmt, symbol)})`
+    : `⚠ ${symbol} ${side} 포지션에 SL이 없습니다`;
+
+// 무방비 상태를 세는 키 — **심볼마다 따로**여야 한다.
+// side만으로 세면 BTC가 덮이는 순간 ETH의 카운트까지 지워진다
+const nakedKey = (symbol, side) => `${symbol}|${side}`;
 
 // 경보 해소 — 래치를 풀고, 이미 띄운 배너가 있으면 거둔다
 // (안 거두면 20ms 만에 해결된 경보가 몇 시간씩 화면에 남는다 — 그게 08-22 신고였다)
@@ -85,14 +99,15 @@ const nakedMsg = (side, partialQty = 0, posAmt = null) =>
 // ⚠ **없어진 원인은 적지 않는다** (2026-08-24 사용자 확정). 이 환경에서는 계정 스트림이
 //   이벤트를 한 건도 안 보내서(health의 `uds.events: 0`) 누가 취소했는지 알 근거가 없다.
 //   바이낸스 앱에서 지운 것과 우리 화면에서 지운 것을 구분할 수 없으므로 **관측한 사실만** 적는다
-function resolveNaked(side, reason = "sl", detail = {}) {
-  const warned = nakedWarned.get(side);
+function resolveNaked(symbol, side, reason = "sl", detail = {}) {
+  const key    = nakedKey(symbol, side);
+  const warned = nakedWarned.get(key);
   if (!warned) return;
-  nakedWarned.delete(side);
+  nakedWarned.delete(key);
   push.pushAlertClear(warned.msg);
 
   const seconds = Math.max(0, Math.round((Date.now() - warned.at) / 1000));
-  log("NAKED_RESOLVED", { posSide: side, reason, seconds, price: detail.price ?? null });
+  log("NAKED_RESOLVED", { symbol, posSide: side, reason, seconds, price: detail.price ?? null });
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -511,18 +526,24 @@ async function runReconcile() {
     // 무방비 포지션은 아무도 알려주지 않았다 (실제로 1.6시간 방치된 적이 있다).
     // 여기선 등록을 대신 해주지 않는다 — store에 tp/sl이 없으면 가격을 지어내는 셈이라
     // 위 retryable 경로가 못 고친 건 사람이 판단해야 한다. 알리기만 한다.
+    // ⚠ **reconcile은 아직 기본 심볼만 본다** (2026-09-02). 3초짜리 watchAccount가
+    //   계정 전체를 보므로 다른 심볼의 무방비는 그쪽이 잡는다. 여기는 store에 있는
+    //   우리 주문의 TP/SL 재등록이 본업이고, 그건 아직 심볼별이 아니다 (2b-2에서 한다).
+    //   ⚠ 경보 키를 watchAccount와 **같은 형태**로 맞춰야 한다 — 어긋나면 한쪽이 띄운
+    //     배너를 다른 쪽이 못 거둔다
+    const RSYM = symbolInfo.DEFAULT_SYMBOL;
     for (const side of ["LONG", "SHORT"]) {
       const open = side === "LONG" ? hasLong : hasShort;
-      if (!open) { resolveNaked(side, "closed"); continue; }
+      if (!open) { resolveNaked(RSYM, side, "closed"); continue; }
       const first = await checkExistingTPSL(side);
-      if (first.hasSL) { resolveNaked(side, "sl", { price: first.slPrice }); continue; }
+      if (first.hasSL) { resolveNaked(RSYM, side, "sl", { price: first.slPrice }); continue; }
       // 위 retryable이 이번 사이클에 고칠 예정이면 중복 경보를 내지 않는다
       const willRetry = retryable.some(([, o]) => closeToPosition(o.closeSide) === side);
       // ⚠ **3초 감시가 이 사이드를 이미 세고 있으면 양보한다** (2026-08-24).
       //   안 그러면 유예(15초)를 두는 의미가 없다 — 이 60초 점검이 도중에 끼어들어
       //   자기 규칙(5초 재확인)대로 먼저 배너를 띄운다.
       //   감시가 죽어 있으면 `nakedStrikes`가 안 늘어나므로 여기가 예전처럼 맡는다
-      if (willRetry || nakedWarned.has(side) || nakedStrikes.has(side)) continue;
+      if (willRetry || nakedWarned.has(nakedKey(RSYM, side)) || nakedStrikes.has(nakedKey(RSYM, side))) continue;
 
       // ── 재확인 (NAKED_RECHECK_MS 주석 참고) ────────────────────────────
       //   5초 뒤 **포지션과 SL을 같이** 다시 본다. 포지션까지 보는 이유는 그새 청산될
@@ -532,10 +553,10 @@ async function runReconcile() {
         checkExistingTPSL(side),
         binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }).catch(() => null),
       ]);
-      if (second.hasSL) { resolveNaked(side, "sl", { price: second.slPrice }); continue; }
+      if (second.hasSL) { resolveNaked(RSYM, side, "sl", { price: second.slPrice }); continue; }
       if (posRes) {
         const amt = parseFloat(posRes.data.find(p => p.positionSide === side)?.positionAmt ?? 0);
-        if (amt === 0) { resolveNaked(side, "closed"); continue; }   // 그새 닫혔다
+        if (amt === 0) { resolveNaked(RSYM, side, "closed"); continue; }   // 그새 닫혔다
       }
       // ⚠ **"없다"와 "못 물어봤다"를 구분한다** — 조회가 실패했으면 침묵하고 다음
       //   사이클(60초)에 다시 본다. 통신이 한 번 튄 것을 SL 사고로 알리면 안 된다
@@ -545,8 +566,8 @@ async function runReconcile() {
         continue;
       }
 
-      const msg = nakedMsg(side, second.slPartialQty, second.posAmt);
-      nakedWarned.set(side, { msg, at: Date.now() });
+      const msg = nakedMsg(RSYM, side, second.slPartialQty, second.posAmt);
+      nakedWarned.set(nakedKey(RSYM, side), { msg, at: Date.now() });
       log("NAKED_POSITION", { level: "error", posSide: side, detectedBy: "reconcile",
         slPartialQty: second.slPartialQty ?? 0, posAmt: second.posAmt ?? null });
       push.pushAlert("critical", msg);
@@ -647,19 +668,23 @@ async function runReconcile() {
 const ACCOUNT_WATCH_MS = 3000;
 let accountWatchTimer  = null;
 let lastAccountSig     = null;
-let lastSides          = null;   // { long, short } — 직전 관측. 포지션 사라짐 감지용
+let lastSides          = null;   // Map<symbol, { long, short }> — 직전 관측. 포지션 사라짐 감지용
 const acct = { polls: 0, changes: 0, lastChangeAt: null };
 
-function accountSignature(positions, orders, algos) {
-  const p = positions.filter(x => parseFloat(x.positionAmt) !== 0)
-    .map(x => x.positionSide + ":" + x.positionAmt + ":" + x.entryPrice).sort().join("|");
-  const o = orders
-    .map(x => x.orderId + ":" + x.type + ":" + x.price + ":" + x.stopPrice + ":" + x.origQty + ":" + x.executedQty + ":" + x.status)
-    .sort().join("|");
-  const a = algos
-    .map(x => x.algoId + ":" + x.orderType + ":" + x.triggerPrice + ":" + x.quantity + ":" + x.algoStatus)
-    .sort().join("|");
-  return p + " # " + o + " # " + a;
+// ⚠ **심볼이 들어간다** (2026-09-02). 안 넣으면 ETH에서 사라진 주문과 BTC에 생긴
+//   주문이 상쇄돼 "변화 없음"으로 읽힐 수 있다
+function accountSignature(groups) {
+  return groups.map(g => {
+    const p = g.positions.filter(x => parseFloat(x.positionAmt) !== 0)
+      .map(x => x.positionSide + ":" + x.positionAmt + ":" + x.entryPrice).sort().join("|");
+    const o = g.orders
+      .map(x => x.orderId + ":" + x.type + ":" + x.price + ":" + x.stopPrice + ":" + x.origQty + ":" + x.executedQty + ":" + x.status)
+      .sort().join("|");
+    const a = g.algos
+      .map(x => x.algoId + ":" + x.orderType + ":" + x.triggerPrice + ":" + x.quantity + ":" + x.algoStatus)
+      .sort().join("|");
+    return g.symbol + " > " + p + " # " + o + " # " + a;
+  }).sort().join("  ||  ");
 }
 
 // 계좌 스냅샷 한 줄 — 첫 관측(`boot`)과 변화 감지(`change`) 두 곳에서 쓴다.
@@ -669,18 +694,25 @@ function accountSignature(positions, orders, algos) {
 // ⚠ 원본 응답을 통째로 넣지 말 것 — 한 줄이 수 KB가 되어 읽을 수 없다. 요약만
 function logAccountState(posData, ordData, algos, ctx) {
   try {
+    // ⚠ **심볼을 넣는다** (2026-09-02) — 계정 전체를 보게 되면서 한 줄에 여러 심볼이
+    //   섞여 들어온다. 없으면 어느 코인의 포지션인지 나중에 알 길이 없다
+    // ⚠ `lev`는 더 이상 여기 없다: v3 positionRisk가 `leverage`를 안 준다.
+    //   대신 `notional`을 남긴다(있으면) — 상태 재구성에는 그쪽이 오히려 쓸모 있다.
+    //   레버리지가 필요하면 `/api/position`(v2, 심볼 지정)이 준다
     const positions = posData
       .filter(p => parseFloat(p.positionAmt) !== 0)
-      .map(p => ({ posSide: p.positionSide, qty: Math.abs(parseFloat(p.positionAmt)),
-                   entry: parseFloat(p.entryPrice), lev: parseInt(p.leverage) || null,
+      .map(p => ({ symbol: p.symbol, posSide: p.positionSide,
+                   qty: Math.abs(parseFloat(p.positionAmt)),
+                   entry: parseFloat(p.entryPrice),
+                   notional: parseFloat(p.notional) || null,
                    liq: parseFloat(p.liquidationPrice) || null }));
     const orders = ordData.map(o => ({
-      orderId: String(o.orderId), type: o.type, orderSide: o.side,
+      symbol: o.symbol, orderId: String(o.orderId), type: o.type, orderSide: o.side,
       posSide: o.positionSide, price: parseFloat(o.price) || null,
       stop: parseFloat(o.stopPrice) || null, qty: parseFloat(o.origQty) || null,
     }));
     const algoSummary = algos.map(o => ({
-      orderId: String(o.algoId), type: o.orderType, orderSide: o.side,
+      symbol: o.symbol, orderId: String(o.algoId), type: o.orderType, orderSide: o.side,
       posSide: o.positionSide, stop: parseFloat(o.triggerPrice) || null,
       qty: parseFloat(o.quantity) || null,
     }));
@@ -688,35 +720,82 @@ function logAccountState(posData, ordData, algos, ctx) {
   } catch { /* 스냅샷 실패가 감시를 멈추면 안 된다 */ }
 }
 
+// 지금 지켜봐야 할 심볼들 — 포지션이 있는 곳 ∪ 우리가 주문을 걸어 둔 곳 ∪ 기본 심볼.
+//
+// ⚠ **openOrders를 심볼 없이 부르지 말 것.** 실측(2026-09-02): 심볼을 주면 가중치 1,
+//   안 주면 **40**이다(openAlgoOrders도 같다). 3초 간격이면 폴당 85 → 분당 1700으로
+//   한도(2400)의 71%를 혼자 먹는다. 실제로 1407(59%)까지 간 날이 있었다.
+//   포지션 목록에서 심볼을 먼저 좁히고 **그 심볼들만** 물어보면 폴당 5+2N이다
+//   (심볼 1개 = 7 — 이 방식으로 바꾸기 전과 같다).
+function watchedSymbols(positions) {
+  const out = new Set([symbolInfo.DEFAULT_SYMBOL]);
+  for (const p of positions) {
+    if (parseFloat(p.positionAmt) !== 0) out.add(p.symbol);
+  }
+  // 아직 포지션이 없는 심볼도 봐야 우리 지정가의 체결을 잡는다.
+  // (store에 symbol이 없는 낡은 기록은 기본 심볼로 읽는다 — 2b-2 전까지는 전부 그렇다)
+  for (const [, info] of store.entries()) out.add(info.symbol ?? symbolInfo.DEFAULT_SYMBOL);
+
+  // ⚠ **경보가 걸려 있는 심볼은 포지션이 사라져도 한 번 더 본다.**
+  //   v3 positionRisk는 **열린 포지션만** 주므로, 청산되는 순간 그 심볼이 목록에서
+  //   통째로 빠진다 → checkNakedFast가 안 불리고 → **배너가 영영 안 걷힌다.**
+  //   여기 넣어 두면 다음 회차에 포지션 0으로 판정돼 `resolveNaked(..., "closed")`가
+  //   돌고, 그러면 스스로 목록에서 빠진다
+  for (const k of nakedWarned.keys())  out.add(k.split("|")[0]);
+  for (const k of nakedStrikes.keys()) out.add(k.split("|")[0]);
+  return out;
+}
+
 async function watchAccount() {
   acct.polls++;
   try {
-    const [posR, ordR, algoR] = await Promise.allSettled([
-      binance("GET", "/fapi/v2/positionRisk",   { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
-    ]);
-    // ⚠ 하나라도 실패하면 **비교하지 않는다** — 빈 값을 "사라졌다"로 오해하면
-    //   통신이 튈 때마다 가짜 변화가 잡혀 화면이 계속 갱신된다
-    if (posR.status !== "fulfilled" || ordR.status !== "fulfilled" || algoR.status !== "fulfilled") return;
-    const algoRaw = algoR.value.data;
-    const algos = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
-    const sig = accountSignature(posR.value.data, ordR.value.data, algos);
-    const hasLong  = posR.value.data.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0);
-    const hasShort = posR.value.data.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0);
+    // ⚠ **v3다.** v2(`/fapi/v2/positionRisk`)는 심볼을 안 주면 **1784행 682KB**를 준다 —
+    //   3초마다면 하루 19GB다. v3는 **열린 포지션만** 주고(0.6KB) 가중치는 똑같이 5다.
+    //   ⚠ 대신 v3에는 `leverage`가 없다. 화면이 쓰는 레버리지는 `/api/position`이
+    //     심볼을 지정해 v2로 받는다 — 그쪽은 한 행이라 가볍다.
+    //     `notional/initialMargin`으로 역산하지 말 것: 실측에서 실제 5인데 3.55가 나왔다
+    const posAll = await binance("GET", "/fapi/v3/positionRisk", {}).catch(() => null);
+    if (!posAll) { log("ACCOUNT_WATCH_FAILED", { level: "warn", what: "positionRisk" }); return; }
+    const allPositions = Array.isArray(posAll.data) ? posAll.data : [];
 
-    // ⚠ **sig 비교보다 먼저 부른다.** 변화가 없는 회차에도 봐야 "연속 2회"가 성립하고,
-    //   첫 관측(기준선만 잡고 return)에서도 판정은 해야 한다 — 서버를 켰을 때 이미
-    //   무방비인 상태가 가장 위험하다
-    checkNakedFast(posR.value.data, ordR.value.data, algos);
+    const symbols = [...watchedSymbols(allPositions)];
+    const perSymbol = await Promise.all(symbols.map(async (sym) => {
+      const [o, a] = await Promise.allSettled([
+        binance("GET", "/fapi/v1/openOrders",     { symbol: sym }),
+        binance("GET", "/fapi/v1/openAlgoOrders", { symbol: sym }),
+      ]);
+      if (o.status !== "fulfilled" || a.status !== "fulfilled") return null;
+      const raw = a.value.data;
+      return { symbol: sym, positions: allPositions.filter(p => p.symbol === sym),
+               orders: o.value.data,
+               algos: Array.isArray(raw) ? raw : (raw.algoOrders || []) };
+    }));
+    // ⚠ 하나라도 실패하면 **이번 회차를 통째로 건너뛴다** — 빈 값을 "사라졌다"로
+    //   오해하면 통신이 튈 때마다 가짜 변화가 잡히고, 무방비 판정까지 흔들린다
+    if (perSymbol.some(x => x === null)) return;
+
+    // ⚠ 무방비 판정은 **지문 비교보다 먼저, 심볼마다** 부른다. 변화가 없는 회차에도
+    //   봐야 "연속 2회"가 성립하고, 첫 관측에서도 판정은 해야 한다 —
+    //   서버를 켰을 때 이미 무방비인 상태가 가장 위험하다
+    for (const g of perSymbol) checkNakedFast(g.symbol, g.positions, g.orders, g.algos);
+
+    // 로그 한 줄로 남길 때는 심볼 구분 없이 펼친다 (각 항목이 symbol을 들고 있다)
+    const allOrders = perSymbol.flatMap(g => g.orders);
+    const allAlgos  = perSymbol.flatMap(g => g.algos);
+    const sig       = accountSignature(perSymbol);
+    // 심볼별 { long, short } — 사라짐 감지는 **심볼마다** 해야 한다
+    const sides = new Map(perSymbol.map(g => [g.symbol, {
+      long:  g.positions.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0),
+      short: g.positions.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0),
+    }]));
 
     if (lastAccountSig === null) {
-      lastAccountSig = sig; lastSides = { long: hasLong, short: hasShort };
+      lastAccountSig = sig; lastSides = sides;
       // ⚠ **첫 관측에서도 스냅샷을 남긴다** (2026-08-25). 예전엔 기준선만 잡고 그냥
       //   빠져나가서, **서버를 켠 시점의 계좌가 기록되지 않았다** — 첫 변화가 일어나기
       //   전까지의 구간이 통째로 비어 "언제부터 이랬나"를 짚을 수 없었다.
       //   그 구간이 특히 중요하다: 서버가 꺼져 있던 사이에 벌어진 일의 결과가 여기 있다
-      logAccountState(posR.value.data, ordR.value.data, algos, "boot");
+      logAccountState(allPositions, allOrders, allAlgos, "boot");
       return;
     }
     if (sig === lastAccountSig) return;
@@ -731,7 +810,7 @@ async function watchAccount() {
     //   남기면 거의 공짜로 "그 시점의 계좌"가 기록된다
     // ⚠ 원본 응답을 통째로 넣지 말 것 — 한 줄이 수 KB가 되어 읽을 수 없다.
     //   포지션·주문 **요약**만 넣는다 (자족적이되 짧게)
-    logAccountState(posR.value.data, ordR.value.data, algos, "change");
+    logAccountState(allPositions, allOrders, allAlgos, "change");
     push.pushUpdate(["position", "balance", "tpsl"]);
     // 우리 주문이 체결됐을 수도 있다 — TP/SL 등록 경로를 바로 태운다
     // (UDS가 죽어 있으면 이게 아니면 reconcile 60초까지 기다린다)
@@ -749,9 +828,17 @@ async function watchAccount() {
     //
     // ⚠ 60초 타이머는 **그대로 둔다.** 이건 빠르게 하는 장치지 대체재가 아니다 —
     //   조회가 실패해 lastSides를 못 갱신한 사이에 닫히면 이 경로가 놓친다
-    if (lastSides && ((lastSides.long && !hasLong) || (lastSides.short && !hasShort))) {
-      const gone = [lastSides.long && !hasLong && "LONG", lastSides.short && !hasShort && "SHORT"].filter(Boolean).join("+");
-      log("POSITION_GONE", { posSide: gone, action: "reconcile 즉시 실행" });
+    const goneBySymbol = [];
+    for (const [sym, now] of sides) {
+      const was = lastSides?.get(sym);
+      if (!was) continue;
+      const gone = [was.long && !now.long && "LONG", was.short && !now.short && "SHORT"].filter(Boolean).join("+");
+      if (gone) goneBySymbol.push({ symbol: sym, gone });
+    }
+    if (goneBySymbol.length) {
+      for (const g of goneBySymbol) {
+        log("POSITION_GONE", { symbol: g.symbol, posSide: g.gone, action: "reconcile 즉시 실행" });
+      }
       reconcileWithBinance().catch(e => log("RECONCILE_FAILED", { level: "warn", ctx: "positionGone", err: errOf(e) }));
       // 손익을 **바로** 로그에 남긴다 — 안 그러면 10분 주기까지 기다린다.
       // 거래소가 정산할 시간을 조금 준다 (밖에서 낸 청산도 여기서 잡힌다)
@@ -759,7 +846,7 @@ async function watchAccount() {
         require("./incomeLogger").pollIncome().catch(() => {});
       }, 3000);
     }
-    lastSides = { long: hasLong, short: hasShort };
+    lastSides = sides;
   } catch (e) {
     log("ACCOUNT_WATCH_FAILED", { level: "warn", err: errOf(e) });
   }
@@ -808,12 +895,15 @@ function sidesPlacingTpsl() {
   return out;
 }
 
-function checkNakedFast(positions, regular, algos) {
+// @param symbol    이 묶음이 어느 심볼의 것인가. **경보 키와 문구가 여기 걸린다**
+// @param positions 그 심볼의 포지션만 (watchAccount가 걸러서 넘긴다)
+function checkNakedFast(symbol, positions, regular, algos) {
   const busy = sidesPlacingTpsl();
   for (const side of ["LONG", "SHORT"]) {
     const amt = Math.abs(parseFloat(
       positions.find(x => x.positionSide === side)?.positionAmt ?? 0));
-    if (!(amt > 0)) { nakedStrikes.delete(side); resolveNaked(side, "closed"); continue; }
+    const key = nakedKey(symbol, side);
+    if (!(amt > 0)) { nakedStrikes.delete(key); resolveNaked(symbol, side, "closed"); continue; }
 
     const closeSide = side === "LONG" ? "SELL" : "BUY";
     const stops = [
@@ -823,18 +913,18 @@ function checkNakedFast(positions, regular, algos) {
 
     const covered = coversPosition(stops, amt);
     if (covered === true) {
-      nakedStrikes.delete(side);
+      nakedStrikes.delete(key);
       const full = stops.find(isFullClose);
-      resolveNaked(side, "sl", { price: full ? triggerPriceOf(full) : null });
+      resolveNaked(symbol, side, "sl", { price: full ? triggerPriceOf(full) : null });
       continue;
     }
-    if (covered === null) { nakedStrikes.delete(side); continue; }   // 판단 불가 → 침묵
+    if (covered === null) { nakedStrikes.delete(key); continue; }   // 판단 불가 → 침묵
 
-    if (busy.has(side)) { nakedStrikes.delete(side); continue; }     // 지금 거는 중이다
+    if (busy.has(side)) { nakedStrikes.delete(key); continue; }     // 지금 거는 중이다
 
     const partialQty = stops.filter(o => !isFullClose(o))
       .reduce((sum, o) => sum + orderQtyOf(o), 0);
-    const msg = nakedMsg(side, partialQty, amt);
+    const msg = nakedMsg(symbol, side, partialQty, amt);
 
     // ── 이미 알렸으면 조용히 — **단, 상태가 달라졌으면 문구를 갈아끼운다** ──────
     //
@@ -848,18 +938,18 @@ function checkNakedFast(positions, regular, algos) {
     //
     // ⚠ 문구가 **같으면 아무것도 하지 않는다** — 중복 방지는 그대로다.
     //   달라졌을 때만 옛 배너를 거두고 새로 띄운다 (프론트는 문구를 키로 지운다)
-    const warned = nakedWarned.get(side);
+    const warned = nakedWarned.get(key);
     if (warned) {
       if (warned.msg === msg) continue;
       push.pushAlertClear(warned.msg);
-      nakedWarned.set(side, { msg, at: warned.at });   // 시작 시각은 처음 그대로 둔다
-      log("NAKED_CHANGED", { level: "error", posSide: side, detectedBy: "watch",
+      nakedWarned.set(key, { msg, at: warned.at });   // 시작 시각은 처음 그대로 둔다
+      log("NAKED_CHANGED", { level: "error", symbol, posSide: side, detectedBy: "watch",
         slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
       push.pushAlert("critical", msg);
       continue;
     }
 
-    const prev  = nakedStrikes.get(side);
+    const prev  = nakedStrikes.get(key);
     const since = prev?.since ?? Date.now();
     const n     = (prev?.n ?? 0) + 1;
     let repaired = prev?.repaired ?? false;
@@ -869,17 +959,17 @@ function checkNakedFast(positions, regular, algos) {
     //    retryable 경로다. 한 무방비 구간에 **한 번만** 부른다 — 3초마다 부르지 않는다
     if (n >= NAKED_STRIKES && !repaired) {
       repaired = true;
-      log("NAKED_REPAIR_ATTEMPT", { posSide: side, strikes: n });
+      log("NAKED_REPAIR_ATTEMPT", { symbol, posSide: side, strikes: n });
       reconcileWithBinance().catch(e => log("RECONCILE_FAILED", { level: "warn", ctx: "nakedRepair", err: errOf(e) }));
     }
-    nakedStrikes.set(side, { n, since, repaired });
+    nakedStrikes.set(key, { n, since, repaired });
 
     // ② 수리로 해결되면 이 줄에 도달하지 않는다 (덮이는 순간 위에서 continue).
     //    끝까지 안 되면 그때 알린다
     if (n < NAKED_ALARM_STRIKES) continue;
 
-    nakedWarned.set(side, { msg, at: since });   // 띄운 시각이 아니라 **처음 본 시각**
-    log("NAKED_POSITION", { level: "error", posSide: side, detectedBy: "watch",
+    nakedWarned.set(key, { msg, at: since });   // 띄운 시각이 아니라 **처음 본 시각**
+    log("NAKED_POSITION", { level: "error", symbol, posSide: side, detectedBy: "watch",
       slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
     push.pushAlert("critical", msg);
   }
