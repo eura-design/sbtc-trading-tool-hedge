@@ -4,6 +4,7 @@ const { closeToPosition } = require("../utils/side");
 const { isFullClose, isStopOrder, isTpOrder, coversPosition, orderQtyOf, triggerPriceOf,
   TPSL_TYPES, STOP_TYPES } = require("../utils/orderKind");
 const store = require("../store/pendingOrders");
+const { parseBigInt } = require("../utils/bigIntJson");
 const symbolInfo = require("./symbolInfo");
 const { log, errOf } = require("../store/logStore");
 
@@ -84,6 +85,14 @@ async function binance(method, path, params = {}) {
     const res = await axios({
       method,
       url: `${BASE}${path}`,
+      // ⚠ **응답을 우리가 파싱한다** (2026-09-02). axios 기본 `JSON.parse`는 안전 정수를
+      //   넘는 주문번호를 뭉갠다 — ETHUSDT는 19자리라 실제로 뒤 세 자리가 날아갔고,
+      //   그 번호로는 조회도 취소도 안 된다 (`Order does not exist.` 실측).
+      //   BTCUSDT는 13자리라 여태 드러나지 않았다 (utils/bigIntJson.js)
+      transformResponse: [(text) => {
+        try { return parseBigInt(text); }
+        catch { return text; }   // JSON이 아닌 응답(빈 본문 등)은 그대로 — 기존 동작
+      }],
       ...(method === "GET" ? { params: p } : { data: new URLSearchParams(p).toString() }),
       headers: {
         "X-MBX-APIKEY": process.env.BINANCE_API_KEY,

@@ -69,6 +69,7 @@ utils/
   side.js                  헷지모드 side 매핑 (sideToPosition/positionToSide/closeToPosition/positionToClose)
   orderKind.js             미체결 LIMIT 정체 판정(limitKind) + 트리거 전량/부분 판정
   round.js                 호가·수량 단위 맞추기 (순수 함수) — **가격은 반올림, 수량은 내림**
+  bigIntJson.js            큰 정수를 잃지 않는 JSON 파싱 — **주문번호가 뭉개지는 것을 막는다**
   splitTp.js               rescaleSplitTps() — 부분 청산 후 분할 TP 재계산 (순수 함수, import 없음)
 tools/
   logq.js                  로그 조회 (--since/--count/--sum/--event/--level/--day/--grep/--summary)
@@ -225,6 +226,18 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
 - 수량 단위(`stepSize`)는 `rescaleSplitTps`에도 넘긴다 — 백엔드·페이퍼 브로커 **양쪽**.
   안 넘기면 DOGE에서 0.5짜리가 최소 수량 필터를 통과한 뒤 0으로 내려가 **수량 0 주문**이 된다
 - **포지션 플래그**: `derivePositionFlags(position)` → hasLong/hasShort/hasPos/hasBoth/hasPending/drawLocked
+
+### 주문번호는 문자열일 수 있다
+바이낸스가 심볼마다 다른 번호 체계를 쓴다 — BTCUSDT는 13자리, **ETHUSDT는 19자리**다.
+19자리는 JS 안전 정수(9007199254740991)를 넘어 `JSON.parse`가 뭉갠다
+(실측 2026-09-02: `8389766268995766668` → `8389766268995766000`, 그 번호로는
+`Order does not exist.`). 그러면 취소·조회·store 키가 전부 어긋난다.
+
+- **HTTP 응답과 User Data Stream 둘 다** `utils/bigIntJson.js`로 파싱한다.
+  ⚠ 한쪽만 고치면 체결을 감지하고도 TP/SL을 못 건다
+- 안전 범위를 넘는 정수만 문자열이 된다 — **자릿수가 아니라 값으로 판정**해서
+  기존에 숫자로 오던 것(13자리 주문번호·타임스탬프·알고 id)은 그대로 숫자다
+- ⚠ 주문번호를 숫자로 비교하지 말 것. `String(orderId)`로 다룬다 (지금 코드가 그렇다)
 
 ### 주문의 정체는 바이낸스가 정한다
 미체결 LIMIT이 무엇인지는 `utils/orderKind.js`의 `limitKind()`가 **주문 방향 + 포지션 유무**로 판정한다.

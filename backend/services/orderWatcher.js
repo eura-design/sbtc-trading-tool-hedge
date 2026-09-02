@@ -4,6 +4,7 @@ const { isStopOrder, isFullClose, coversPosition, orderQtyOf, triggerPriceOf,
   isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES } = require("../utils/orderKind");
 const store          = require("../store/pendingOrders");
 const symbolInfo     = require("./symbolInfo");
+const { parseBigInt } = require("../utils/bigIntJson");
 const push           = require("./pushService");
 const { log, errOf } = require("../store/logStore");
 const statsCache     = require("./statsCache");
@@ -1012,7 +1013,10 @@ function connectUserDataStream(listenKey) {
 
   userDataWS.on("message", async (raw) => {
     try {
-      const msg = JSON.parse(raw);
+      // ⚠ **`JSON.parse`가 아니다** (2026-09-02). 체결 이벤트의 주문번호(`o.i`)도
+      //   HTTP 응답과 같은 문제를 겪는다 — 뭉개진 번호로는 store를 못 찾아
+      //   **체결을 감지하고도 TP/SL을 못 건다** (utils/bigIntJson.js)
+      const msg = parseBigInt(raw.toString());
       uds.events++;
       uds.lastEventAt = Date.now();
       uds.lastEvent   = msg.e;
