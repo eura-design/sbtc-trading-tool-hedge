@@ -69,6 +69,8 @@ utils/
 tools/
   logq.js                  로그 조회 (--since/--count/--sum/--event/--level/--day/--grep/--summary)
   backup.js                백업 조회·되돌리기 (--list/--show/--restore-files)
+tests/                     `npm test` (node 내장 러너 — **의존성 0**)
+  splitTp / orderKind / side.test.js   돈이 걸린 순수 함수부터
 logs/  backups/  daily_summary.jsonl  income_cursor.json  pending_orders.json  .env
 ```
 
