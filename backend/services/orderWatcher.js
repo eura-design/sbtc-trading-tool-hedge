@@ -355,14 +355,45 @@ async function runReconcile() {
   if (isInitialized && !relevant.length && !hasStoreEntries && !prevHasLong && !prevHasShort) return;
 
   try {
-    const [{ data: openOrders }, { data: posData }] = await Promise.all([
-      binance("GET", "/fapi/v1/openOrders",   { symbol: RSYM }),
-      binance("GET", "/fapi/v2/positionRisk", { symbol: RSYM }),
-    ]);
-    const openIds  = new Set(openOrders.map(o => String(o.orderId)));
-    const hasLong  = posData.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0);
-    const hasShort = posData.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0);
-    const hasPos   = hasLong || hasShort;
+    // ── 심볼별 시야 (2026-09-02) ──────────────────────────────────────────
+    // 뒷정리(고아 사전 TP/SL · 남은 트리거 · 남은 추가 진입)는 **그 주문의 심볼**을
+    // 봐야 한다. 예전엔 전부 기본 심볼의 포지션으로 판정해서, ETH 포지션이 닫혀도
+    // 남은 ETH 추가 진입 주문을 아무도 치우지 않았다 — 그 자리에 가격이 닿으면
+    // **손절 없는 새 포지션이 혼자 열린다** (주의사항의 "최악").
+    //
+    // ⚠ **조회에 실패한 심볼은 시야에서 뺀다(`null`).** 빈 값을 "포지션 없음"으로
+    //   읽으면 멀쩡한 주문을 취소한다 — 통신이 한 번 튀는 것으로 주문이 사라지면 안 된다.
+    //   아래 정리 블록은 전부 `if (!v) continue`로 그 심볼을 건너뛴다.
+    // ⚠ 포지션은 v3(열린 것만)로 한 번에 받는다 — v2를 심볼 없이 부르면 682KB다
+    const posAllRes = await binance("GET", "/fapi/v3/positionRisk", {}).catch(() => null);
+    const allPositions = Array.isArray(posAllRes?.data) ? posAllRes.data : null;
+    const symbols = allPositions ? [...watchedSymbols(allPositions)] : [RSYM];
+
+    const view = new Map();
+    await Promise.all(symbols.map(async (sym) => {
+      const r = await binance("GET", "/fapi/v1/openOrders", { symbol: sym }).catch(() => null);
+      if (!r || !allPositions) return;                      // 실패 → 시야에 넣지 않는다
+      const pos = allPositions.filter(p => p.symbol === sym);
+      view.set(sym, {
+        openOrders: r.data,
+        openIds:    new Set(r.data.map(o => String(o.orderId))),
+        hasLong:    pos.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0),
+        hasShort:   pos.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0),
+      });
+    }));
+    /** 그 심볼을 이번 회차에 믿을 수 있는가. `null`이면 **손대지 않는다** */
+    const viewOf = (sym) => view.get(sym) ?? null;
+
+    // ── 아래 기존 경로는 **기본 심볼 기준** 그대로다 ──────────────────────
+    //   진입 시각 추적·POSITION_OBSERVED·무방비 경보는 화면이 보는 "지금 포지션"
+    //   개념이라 기본 심볼에 묶여 있다. 다른 심볼의 무방비는 watchAccount가 3초마다 본다
+    const base = viewOf(RSYM);
+    if (!base) { log("QUERY_FAILED", { level: "warn", what: "openOrders", ctx: "reconcile", symbol: RSYM }); return; }
+    const openOrders = base.openOrders;
+    const openIds    = base.openIds;
+    const hasLong    = base.hasLong;
+    const hasShort   = base.hasShort;
+    const hasPos     = hasLong || hasShort;
     const prevHasPos = prevHasLong || prevHasShort;
 
     // ── 포지션 오픈 → 진입 시각 기록 ──────────────────────────────────────
@@ -370,7 +401,9 @@ async function runReconcile() {
       const storeEntry = [...store.entries()].find(([, o]) =>
         o.status === "TPSL_PLACED" || o.status === "TPSL_PARTIAL" || o.status === "FILLED"
       );
-      const posUpdateTime = posData.find(p => parseFloat(p.positionAmt) !== 0)?.updateTime;
+      // 기본 심볼의 포지션에서 — 위 v3 응답은 열린 포지션만 담고 있다
+      const posUpdateTime = allPositions?.find(p => p.symbol === RSYM
+        && parseFloat(p.positionAmt) !== 0)?.updateTime;
       currentEntryFilledAt = storeEntry?.[1]?.filledAt
         || (posUpdateTime ? parseInt(posUpdateTime) : Date.now() - 24 * 60 * 60 * 1000);
       // ⚠ **서버 시작 직후와 진짜 새 진입을 구분해서 찍는다** (2026-08-23).
@@ -414,9 +447,13 @@ async function runReconcile() {
     // ⚠ **미체결 진입 주문이 살아 있으면 손대지 않는다** — 주인이 있는 정상 상태다
     for (const [orderId, info] of [...store.entries()]) {
       if (!info.presetTpsl) continue;
-      if (openIds.has(String(orderId))) continue;             // 진입 주문이 아직 살아 있다
+      // ⚠ **그 주문의 심볼**로 판정한다 (2026-09-02). 기본 심볼의 포지션을 보면
+      //   ETH 사전 TP/SL이 BTC 포지션 유무에 따라 남거나 지워진다
+      const v = viewOf(store.symbolOf(orderId));
+      if (!v) continue;                                        // 조회 실패 — 손대지 않는다
+      if (v.openIds.has(String(orderId))) continue;            // 진입 주문이 아직 살아 있다
       const posSide = closeToPosition(info.closeSide);
-      if (posSide === "LONG" ? hasLong : hasShort) continue;   // 포지션이 있으면 유효한 TP/SL이다
+      if (posSide === "LONG" ? v.hasLong : v.hasShort) continue;   // 포지션이 있으면 유효한 TP/SL이다
       log("PRESET_TPSL_ORPHANED", { level: "warn", orderId, posSide });
       await cancelPresetTPSL(info.presetTpsl, store.symbolOf(orderId))
         .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "reconcile", err: errOf(e) }));
@@ -450,7 +487,11 @@ async function runReconcile() {
     //   그래서 우리가 만든 것이 아니어도(바이낸스 앱에서 건 것이어도) 치우는 게 맞다
     //
     // ⚠ 알고 주문 조회는 **치울 사이드가 있을 때만** 한다 — 평소엔 호출이 늘지 않는다
-    const emptySides = ["LONG", "SHORT"].filter(sd => !(sd === "LONG" ? hasLong : hasShort));
+    // ⚠ **심볼마다 돈다** (2026-09-02). 예전엔 기본 심볼만 봐서, ETH 포지션이 닫힌 뒤
+    //   남은 ETH 트리거 주문(부분 손절 등)이 그대로 살아 있었다 — 나중에 그 사이드에
+    //   새 포지션이 생기면 엉뚱한 가격에 발동한다
+    for (const [SYM, v] of view) {
+    const emptySides = ["LONG", "SHORT"].filter(sd => !(sd === "LONG" ? v.hasLong : v.hasShort));
     if (emptySides.length) {
       // ⚠ **이번 사이클에 어차피 취소될 물타기 주문은 "진입 대기"로 세지 않는다**
       //   (2026-08-24). 아래 SCALE_IN 정리 블록이 이 함수 **뒤쪽**에 있어서, 그걸
@@ -461,27 +502,27 @@ async function runReconcile() {
       //    쪽보다 범위가 좁다)
       // ※ 밖에서 낸 물타기는 store에 없어 여전히 "진입 대기"로 센다 — 그건 우리가
       //   치우지 못하는 주문이라 근거 없이 손대지 않는 쪽이 맞다 (기타/주의사항.txt 1번)
-      const entrySides = new Set(openOrders
+      const entrySides = new Set(v.openOrders
         .filter(o => isLiveLimit(o) && isEntryDir(o))
         .filter(o => store.get(String(o.orderId))?.status !== "SCALE_IN")
         .map(o => o.positionSide));
       const targets = emptySides.filter(sd => !entrySides.has(sd));
       if (targets.length) {
-        const algoRaw = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: RSYM })
+        const algoRaw = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: SYM })
           .then(r => r.data)
           .catch(e => { log("QUERY_FAILED", { level: "warn", what: "algoOrders",
-            ctx: "staleTriggerSweep", err: errOf(e) }); return null; });
+            symbol: SYM, ctx: "staleTriggerSweep", err: errOf(e) }); return null; });
         if (algoRaw) {
           const algos = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
           const stale = [
-            ...openOrders.filter(o => TPSL_TYPES.includes(o.type)).map(o => ({ o, id: o.orderId, isAlgo: false })),
+            ...v.openOrders.filter(o => TPSL_TYPES.includes(o.type)).map(o => ({ o, id: o.orderId, isAlgo: false })),
             ...algos.filter(o => TPSL_TYPES.includes(o.orderType)).map(o => ({ o, id: o.algoId, isAlgo: true })),
           ].filter(({ o }) => o.positionSide && targets.includes(o.positionSide)
             && isCloseDir(o) && !isFullClose(o));
           for (const { o, id, isAlgo } of stale) {
-            log("STALE_TRIGGER_CANCELED", { level: "warn", orderId: id, posSide: o.positionSide,
+            log("STALE_TRIGGER_CANCELED", { level: "warn", symbol: SYM, orderId: id, posSide: o.positionSide,
               qty: orderQtyOf(o), price: triggerPriceOf(o) });
-            await cancelOrder({ orderId: id, algoId: id, isAlgo, symbol: o.symbol ?? RSYM })
+            await cancelOrder({ orderId: id, algoId: id, isAlgo, symbol: o.symbol ?? SYM })
               .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: id,
                 kindOf: "STALE_TRIGGER", ctx: "reconcile", err: errOf(e) }));
           }
@@ -489,17 +530,25 @@ async function runReconcile() {
         }
       }
     }
+    }   // ← 심볼 루프 끝
 
     // ── TPSL_PARTIAL / FILLED(TP/SL 미등록) → 포지션 있으면 재시도 ──────────
     const retryable = [...store.entries()].filter(
       ([, o]) => (o.status === "TPSL_PARTIAL" || o.status === "FILLED") && o.tp && o.sl
     );
     if (retryable.length > 0) {
-      if (!hasPos) {
-        // 포지션이 없으면 해당 항목은 더 이상 유효하지 않음 → 제거
-        for (const [orderId] of retryable) store.delete(orderId);
-      } else {
+      {
         for (const [orderId, info] of retryable) {
+          // ⚠ **그 주문의 심볼로 판정한다** (2026-09-02). 예전엔 기본 심볼에 포지션이
+          //   없으면 `retryable`을 **통째로 지웠다** — BTC를 닫아둔 채 ETH를 들고 있으면
+          //   ETH의 TP/SL 재등록 기록이 같이 지워져 **영영 다시 걸리지 않는다**
+          const v = viewOf(store.symbolOf(orderId));
+          if (!v) continue;                                    // 조회 실패 — 손대지 않는다
+          if (!(v.hasLong || v.hasShort)) {
+            // 그 심볼에 포지션이 없다 → 이 항목은 더 이상 유효하지 않다
+            store.delete(orderId);
+            continue;
+          }
           // 헤지 모드: 해당 포지션 방향의 TP/SL만 확인
           const orderPosSide = closeToPosition(info.closeSide);
           // TP·SL **둘 다** 있어야 완료다 — 한쪽만 보고 넘기면 빠진 쪽이 영영 재시도되지 않는다
@@ -591,13 +640,18 @@ async function runReconcile() {
     //   ("주문의 정체는 바이낸스가 정한다" 절). openOrders에 없으면 store의 `side`로
     //   떨어지고, 그것도 없으면 **옛 동작**(양쪽 다 비었을 때만)으로 남긴다 —
     //   근거가 없을 때는 취소하지 않는 쪽이 안전하다
-    const liveById = new Map(openOrders.map(o => [String(o.orderId), o]));
+    // ⚠ **그 주문의 심볼로 판정한다** (2026-09-02). 예전엔 기본 심볼의 포지션만 봐서,
+    //   ETH 포지션이 닫혀도 남은 ETH 추가 진입 주문을 아무도 치우지 않았다 —
+    //   그 자리에 가격이 닿으면 손절 없는 새 포지션이 혼자 열린다
     const scaleIns = [];
     for (const [orderId, o] of relevant) {
       if (o.status !== "SCALE_IN") continue;
-      const posSide = liveById.get(String(orderId))?.positionSide
+      const v = viewOf(store.symbolOf(orderId));
+      if (!v) continue;                                        // 조회 실패 — 손대지 않는다
+      const posSide = v.openOrders.find(x => String(x.orderId) === String(orderId))?.positionSide
         || (o.side ? sideToPosition(o.side) : null);
-      const orphan = posSide ? (posSide === "LONG" ? !hasLong : !hasShort) : !hasPos;
+      const orphan = posSide ? (posSide === "LONG" ? !v.hasLong : !v.hasShort)
+                             : !(v.hasLong || v.hasShort);
       if (orphan) scaleIns.push([orderId, posSide || "?"]);
     }
     for (const [orderId, posSide] of scaleIns) {
