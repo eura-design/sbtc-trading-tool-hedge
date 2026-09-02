@@ -69,9 +69,11 @@ export default function App() {
   // gen — 🎲로 연습 도형을 통째로 지웠을 때 증가한다. 키는 그대로라
   // 이게 없으면 지운 도형이 React 상태에 남아 다음 저장에 되살아난다
   const [drawingGen, setDrawingGen] = useState(0);
+  // ⚠ symbol이 들어간다 (2026-09-02) — 도형 저장 키가 심볼별이다.
+  //   BTC의 70,000 추세선이 ETH 차트(3,000대)에 뜨면 화면 밖으로 사라진다
   const drawingMode = useMemo(
-    () => ({ replayOn, gen: drawingGen }),
-    [replayOn, drawingGen],
+    () => ({ replayOn, gen: drawingGen, symbol }),
+    [replayOn, drawingGen, symbol],
   );
 
   const {

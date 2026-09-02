@@ -3,6 +3,7 @@ import { useDrawableStore } from "./useDrawableStore";
 import { drawingKey } from "../replay/drawingKeys";
 import { normalizeStructurePoints } from "../chart/deriveStructure";
 import { structAutoParamsOf } from "../chart/structAutoPivots";
+import { DEFAULT_SYMBOL } from "../constants";
 
 // 신규 구조 기본 투명도 — 사용자 지정값. 1.0으로 되돌리지 말 것 ([R2] 참고).
 // 지그재그는 배경처럼 깔리고 CHoCH 마크만 또렷하게 보이도록 한 설정이다.
@@ -105,8 +106,9 @@ function inheritSettings(item) {
 
 // @param mode { replayOn, gen } — replay/drawingKeys.js 참고
 export function useStructures(mode = {}) {
-  const { replayOn = false } = mode;
-  const store = useDrawableStore(drawingKey("structures", replayOn), mode.gen ?? 0);
+  const { replayOn = false, symbol = DEFAULT_SYMBOL } = mode;
+  // 심볼이 바뀌면 키가 달라져 useDrawableStore가 그 심볼의 도형을 다시 읽는다
+  const store = useDrawableStore(drawingKey("structures", replayOn, symbol), mode.gen ?? 0);
 
   const [structMode,       setStructMode]       = useState(false);
   const [structDraft,      setStructDraft]      = useState(null);   // { points: [...] } — 그리는 중

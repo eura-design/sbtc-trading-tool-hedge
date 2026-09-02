@@ -1,15 +1,17 @@
 import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
 import { drawingKey } from "../replay/drawingKeys";
+import { DEFAULT_SYMBOL } from "../constants";
 
 // @param mode { replayOn, gen } — 리플레이에서는 연습용 키를 쓴다
 //   기존 도형을 읽기 전용으로 본다 (replay/drawingKeys.js)
 export function useTrendLines(mode = {}) {
-  const { replayOn = false } = mode;
+  const { replayOn = false, symbol = DEFAULT_SYMBOL } = mode;
+  // 심볼이 바뀌면 키가 달라져 useDrawableStore가 그 심볼의 도형을 다시 읽는다
   const gen = mode.gen ?? 0;   // 🎲가 연습 도형을 지우면 증가 → 스토어가 다시 읽는다
 
   // ── 트렌드 라인 ───────────────────────────────────────────────────────────
-  const lineStore = useDrawableStore(drawingKey("trendLines", replayOn), gen);
+  const lineStore = useDrawableStore(drawingKey("trendLines", replayOn, symbol), gen);
   const [lineMode,       setLineMode]       = useState(false);
   const [lineStart,      setLineStart]      = useState(null);
   const [linePreview,    setLinePreview]    = useState(null);
@@ -37,7 +39,7 @@ export function useTrendLines(mode = {}) {
   }, [lineStore]);
 
   // ── 원 ───────────────────────────────────────────────────────────────────
-  const circleStore = useDrawableStore(drawingKey("trendCircles", replayOn), gen);
+  const circleStore = useDrawableStore(drawingKey("trendCircles", replayOn, symbol), gen);
   const [circleMode,       setCircleMode]       = useState(false);
   const [circleCenter,     setCircleCenter]     = useState(null);
   const [circlePreview,    setCirclePreview]    = useState(null);
@@ -61,7 +63,7 @@ export function useTrendLines(mode = {}) {
   }, [circleStore]);
 
   // ── 채널 ─────────────────────────────────────────────────────────────────
-  const channelStore = useDrawableStore(drawingKey("trendChannels", replayOn), gen);
+  const channelStore = useDrawableStore(drawingKey("trendChannels", replayOn, symbol), gen);
   const [channelMode,       setChannelMode]       = useState(false);
   const [channelStep,       setChannelStep]       = useState(0);
   const [channelPoints,     setChannelPoints]     = useState(null);

@@ -17,7 +17,9 @@
 // ⚠ **같은 키는 한 번만 알린다.** debounce 저장은 몇 초마다 다시 시도하므로,
 //   막아두지 않으면 로그가 같은 줄로 도배된다.
 
-import { clientLog } from "../api/clientLog";
+// ⚠ `.js` 확장자를 빼지 말 것 — node가 이 파일을 못 읽어 `tests/drawingKeys.test.js`가
+//   통째로 죽는다. Vite는 둘 다 해석하므로 화면은 그대로다 (calc.js와 같은 이유)
+import { clientLog } from "../api/clientLog.js";
 
 const warned = new Set();
 

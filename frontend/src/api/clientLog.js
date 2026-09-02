@@ -1,4 +1,4 @@
-import { API_BASE } from "../constants";
+import { API_BASE } from "../constants.js";   // node로 검산하기 위해 확장자를 붙인다
 
 /**
  * 화면에서 일어난 일을 백엔드 로그로 보낸다 (2026-08-25).

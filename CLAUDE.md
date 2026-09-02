@@ -201,6 +201,10 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
   (주문 액션이 16개라 하나만 빠뜨려도 그 경로가 다른 코인 화면에서 BTC 주문을 낸다).
   호출부가 직접 넣은 `symbol`이 이긴다
 - ⚠ 수량 자릿수를 `toFixed(3)`으로 쓰지 말 것 — `utils/qty.js`가 심볼 단위를 따른다
+- **도형·플랜 박스는 심볼별**이다. 키는 `replay/drawingKeys.js`의 `drawingKey()` 하나가 만든다.
+  심볼을 바꾸면 `setSymbol`이 플랜 박스 저장소를 갈아끼운다 (다른 도형은 키가 바뀌어 자동)
+  - 2026-09-02 이전 도형은 `migrateDrawingsToSymbol()`이 **한 번** BTCUSDT로 복사한다
+    (`main.jsx`, 옛 키는 지우지 않는다). `tests/drawingKeys.test.js`가 이 이사를 검산한다
 - 라우트는 body/query의 `symbol`을 받는다 (`symbolInfo.fromRequest`, 없으면 기본 심볼).
   **모르는 심볼은 400**이다 — 통과시키면 가격이 이미 기본 심볼 단위로 만들어진 뒤 거절된다
 - **이미 걸린 주문을 건드릴 때는 `store.symbolOf(orderId)`를 쓴다** (요청이 아니라).
@@ -343,7 +347,9 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
 - `Escape` 취소·선택 해제 / `Delete` 삭제 / `a` 알람 / `l` 잠금 / `[` `]` 투명도 ±0.1
 - 숫자키 `1`~`6`: TF 전환. 모든 단축키는 ShortcutMenu에서 커스텀 가능
 - 공통 속성: `opacity`(0.1~1.0) / `locked` / `alert`, 저장은 `useDrawableStore(key)`
-- 좌표가 timestamp라 **전 TF 공유**
+- 좌표가 timestamp라 **전 TF 공유**. 단 **심볼별로는 나뉜다** (2026-09-02) —
+  키가 `BTCUSDT:trendLines` / `replay_BTCUSDT:trendLines` 꼴이다.
+  가격은 심볼마다 완전히 달라서(BTC 70,000 / ETH 3,000 / DOGE 0.2) 섞이면 화면 밖이 된다
 - SVG 도형은 `chart/svgGeom.js`로 **뷰포트 클리핑** (화면 밖 수만 px 경로가 렉을 만든다)
 
 ### 지그재그 · 구조
@@ -413,7 +419,7 @@ Auto Structure Zigzag / Custom Structure Zigzag
 
 | 어디 | 무엇 | 백업 |
 |---|---|---|
-| 브라우저 localStorage | 도형·플랜 박스·리스크/레버리지·지표 설정·알림·단축키·테마·연습 세션 | ○ |
+| 브라우저 localStorage | 도형·플랜 박스(**심볼별**)·리스크/레버리지·지표 설정·알림·단축키·테마·연습 세션 | ○ |
 | 브라우저 IndexedDB | 리플레이 캔들 캐시 | × (다시 받으면 그만) |
 | 백엔드 파일 | `pending_orders.json` / `기타/tracker_data.json` | tracker만 ○ |
 | 백엔드 로그 | `logs/` 30일 + `daily_summary.jsonl` 무기한 | × |

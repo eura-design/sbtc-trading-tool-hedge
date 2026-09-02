@@ -1,5 +1,6 @@
 // Module-level timer: drawing localStorage 동기화 debounce
 import { lsGet, lsRemove, lsSet } from "../utils/storage";
+import { DEFAULT_SYMBOL } from "../constants";
 
 let _drawingTimer = null;
 
@@ -8,9 +9,11 @@ let _drawingTimer = null;
 // 스토어에 있어서 빠져 있었다. 그대로 두면 **실거래 박스가 지워진다**:
 // 리플레이에 들어가면 App의 drawing↔pending 동기화가 페이퍼 position(pending 없음)을
 // 보고 `setDrawing(null)`을 실행한다. 반대로 연습 중 그린 박스가 실거래로 새기도 한다.
-const LIVE_KEY = "drawing";
-const REPLAY_KEY = "replay_drawing";
-let _drawingKey = LIVE_KEY;
+// ⚠ **심볼도 키에 들어간다** (2026-09-02) — 다른 도형과 같은 규칙이다
+//   (replay/drawingKeys.js의 `drawingKey`). 플랜 박스는 진입/TP/SL **가격**을 담고 있어서
+//   심볼이 다르면 애초에 의미가 없다: BTC의 70,000 박스가 ETH 차트에 뜨면 화면 밖이다.
+const boxStorageKey = (replayOn, symbol) => (replayOn ? "replay_" : "") + symbol + ":drawing";
+let _drawingKey = boxStorageKey(false, DEFAULT_SYMBOL);
 
 // ── ⚠ 플랜 박스는 **롱·숏 각각 하나씩, 최대 두 개**다 (2026-08-19 사용자 요청) ──
 //
@@ -26,12 +29,16 @@ export const EMPTY_DRAWINGS = { long: null, short: null };
 export const boxKey = (isLong) => (isLong ? "long" : "short");
 
 /** 저장 키를 바꾸고 그 키의 내용을 돌려준다. 전환 전 보류 중인 저장은 먼저 흘려보낸다 */
-export function swapDrawingStorage(replayOn, current) {
+/**
+ * 저장 키를 바꾸고 그 키의 내용을 돌려준다. 전환 전 보류 중인 저장은 먼저 흘려보낸다.
+ * **모드(실거래/연습)와 심볼 둘 다** 이 함수를 지난다 — 둘 중 하나만 바뀌어도 부를 것
+ */
+export function swapDrawingStorage(replayOn, current, symbol = DEFAULT_SYMBOL) {
   // ⚠ debounce 타이머가 남아 있으면 **이전 모드의 박스가 새 키에 덮인다**
   clearTimeout(_drawingTimer);
   writeDrawings(_drawingKey, current);
 
-  _drawingKey = replayOn ? REPLAY_KEY : LIVE_KEY;
+  _drawingKey = boxStorageKey(replayOn, symbol);
   return loadDrawings();
 }
 

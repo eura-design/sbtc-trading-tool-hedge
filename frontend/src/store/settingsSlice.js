@@ -2,6 +2,7 @@
 import { lsGet, lsSet } from "../utils/storage";
 import { DEFAULT_SYMBOL, QTY_STEP, MIN_QTY } from "../constants";
 import { setApiSymbol } from "../api/client";
+import { swapDrawingStorage } from "./uiSlice";
 
 let _replaceTimer = null;
 // 이 debounce 창 안에서 값이 바뀐 **사이드**. 리스크는 한쪽만 바꾸므로,
@@ -178,7 +179,12 @@ export const createSettingsSlice = (set, get) => ({
     // ⚠ API 클라이언트에도 즉시 알린다. 여기서 안 하면 심볼을 바꾼 직후의 주문이
     //   **옛 심볼로 나간다** (client.js는 store를 import할 수 없어 밀어 넣는 방식이다)
     setApiSymbol(symbol);
-    set({ symbol });
+    // ⚠ **플랜 박스도 여기서 갈아끼운다** — 리플레이 전환(replaySlice)과 같은 이유다.
+    //   안 하면 BTC 박스가 ETH 화면에 남아 있다가, App의 drawing↔pending 동기화가
+    //   "ETH에는 그런 미체결이 없다"고 보고 **그 박스를 지운다**.
+    //   다른 도형은 키에 심볼이 들어가 useDrawableStore가 알아서 다시 읽는다
+    const drawings = swapDrawingStorage(get().replayOn, get().drawings, symbol);
+    set({ symbol, drawings });
   },
 
   setSymbolFilters: (f) => set({ symbolFilters: f }),

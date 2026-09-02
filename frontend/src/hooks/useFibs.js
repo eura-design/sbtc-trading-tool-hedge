@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
 import { drawingKey } from "../replay/drawingKeys";
 import { normFibLevels, FIB_DEFAULT_LEVELS } from "../chart/fib";
+import { DEFAULT_SYMBOL } from "../constants";
 
 /**
  * 피보나치 되돌림 도형 스토어 + 그리기 상태.
@@ -17,8 +18,9 @@ import { normFibLevels, FIB_DEFAULT_LEVELS } from "../chart/fib";
  */
 // @param mode { replayOn, gen } — replay/drawingKeys.js 참고
 export function useFibs(mode = {}) {
-  const { replayOn = false } = mode;
-  const store = useDrawableStore(drawingKey("fibs", replayOn), mode.gen ?? 0);
+  const { replayOn = false, symbol = DEFAULT_SYMBOL } = mode;
+  // 심볼이 바뀌면 키가 달라져 useDrawableStore가 그 심볼의 도형을 다시 읽는다
+  const store = useDrawableStore(drawingKey("fibs", replayOn, symbol), mode.gen ?? 0);
   const [fibMode,       setFibMode]       = useState(false);
   const [fibStart,      setFibStart]      = useState(null);
   const [fibPreview,    setFibPreview]    = useState(null);

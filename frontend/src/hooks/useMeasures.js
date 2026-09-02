@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useDrawableStore } from "./useDrawableStore";
 import { drawingKey } from "../replay/drawingKeys";
+import { DEFAULT_SYMBOL } from "../constants";
 
 /**
  * 측정 박스(사각형) 스토어 + 그리기 상태 — 2026-08-26 사용자 요청.
@@ -19,8 +20,9 @@ import { drawingKey } from "../replay/drawingKeys";
  */
 // @param mode { replayOn, gen } — replay/drawingKeys.js 참고
 export function useMeasures(mode = {}) {
-  const { replayOn = false } = mode;
-  const store = useDrawableStore(drawingKey("measures", replayOn), mode.gen ?? 0);
+  const { replayOn = false, symbol = DEFAULT_SYMBOL } = mode;
+  // 심볼이 바뀌면 키가 달라져 useDrawableStore가 그 심볼의 도형을 다시 읽는다
+  const store = useDrawableStore(drawingKey("measures", replayOn, symbol), mode.gen ?? 0);
   const [measureMode,       setMeasureMode]       = useState(false);
   const [measureDraft,      setMeasureDraft]      = useState(null);   // { t1, p1, t2, p2 }
   const [selectedMeasureId, setSelectedMeasureId] = useState(null);
