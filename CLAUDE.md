@@ -70,6 +70,7 @@ utils/
   orderKind.js             미체결 LIMIT 정체 판정(limitKind) + 트리거 전량/부분 판정
   round.js                 호가·수량 단위 맞추기 (순수 함수) — **가격은 반올림, 수량은 내림**
   bigIntJson.js            큰 정수를 잃지 않는 JSON 파싱 — **주문번호가 뭉개지는 것을 막는다**
+  positionDiff.js          사라진 포지션 찾기 (goneSides) — **직전 관측을 돈다**
   splitTp.js               rescaleSplitTps() — 부분 청산 후 분할 TP 재계산 (순수 함수, import 없음)
 tools/
   logq.js                  로그 조회 (--since/--count/--sum/--event/--level/--day/--grep/--summary)

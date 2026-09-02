@@ -5,6 +5,7 @@ const { isStopOrder, isFullClose, coversPosition, orderQtyOf, triggerPriceOf,
 const store          = require("../store/pendingOrders");
 const symbolInfo     = require("./symbolInfo");
 const { parseBigInt } = require("../utils/bigIntJson");
+const { goneSides }   = require("../utils/positionDiff");
 const push           = require("./pushService");
 const { log, errOf } = require("../store/logStore");
 const statsCache     = require("./statsCache");
@@ -831,13 +832,12 @@ async function watchAccount() {
     //
     // ⚠ 60초 타이머는 **그대로 둔다.** 이건 빠르게 하는 장치지 대체재가 아니다 —
     //   조회가 실패해 lastSides를 못 갱신한 사이에 닫히면 이 경로가 놓친다
-    const goneBySymbol = [];
-    for (const [sym, now] of sides) {
-      const was = lastSides?.get(sym);
-      if (!was) continue;
-      const gone = [was.long && !now.long && "LONG", was.short && !now.short && "SHORT"].filter(Boolean).join("+");
-      if (gone) goneBySymbol.push({ symbol: sym, gone });
-    }
+    // ⚠ **`lastSides`(직전 관측)를 돈다 — `sides`(이번 관측)가 아니다** (2026-09-02에 잡음).
+    //   포지션이 닫히면 그 심볼이 `watchedSymbols`에서 빠져 **이번 관측에는 아예 없다.**
+    //   `sides`를 돌면 사라진 심볼을 만날 방법이 없어 사라짐을 영영 못 잡는다
+    //   (실측: ETH 0.009를 청산했는데 POSITION_GONE이 안 찍혔다).
+    //   `nakedWarned` 심볼을 감시 목록에 남겨 둔 것과 같은 함정이다
+    const goneBySymbol = goneSides(lastSides, sides);
     if (goneBySymbol.length) {
       for (const g of goneBySymbol) {
         log("POSITION_GONE", { symbol: g.symbol, posSide: g.gone, action: "reconcile 즉시 실행" });
