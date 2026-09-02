@@ -4,7 +4,7 @@ import { useStore } from "../../store";
 import { tsToIdx } from "../../chart/scales";
 import { deriveStructure, normalizeStructurePoints } from "../../chart/deriveStructure";
 import { autoPivotsAfter, structAutoOn } from "../../chart/structAutoPivots";
-import { setStructChochCounts, setStructLiveChochs,
+import { setStructChochCounts,
          setStructAutoChains } from "../../chart/structRenderState";
 import { clipPolylineX, clipSegmentX, inViewX, VIEW_PAD } from "../../chart/svgGeom";
 import { LockMark } from "./LockMark";
@@ -217,15 +217,9 @@ export const Structures = memo(function Structures({
       .filter(st => autoPts.get(st.id)?.length)
       .map(st => ({ structId: st.id, points: autoPts.get(st.id) })));
 
-  // 알림(useChochAlert)용 — 진행 중 레그에서 나온 CHoCH만. 확정분을 넣으면
-  // 꼭짓점을 옮길 때마다 과거 CHoCH가 재계산돼 알림이 터진다(structRenderState 주석).
-  // draft는 제외 — 그리는 도중에 울리면 방해만 된다.
-  setStructLiveChochs(
-    visible.flatMap(st =>
-      derived.get(st.id).chochs
-        .filter(ev => ev.live)
-        .map(ev => ({ structId: st.id, dir: ev.dir, price: ev.price }))),
-  );
+  // ⚠ 여기서 알림용 CHoCH 목록을 내보내던 줄은 **2026-09-02에 없앴다.**
+  //   CHoCH 알림은 이제 화면과 무관하게 TF마다 따로 감시한다 (hooks/useChochAlert.js) —
+  //   화면에서도 알리면 지금 보고 있는 TF만 두 번 울린다. `ev.live`는 점선 렌더에만 쓴다
 
   // 표시 개수 제한 — **구조마다 각각, 그 구조의 팝업에서 설정한 값** ([R6]).
   // chochs는 deriveStructure가 시간순으로 push하므로 slice(-N)이 곧 최신 N개다.

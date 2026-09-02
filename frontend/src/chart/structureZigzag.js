@@ -23,6 +23,15 @@
 //
 // 전체 재계산(= 기록 초기화)은 다음 경우에만 발생한다:
 //   캔들 배열 교체(타임프레임 전환) / 파라미터 변경 / candles[0] 변경(버퍼 shift·재로드)
+//
+// ── 슬롯 (2026-09-02) ──────────────────────────────────────────────────────
+// 누적 상태가 **하나뿐이면 한 번에 한 TF밖에 못 돈다.** CHoCH 알림이 보고 있는 화면과
+// 무관하게 여러 TF를 감시해야 해서(useChochAlert), 상태를 **슬롯 키로 나눠 담는다.**
+//   - "chart" (기본값)  : 화면에 그려지는 것. 캔버스 렌더 경로(candleRenderer)가 쓴다
+//   - "tf:5m" 같은 키   : 알림 감시용. useChochAlert가 TF마다 하나씩 굴린다
+// 슬롯끼리는 서로를 전혀 모른다. 특히 **세대(gen)도 슬롯마다다** — 전역이면 감시용
+// 슬롯이 초기화될 때마다 화면 쪽 알림 기준선까지 같이 리셋돼 알림이 조용히 삼켜진다.
+// 일련번호(_seq)만 전역이다(슬롯 안에서만 비교하므로 겹쳐도 무해하고, 그래야 단조 증가다).
 
 import {
   resolveZzParams, wilderATR, atrStep, pivotAt, passesNoiseFilter,
@@ -47,13 +56,14 @@ function atrAt(st, candles, i, period) {
   return v;
 }
 
-function initState(candles, params, firstT) {
+function initState(candles, params, firstT, slot) {
   const p = resolveZzParams(params);
   const n = candles.length;
   // 초기화 = 과거 전 구간을 다시 훑어 CHoCH를 무더기로 재생산한다는 뜻.
   // 알림 쪽이 이걸 "새 발생"으로 오해하지 않도록 세대 번호를 올린다
   // (TF 전환·파라미터 변경 직후 알림이 터지는 것을 막는 유일한 신호다).
-  _gen++;
+  // ⚠ **슬롯마다 따로 센다** — 위 "슬롯" 주석 참고
+  _gens.set(slot, (_gens.get(slot) ?? 0) + 1);
   return {
     arr: candles, params, firstT, p,
     atr: wilderATR(candles, p.atr_period),
@@ -224,12 +234,23 @@ function step(st, candles, i) {
   }
 }
 
-let _st  = null;
-let _gen = 0;   // 상태 초기화 세대 (TF 전환·파라미터 변경 시 증가)
-let _seq = 0;   // CHoCH 누적 일련번호 (초기화돼도 계속 증가)
+export const ZZ_CHART_SLOT = "chart";   // 화면에 그려지는 슬롯 (기본값)
+
+const _slots = new Map();   // slot → 누적 상태
+const _gens  = new Map();   // slot → 상태 초기화 세대 (TF 전환·파라미터 변경 시 증가)
+let   _seq   = 0;           // CHoCH 누적 일련번호 (초기화돼도, 슬롯이 달라도 계속 증가)
 
 /**
- * 현재 누적된 CHoCH 총 개수 (max_choch 슬라이스 이전의 원본 개수).
+ * 슬롯 하나를 버린다 — 알림 감시에서 빠진 TF의 상태를 들고 있을 이유가 없다.
+ * 화면 슬롯("chart")에는 쓰지 않는다(캔들 교체를 computeStructureZigzag가 알아서 본다).
+ */
+export function dropZzSlot(slot) {
+  _slots.delete(slot);
+  _gens.delete(slot);
+}
+
+/**
+ * 현재 누적된 CHoCH 총 개수 (max_choch 슬라이스 이전의 원본 개수). **화면 슬롯 전용**.
  *
  * IndicatorMenu의 "검출 N개" 표시와, 더블클릭 팝업의 CHoCH 개수 슬라이더 상한(1~N).
  * ZZ 계산이 캔버스 렌더 경로에서만 돌아 React 상태로 올라오지 않으므로,
@@ -237,11 +258,12 @@ let _seq = 0;   // CHoCH 누적 일련번호 (초기화돼도 계속 증가)
  * ZZ가 꺼져 있으면 계산 자체가 안 돌아 0을 반환한다.
  */
 export function getZzChochTotal() {
-  return _st?.chochs.length ?? 0;
+  return _slots.get(ZZ_CHART_SLOT)?.chochs.length ?? 0;
 }
 
 /**
- * 현재 누적된 지그재그 세그먼트 `[{ i1, p1, i2, p2 }]` (좌표는 **bar index**).
+ * 현재 누적된 지그재그 세그먼트 `[{ i1, p1, i2, p2 }]` (좌표는 **bar index**). **화면 슬롯 전용** —
+ * 레그 hover는 화면에 그려진 것만 상대한다.
  *
  * 레그 hover 표시(hitDetection.findHoveredLeg)가 히트 판정에 쓴다.
  * 순서가 곧 시간순이라 k-2가 "직전 동일방향 레그"가 된다 (지그재그는 상승·하락 교대).
@@ -250,11 +272,11 @@ export function getZzChochTotal() {
  * ZZ가 꺼져 있으면 계산 자체가 안 돌아 빈 배열이다.
  */
 export function getZzSegments() {
-  return _st?.segments ?? [];
+  return _slots.get(ZZ_CHART_SLOT)?.segments ?? [];
 }
 
 /**
- * CHoCH 알림용 신호 — `{ gen, last }`.
+ * CHoCH 알림용 신호 — `{ gen, last }`. 슬롯마다 따로 물어본다.
  *   gen  : 상태 초기화 세대. 값이 바뀌었으면 과거 구간을 재계산한 것이므로
  *          알림 쪽은 **소리 없이 기준선만 다시 잡아야 한다**.
  *   last : 마지막 CHoCH `{ seq, dir, price, ... }` | null.
@@ -263,12 +285,17 @@ export function getZzSegments() {
  * 개수(getZzChochTotal) 비교로는 안 된다 — MAX_CHOCHS를 넘으면 shift로
  * 앞이 잘려나가 길이가 그대로여도 새 CHoCH가 찍힐 수 있다.
  */
-export function getZzChochSignal() {
-  const arr = _st?.chochs;
-  return { gen: _gen, last: arr?.length ? arr[arr.length - 1] : null };
+export function getZzChochSignal(slot = ZZ_CHART_SLOT) {
+  const arr = _slots.get(slot)?.chochs;
+  return { gen: _gens.get(slot) ?? 0, last: arr?.length ? arr[arr.length - 1] : null };
 }
 
-export function computeStructureZigzag(candles, params = {}) {
+/**
+ * @param slot 누적 상태를 담을 칸. 기본은 화면("chart").
+ *   알림 감시는 TF마다 다른 키를 넘겨 **여러 TF를 동시에** 굴린다 (위 "슬롯" 주석).
+ *   ⚠ 감시용 호출은 반환값을 쓰지 않는다 — 신호는 getZzChochSignal(slot)로 읽는다.
+ */
+export function computeStructureZigzag(candles, params = {}, slot = ZZ_CHART_SLOT) {
   const n = candles.length;
   if (n < 2) return EMPTY;
 
@@ -277,8 +304,10 @@ export function computeStructureZigzag(candles, params = {}) {
 
   // 누적 상태를 버려야 하는 경우에만 초기화 (그 외에는 절대 재계산하지 않음)
   const firstT = +candles[0].t;
+  let _st = _slots.get(slot);
   if (!_st || _st.arr !== candles || _st.params !== params || _st.firstT !== firstT) {
-    _st = initState(candles, params, firstT);
+    _st = initState(candles, params, firstT, slot);
+    _slots.set(slot, _st);
   }
 
   // 마지막 호출 이후의 봉 + 진행 중 봉을 처리.

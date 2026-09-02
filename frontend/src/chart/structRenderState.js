@@ -36,20 +36,9 @@ let _autoChains = [];
 export function setStructAutoChains(list) { _autoChains = list; }
 export function getStructAutoChains()     { return _autoChains; }
 
-// ── 자동 이어그리기 구간에서 감지된 CHoCH ──────────────────────────────────
-// [{ structId, dir, price }] — useChochAlert가 "새로 뜬 것"을 골라 알림을 띄운다.
-//
-// **확정 CHoCH는 여기 넣지 않는다.** deriveStructure는 순수 함수라 꼭짓점을 옮기면
-// 과거 CHoCH가 통째로 다시 계산된다 — 편집할 때마다 알림이 터진다.
-// 알릴 가치가 있는 "지금 발생"은 자동 이어그리기 구간에서 나온 것(ev.live)뿐이다.
-// ⚠ 그래서 **자동 이어그리기를 켠 구조에서만 CHoCH 알림이 울린다** (2026-08-26).
-//   그전에는 진행 중 레그가 그 역할을 했는데 그 기능이 삭제됐다 — 끈 구조는
-//   더 이상 "지금 일어나는 일"을 추적하지 않으므로 알릴 것도 없다.
-// (그 마크는 나중에 꼭짓점이 찍히면 확정분으로 바뀌지만 키가 같아 중복 알림이 없다)
-//
-// 표시 옵션(구조별 showChoch / maxChoch)과 무관하게 전부 담는다 —
-// 켜고 끄는 건 알림 전용 플래그(alertChoch)이고, 그 판단은 useChochAlert가 한다.
-let _liveChochs = [];
-
-export function setStructLiveChochs(list) { _liveChochs = list; }
-export function getStructLiveChochs()     { return _liveChochs; }
+// ⚠ 여기 있던 `LiveChochs`(자동 이어그리기 구간에서 감지된 CHoCH)는 **2026-09-02에
+//   없앴다.** CHoCH 알림이 화면 렌더 경로를 떠나 TF별 백그라운드 감시가 되면서
+//   (hooks/useChochAlert.js) 소비자가 사라졌다. 화면에서도 알리면 지금 보고 있는 TF만
+//   알림이 두 번 뜬다 — 되살리지 말 것.
+//   ※ 진행 중 CHoCH를 점선으로 그리는 것(`ev.live`)은 그대로다. 그건 렌더 안에서 쓰고
+//     끝나는 값이라 모듈 상태로 꺼낼 이유가 없었다

@@ -48,14 +48,31 @@ export const INDICATOR_DEFAULTS = {
   //   ※ 여기 있던 "alert_choch는 자동 ZZ만 ON" 줄은 지웠다 (2026-08-26) —
   //     2026-08-24에 둘 다 OFF로 통일했는데 그 줄만 남아 **바로 위 줄과 모순**됐다.
   //     실제 값은 위 한 줄(둘 다 false)이 맞다
-  zz:  { left_bars: 2, use_filter: true, atr_mult: 1.0, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.3 },
+  //   alert_tfs — **CHoCH를 감시할 타임프레임** (중복 선택, 2026-09-02 사용자 요청).
+  //     `alert_choch`(켜고 끄기)와 AND다. **화면 필터가 아니라 감시 대상 목록이다** —
+  //     RSI 알림(useAlertMonitor)처럼 TF마다 캔들을 따로 받아 백그라운드로 굴리므로,
+  //     5분 차트를 보는 중에도 1시간 CHoCH가 울린다 (hooks/useChochAlert.js).
+  //     ⚠ 화면 TF와 엮지 말 것 — 엮는 순간 이 기능이 있기 전으로 돌아간다
+  //     ⚠ 기본값은 **전 TF**다 — struct처럼 좁혀 두면 이미 알림을 켜 둔 사용자에게
+  //       기능이 고장 난 것처럼 보인다 (rsi.tfs와 같은 이유)
+  //     ※ TF를 늘리면 그만큼 kline WebSocket이 늘어난다. 알림이 꺼져 있으면 하나도 안 연다
+  zz:  { left_bars: 2, use_filter: true, atr_mult: 1.0, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.3,
+         alert_tfs: ["5m", "15m", "1h", "4h", "1d", "1w", "1M"] },
   // 수동 구조(Custom Structure Zigzag)
   //   tfs — 표시할 타임프레임 (중복 선택 가능, 기본 1h). **여기 있는 건 이것뿐이다.**
   //   ※ CHoCH 표시 on/off·개수는 구조마다 localStorage에 있다 (st.showChoch / st.maxChoch,
   //     더블클릭 팝업에서 설정 — Structures.jsx [R6])
   //   ※ 지표 전체 CHoCH 스위치(show_choch)는 2026-08-12 제거 — 구조별 토글과 AND로 걸려
   //     OFF로 저장돼 있으면 구조별 ON이 먹지 않는데 그걸 알아챌 UI가 없었다
-  struct: { tfs: ["1h"] },
+  //   alert_tfs — **CHoCH를 감시할 타임프레임** (중복 선택, 기본 전 TF / 2026-09-02 사용자 요청).
+  //     ⚠ **위 `tfs`(표시 TF)와 아무 관계가 없다.** 구조의 꼭짓점은 timestamp라 전 TF 공유이고,
+  //       알림은 화면을 보지 않고 TF마다 캔들을 따로 받아 감시한다 (hooks/useChochAlert.js).
+  //       표시 목록에 없는 TF도, 지금 보고 있지 않은 TF도 울린다. 같은 패널에 나란히 있지만
+  //       하는 일이 다르니 **한쪽을 다른 쪽으로 거르지 말 것**
+  //     ⚠ 구조별 🔔(alertChoch)와는 AND다 — "어느 구조를"은 팝업, "어느 TF에서"는 여기다.
+  //       거기에 그 구조가 **자동 이어그리기(autoZz)를 켰는지**도 본다 (끈 구조는 "지금 발생"을
+  //       추적하지 않아 알릴 것이 없다 — useChochAlert 주석)
+  struct: { tfs: ["1h"], alert_tfs: ["5m", "15m", "1h", "4h", "1d", "1w", "1M"] },
   // ⚠ **`fib` 키를 되살리지 말 것** (2026-08-15 제거, chart/fib.js [F1]).
   //   피보나치는 전역 파라미터가 하나도 없다 — 레벨 목록까지 **도형별**(localStorage "fibs")로
   //   옮겨 더블클릭 팝업에서 고른다. 지표 메뉴에서 Fibonacci 행 자체가 사라졌다.

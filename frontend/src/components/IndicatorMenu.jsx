@@ -102,7 +102,8 @@ const PARAMS_META = {
   ],
 };
 
-// 수동 구조(struct)는 이 메뉴에 **표시 타임프레임(tfs)만** 둔다 (StructTfPanel).
+// 수동 구조(struct)는 이 메뉴에 **타임프레임 두 벌만** 둔다 (StructTfPanel) —
+// 표시(tfs) / CHoCH 알림(alert_tfs).
 // CHoCH 관련은 전부 각 구조의 더블클릭 팝업에 있다 — 표시 on/off(showChoch),
 // 개수(maxChoch), 검출 개수 모두 **구조별**이라 메뉴에 둘 자리가 없다 (Structures.jsx [R6]).
 //
@@ -385,16 +386,20 @@ function TfGrid({ label, list, onChange, theme, emptyWarn }) {
   );
 }
 
-// 수동 구조 설정 패널 — 표시 타임프레임 **전용**
+// 수동 구조 설정 패널 — 타임프레임 두 벌(표시 / CHoCH 알림) **전용**
 //
 // 표시 TF: 중복 선택, 기본 1h. 구조 데이터 자체는 전 TF 공유이고 여기서는
 // "어느 TF에서 보여줄지"만 거른다. 선택 안 된 TF에서는 렌더·히트 판정이 막힌다
 // (단, 지표 토글과 달리 그리기 버튼은 죽이지 않는다 — 구조 모드로 들어가면 TF가 자동 추가됨).
 //
-// CHoCH는 여기 없다 — 표시 on/off·개수·검출 개수 전부 구조별이라 각 구조의
-// 더블클릭 팝업에서 조작한다 (Structures.jsx [R6]). 위 STRUCT 주석 참고.
+// 알림 TF: 중복 선택, 기본 전 TF. **표시 TF와 무관하다** — 알림은 화면을 보지 않고
+// TF마다 따로 감시한다 (아래 주석 참고).
+//
+// CHoCH의 나머지는 여기 없다 — 표시 on/off·개수·검출 개수·알림 켜기 전부 구조별이라
+// 각 구조의 더블클릭 팝업에서 조작한다 (Structures.jsx [R6]). 위 STRUCT 주석 참고.
 function StructTfPanel({ structParams, setParam, resetIndicator, theme }) {
-  const list = Array.isArray(structParams?.tfs) ? structParams.tfs : [];
+  const list      = Array.isArray(structParams?.tfs)       ? structParams.tfs       : [];
+  const alertList = Array.isArray(structParams?.alert_tfs) ? structParams.alert_tfs : [];
 
   return (
     <div style={{ padding: "10px 12px", background: theme.bgCardAlt, borderTop: `1px solid ${theme.borderSec}` }}>
@@ -403,6 +408,22 @@ function StructTfPanel({ structParams, setParam, resetIndicator, theme }) {
         onChange={next => setParam("struct", "tfs", next)}
         emptyWarn="선택된 타임프레임이 없어 구조가 어디에도 표시되지 않고 그리기도 막힙니다."
       />
+
+      {/* CHoCH 알림 TF — 위 표시 TF와 **아무 관계가 없다** (2026-09-02).
+          알림은 화면을 보지 않고 TF마다 캔들을 따로 받아 감시하므로(useChochAlert),
+          여기 고른 TF는 **표시 목록에 없어도, 그 TF를 보고 있지 않아도** 울린다.
+          라벨의 "보고 있지 않아도"를 지우지 말 것 — 바로 위 격자가 표시 필터라
+          이것도 필터로 읽히기 십상이다.
+          어느 구조를 울릴지는 구조별 🔔(alertChoch)이, 그 구조가 자동 이어그리기를
+          켰는지도 함께 본다 (끈 구조는 "지금 발생"을 추적하지 않아 알릴 것이 없다) */}
+      <div style={{ marginTop: 12 }}>
+        <TfGrid
+          label="CHoCH 알림 타임프레임 (보고 있지 않아도 울린다)"
+          list={alertList} theme={theme}
+          onChange={next => setParam("struct", "alert_tfs", next)}
+          emptyWarn="선택된 타임프레임이 없어 구조 CHoCH 알림이 어디에서도 울리지 않습니다."
+        />
+      </div>
 
       <button
         onClick={() => resetIndicator("struct")}
@@ -512,10 +533,16 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
           팝업과 순서를 같게 유지할 것 — 표시 → 개수.
           ※ `거래량 비교`는 여기 없다 — 자동 ZZ의 거래량 비교는 2026-08-14 사용자 요청으로
             기능째로 제거됐다 (거래량 3줄은 수동 구조 전용). 되살리지 말 것
-          ※ 수동 구조(struct)에는 이 블록이 없다. 저쪽 값은 전부 **구조별**(localStorage)이라
+          ※ 수동 구조(struct)에는 이 블록이 없다. 표시 on/off·개수는 전부 **구조별**(localStorage)이라
             지표 메뉴가 가리킬 값 자체가 없다 (Structures.jsx [R6]).
-            여기에 struct용 전역 값을 새로 만들지 말 것 — 구조별 값과 AND로 걸려
-            전역 OFF일 때 구조별 ON이 먹지 않는데 그 사실이 구조 팝업에 안 보인다 */}
+            여기에 struct용 전역 값을 더 만들지 말 것 — 구조별 값과 AND로 걸려
+            전역 OFF일 때 구조별 ON이 먹지 않는데 그 사실이 구조 팝업에 안 보인다.
+            ⚠ **딱 하나 예외가 있다: `struct.alert_tfs`**(StructTfPanel, 2026-09-02 사용자 확정).
+              알림 TF는 성격이 다르다 — 표시 값이 아니라 **감시 대상 목록**이고, 감시는
+              화면 밖에서 도는 것이라 구조마다 다르게 둘 자리가 애초에 없다.
+              구조별 🔔과 AND인 건 맞지만 값이 TF 목록이라, 꺼져 보이는 게 아니라
+              "그 TF를 안 보고 있다"가 아니라 "그 TF를 안 고른 것"으로 읽힌다.
+              on/off 스위치였다면 위 문단대로 만들지 않았을 것이다 */}
       {isZZ && (
         <>
           <ParamSlider
@@ -529,6 +556,20 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
             onChange={n => setParam("zz", "max_choch", n)}
             theme={theme}
           />
+          {/* CHoCH 알림 TF — 팝업에는 없는 **지표 메뉴 전용** 값이다 (거울이 아니다).
+              팝업의 🔔(alert_choch)가 켜져 있을 때 **여기 고른 TF마다 따로 감시한다** —
+              그 TF를 보고 있지 않아도, 화면이 다른 TF여도 울린다 (useChochAlert).
+              라벨의 "보고 있지 않아도"를 지우지 말 것: 지표 메뉴의 다른 TF 격자는
+              전부 표시·계산 대상 필터라 이것도 화면 필터로 읽히기 십상이다 */}
+          <div style={{ marginTop: 10 }}>
+            <TfGrid
+              label="CHoCH 알림 타임프레임 (보고 있지 않아도 울린다)"
+              list={Array.isArray(indParams.alert_tfs) ? indParams.alert_tfs : []}
+              theme={theme}
+              onChange={next => setParam("zz", "alert_tfs", next)}
+              emptyWarn="선택된 타임프레임이 없어 CHoCH 알림이 어디에서도 울리지 않습니다."
+            />
+          </div>
         </>
       )}
       {/* ※ RSI `구간 개수` 슬라이더는 2026-08-15 사용자 요청으로 제거됐다.

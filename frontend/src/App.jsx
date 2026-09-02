@@ -41,6 +41,9 @@ import { ReplayBar }    from "./components/ReplayBar";
 import { Toast }        from "./components/Toast";
 import { lsGet, lsSet } from "./utils/storage";
 
+// 지표를 껐을 때 넘기는 빈 TF 목록 — 매 렌더 새 배열을 만들지 않으려고 모듈 상수로 둔다
+const EMPTY_TFS = [];
+
 export default function App() {
   // ── 스토어 ────────────────────────────────────────────────────────────────
   const {
@@ -305,12 +308,22 @@ export default function App() {
 
   // CHoCH 발생 알림 — 자동 ZZ + 수동 구조. 둘 다 기본 OFF,
   // 자동 ZZ는 indicatorParams.zz.alert_choch / 수동 구조는 구조별 alertChoch로 켠다.
+  //
+  // **어느 TF를 감시할지는 지표 메뉴의 `CHoCH 알림 타임프레임`이 정한다** (2026-09-02 사용자
+  // 요청). RSI 알림과 같은 방식이라 **보고 있는 화면과 무관하다** — 5분 차트를 보는 중에도
+  // 1시간 CHoCH가 울린다. 훅이 TF마다 캔들을 따로 받아 굴린다 (useChochAlert 참고).
+  // ⚠ 그래서 여기서 `interval_`이나 표시 TF(struct.tfs)를 섞지 말 것 — 섞는 순간
+  //   "화면과 무관하게"가 깨지고, 예전처럼 보고 있는 TF만 울리게 된다
   // ※ 예전엔 "sticky가 아니라 일반 토스트"라는 구분이 여기 있었다 —
   //   2026-08-25에 토스트가 한 종류로 합쳐지면서 그 구분 자체가 없어졌다.
   useChochAlert({
     structures: structs.structures,
-    zzAlertOn:  showZZ && indicatorParams.zz?.alert_choch === true,
+    zzParams:   indicatorParams.zz,
+    zzTfs:      showZZ && indicatorParams.zz?.alert_choch === true
+                  ? (indicatorParams.zz?.alert_tfs ?? []) : EMPTY_TFS,
+    structTfs:  structOn ? (indicatorParams.struct?.alert_tfs ?? []) : EMPTY_TFS,
     onAlert:    addToast,
+    enabled:    !replayOn,
   });
 
   // ── 보조지표 계산 ─────────────────────────────────────────────────────────

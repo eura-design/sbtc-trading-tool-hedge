@@ -112,7 +112,8 @@ hooks/
   useRsiResize / useVolResize / useAccordion
   useRSI / useEMA / useFVG / useOrderBlock / usePivotLevels / useIndicatorParams
   useTrendLines / useFibs / useMeasures / useStructures / useDrawableStore
-  useAlertMonitor / useTrendLineAlert / useChochAlert / usePositionCloseAlert / useToast
+  useAlertMonitor / useTrendLineAlert / usePositionCloseAlert / useToast
+  useChochAlert.js         CHoCH 알림 — TF마다 kline WebSocket을 따로 열어 감시
   useNotificationSettings / useShortcutSettings / useKeyboardShortcuts
   useReplay.js             리플레이 캔들 피드 (useCandles와 같은 계약)
 
@@ -122,7 +123,7 @@ chart/
   overlayRenderers.js      FVG/OB/Pivot/EMA/ZigZag/RSI구간 캔버스 렌더
   volumeRenderer.js  rsiRenderer.js
   pivotLevels.js           스윙 피벗 기반 지지/저항 계산 (순수 함수)
-  structureZigzag.js       자동 ZZ 계산 (forward-only 누적)
+  structureZigzag.js       자동 ZZ 계산 (forward-only 누적) — 슬롯별(화면 `chart` / 감시 `tf:5m`…)
   zigzagPivots.js          꼭짓점 판정 규칙 (자동 ZZ · 자동 이어그리기 공용)
   structAutoPivots.js      커스텀 구조 자동 이어그리기
   deriveStructure.js       수동 구조 → 세그먼트 + CHoCH (순수 함수)
@@ -408,7 +409,10 @@ level은 **`critical`(빨간 배너) / `notice`(금색 토스트)** 둘뿐. leve
 - RSI 과매수/과매도 — 7 TF 독립 WebSocket, 쿨다운 + 히스테리시스, 첫 관측은 상태만 잡고 무음
 - 봉 마감 (TF별 설정)
 - 도형 근접 (0.2% 진입 / 0.3% 이탈) — 한 번 울리면 그 도형의 알림이 스스로 꺼진다
-- CHoCH 발생 (자동 ZZ · 커스텀 구조, 기본 OFF) — 첫 관측은 무음
+- CHoCH 발생 (자동 ZZ · 커스텀 구조, 기본 OFF) — 첫 관측은 무음.
+  **보고 있는 화면과 무관하게 TF마다 따로 감시한다** (RSI 알림과 같은 방식, 2026-09-02).
+  감시할 TF는 지표 메뉴의 `CHoCH 알림 타임프레임`(`zz.alert_tfs` / `struct.alert_tfs`, 기본 전 TF).
+  커스텀 구조는 그 구조가 🔔 + 자동 이어그리기를 둘 다 켰을 때만 울린다
 - 포지션 종료 (롱·숏 독립)
 - 설정: NotificationMenu (7TF × RSI OB/OS · 봉마감)
 
