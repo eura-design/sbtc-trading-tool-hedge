@@ -6,6 +6,8 @@ import { ScaleInCard } from "./ScaleInCard";
 import { SplitTPCard } from "./SplitTPCard";
 import { SplitSLCard } from "./SplitSLCard";
 import { unrealizedFor } from "../../utils/equity";
+import { fmtQty, floorQty, qtyLabel } from "../../utils/qty";
+import { useStore } from "../../store";
 import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow } from "../sidebarBtn";
 import { lsGet, lsSet } from "../../utils/storage";
 
@@ -47,6 +49,8 @@ export function PositionCard({
   onCancelSplitTp, onCancelPartialSl,
 }) {
   const { theme } = useTheme();
+  // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1)
+  const { step: qStep, base: qBase } = useStore(s => s.symbolFilters);
   const [closePct, setClosePct] = useState(() => Number(lsGet("closePct")) || 100);
   const handleClosePct = v => { setClosePct(v); lsSet("closePct", v); };
   const [confirming, setConfirming] = useState(false);
@@ -93,7 +97,7 @@ export function PositionCard({
   //   같은 값에서 나와야 한다. 여기 인라인으로 되돌리면 한 화면의 두 숫자가 조용히 갈린다
   const realTimeUnrealized = unrealizedFor(posData, lastPrice, isLong);
 
-  const closeQty = parseFloat((posData.size * closePct / 100).toFixed(3));
+  const closeQty = floorQty(posData.size * closePct / 100, qStep);
   const splitTpCount = tpsl?.splitTps?.length ?? 0;
   const partialSlCount = tpsl?.partialSls?.length ?? 0;
 
@@ -119,7 +123,7 @@ export function PositionCard({
       {[
         ["청산가",     posData.liquidationPrice ? fmtI(posData.liquidationPrice) : "—",                     "#ff4444"],
         ["손익비 R:R", rrVal ? `1 : ${rrVal}` : "—",                                                        "#a78bfa"],
-        ["수량",       `${posData.size} BTC`,                                                                "#94a3b8"],
+        ["수량",       qtyLabel(posData.size, qStep, qBase),                                                 "#94a3b8"],
         ["포지션 USD", fmtI(posData.size * posData.entryPrice),                                              "#94a3b8"],
         ["예상 손실",  slPnl !== null ? `${slPnl >= 0 ? "+" : ""}${fmt(slPnl)}` : "—",                      slPnl !== null && slPnl >= 0 ? "#0ecb81" : "#f6465d"],
         ["예상 수익",  tpPrice ? `+${fmt(posData.size * Math.abs(tpPrice - posData.entryPrice))}` : "—",    "#0ecb81"],
@@ -146,7 +150,7 @@ export function PositionCard({
             <span style={{ fontSize:"15px", color:posColor, fontWeight:"700" }}>
               {closePct}%
               <span style={{ fontSize:"11px", color:theme.textMuted, fontWeight:"400", marginLeft:"6px" }}>
-                ({closeQty} BTC)
+                ({fmtQty(closeQty, qStep)} {qBase})
               </span>
             </span>
           </div>

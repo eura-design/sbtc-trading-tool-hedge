@@ -55,7 +55,8 @@ export function PercentSlider({ pct, onChange, color, label, secondaryText }) {
 //   (PercentSlider의 1~4% 죽은 구간 주석 참고)
 export function CountSlider({ count, onChange, qty, color }) {
   const { theme } = useTheme();
-  const max = maxSplitCount(qty);
+  const qStep = useStore(s => s.symbolFilters.step);
+  const max = maxSplitCount(qty, 10, qStep);
   if (max <= 1) return null;
   return (
     <div style={{ marginBottom: "6px" }}>
@@ -102,7 +103,8 @@ export function useChartPick({ kind, side, count, qty }) {
 // `차트에서 지정` 버튼 + 켜져 있을 때의 조작 안내 한 줄
 export function ChartPickButton({ active, onToggle, disabled, color, count, qty }) {
   const { theme } = useTheme();
-  const n = Math.min(count, maxSplitCount(qty));
+  const qStep = useStore(s => s.symbolFilters.step);
+  const n = Math.min(count, maxSplitCount(qty, 10, qStep));
   return (
     <>
       <button

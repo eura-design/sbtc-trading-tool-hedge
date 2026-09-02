@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { BN_PUBLIC, BN_WS, INTERVALS } from "../constants";
+import { BN_PUBLIC, BN_WS, INTERVALS, DEFAULT_SYMBOL } from "../constants";
 import { computeStructureZigzag, getZzChochSignal, dropZzSlot } from "../chart/structureZigzag";
 import { autoPivotsAfter, structAutoOn } from "../chart/structAutoPivots";
 import { deriveStructure } from "../chart/deriveStructure";
@@ -57,7 +57,10 @@ const LOAD = 500;
 //   ⚠ 봉마다 shift()로 창을 미는 방식으로 바꾸지 말 것. 그러면 **봉마다** 전 구간 재계산이 돈다
 const TRIM_AT = 3000, TRIM_TO = 2000;
 
-const zzSlot = tf => `tf:${tf}`;
+// 자동 ZZ 누적 상태를 담을 칸 (chart/structureZigzag.js의 슬롯).
+// ⚠ **심볼이 들어간다.** 안 넣으면 BTC의 1h 슬롯을 ETH의 1h가 물려받는데,
+//   그게 안 터지는 건 "닫고 나서 연다"는 순서 덕분일 뿐이다. 순서에 기대지 말 것
+const zzSlot = (symbol, tf) => `tf:${symbol}:${tf}`;
 
 // 알릴 수 있는 구조 = 🔔(alertChoch) ON **이면서** 자동 이어그리기(autoZz) ON.
 // 둘 중 하나라도 없으면 그 구조에서는 어떤 CHoCH도 울리지 않는다 — 감시를 열 이유도,
@@ -72,9 +75,9 @@ function evalZz(tf, st, ctx) {
     st.zz = { gen: null, seq: null };
     return;
   }
-  computeStructureZigzag(st.candles, ctx.zzParamsRef.current, zzSlot(tf));
+  computeStructureZigzag(st.candles, ctx.zzParamsRef.current, zzSlot(st.symbol, tf));
 
-  const { gen, last } = getZzChochSignal(zzSlot(tf));
+  const { gen, last } = getZzChochSignal(zzSlot(st.symbol, tf));
   const prev = st.zz;
   const seq  = last?.seq ?? null;
 
@@ -82,7 +85,7 @@ function evalZz(tf, st, ctx) {
     st.zz = { gen, seq };            // [1] 첫 관측 / [2] 재계산 — 조용히 기준선만
   } else if (seq !== null && seq > prev.seq) {
     st.zz = { gen, seq };
-    ctx.onAlertRef.current(`${TF_LABEL[tf]} ZZ CHoCH ${dirLabel(last.dir)}  ${fmt(last.price)}`);
+    ctx.onAlertRef.current(`${st.symbol} ${TF_LABEL[tf]} ZZ CHoCH ${dirLabel(last.dir)}  ${fmt(last.price)}`);
   }
 }
 
@@ -124,7 +127,7 @@ function evalStruct(tf, st, ctx) {
     // 켜져 있으면 그 구조가 호박색 점선으로 보이므로, 기본이 ON이면 모든 구조가
     // 알림 스타일이 되어 색이 정보를 못 준다 (Structures.jsx [R10])
     if (!canAlert(e.st)) continue;
-    ctx.onAlertRef.current(`${TF_LABEL[tf]} 구조 CHoCH ${dirLabel(e.dir)}  ${fmt(e.price)}`);
+    ctx.onAlertRef.current(`${st.symbol} ${TF_LABEL[tf]} 구조 CHoCH ${dirLabel(e.dir)}  ${fmt(e.price)}`);
   }
 }
 
@@ -132,10 +135,10 @@ function evalStruct(tf, st, ctx) {
 // useAlertMonitor의 startTFMonitor와 같은 모양이다. 합치지 않은 이유는 저쪽이 RSI 상태를
 // 들고 300봉만 쓰고, 이쪽은 봉 배열의 **참조가 유지돼야** 하기 때문이다 —
 // 자동 ZZ는 배열이 바뀌면 누적 상태를 버린다 (structureZigzag의 `_st.arr !== candles`).
-function startFeed(tf, st, ctx) {
+function startFeed(tf, st, ctx, symbol) {
   let closed = false;
 
-  fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=BTCUSDT&interval=${tf}&limit=${LOAD}`)
+  fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=${symbol}&interval=${tf}&limit=${LOAD}`)
     .then(r => r.json())
     .then(d => {
       if (closed) return;
@@ -149,7 +152,7 @@ function startFeed(tf, st, ctx) {
 
   const connectWS = () => {
     if (closed) return;
-    const ws = new WebSocket(`${BN_WS}/ws/btcusdt@kline_${tf}`);
+    const ws = new WebSocket(`${BN_WS}/ws/${symbol.toLowerCase()}@kline_${tf}`);
     st.ws = ws;
 
     ws.onmessage = (evt) => {
@@ -177,7 +180,7 @@ function startFeed(tf, st, ctx) {
   return () => {
     closed = true;
     if (st.ws) st.ws.close();
-    dropZzSlot(zzSlot(tf));
+    dropZzSlot(zzSlot(symbol, tf));
   };
 }
 
@@ -191,7 +194,7 @@ function startFeed(tf, st, ctx) {
  *   과거를 재생하는 중에 현재 시각의 CHoCH가 울리면 그 자체가 미래 정보다
  *   (useAlertMonitor의 enabled와 같은 이유)
  */
-export function useChochAlert({ zzTfs, structTfs, structures, zzParams, onAlert, enabled = true }) {
+export function useChochAlert({ zzTfs, structTfs, structures, zzParams, onAlert, enabled = true, symbol = DEFAULT_SYMBOL }) {
   // 감시 루프는 WebSocket 콜백 안에서 돌아 재구독이 없다 — 최신값은 전부 ref로 읽는다
   const zzTfsRef      = useRef(zzTfs);       zzTfsRef.current      = zzTfs;
   const structTfsRef  = useRef(structTfs);   structTfsRef.current  = structTfs;
@@ -210,21 +213,25 @@ export function useChochAlert({ zzTfs, structTfs, structures, zzParams, onAlert,
   // 기본 OFF라 보통은 하나도 없고, 그때 소켓 7개를 여는 건 순전한 낭비다.
   // (자동 ZZ는 App이 alert_choch를 이미 봐서 꺼져 있으면 빈 목록을 넘긴다)
   const structWant = structures?.some(canAlert) ? structTfs : EMPTY;
-  const want = enabled ? [...new Set([...zzTfs, ...structWant])].sort().join(",") : "";
+  // 심볼을 키에 넣는다 - 바뀌면 감시를 전부 새로 연다. 안 그러면 BTC 캔들로 쌓은
+  // ZZ 누적 상태 위에 ETH 봉이 얹혀 엉뚱한 CHoCH가 나온다
+  const want = enabled ? symbol + "@" + [...new Set([...zzTfs, ...structWant])].sort().join(",") : "";
 
   useEffect(() => {
-    const wanted = new Set(want ? want.split(",") : []);
+    const [wsym, tfCsv] = want ? want.split("@") : ["", ""];
+    const wanted = new Set(tfCsv ? tfCsv.split(",") : []);
     const feeds  = feedsRef.current;
 
+    // 심볼이 바뀌면 wanted가 통째로 달라져 아래 루프가 옛 심볼 피드를 전부 닫는다
     for (const [tf, st] of feeds) {
-      if (wanted.has(tf)) continue;
+      if (wanted.has(tf) && st.symbol === wsym) continue;
       st.stop();
       feeds.delete(tf);
     }
     for (const tf of wanted) {
       if (feeds.has(tf)) continue;
-      const st = { candles: [], ws: null, zz: { gen: null, seq: null }, struct: null, stop: null };
-      st.stop = startFeed(tf, st, ctxRef.current);
+      const st = { symbol: wsym, candles: [], ws: null, zz: { gen: null, seq: null }, struct: null, stop: null };
+      st.stop = startFeed(tf, st, ctxRef.current, wsym);
       feeds.set(tf, st);
     }
     // ⚠ 여기에 cleanup을 두지 말 것 — 목록이 바뀔 때마다 전부 닫혀 위 차이 계산이 무의미해진다.

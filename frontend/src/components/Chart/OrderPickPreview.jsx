@@ -1,4 +1,5 @@
 import { PALETTE } from "../../constants";
+import { useStore } from "../../store";
 import { splitPlan } from "../../utils/splitLevels";
 
 /**
@@ -24,10 +25,14 @@ import { splitPlan } from "../../utils/splitLevels";
  *   여기만 다른 규칙을 만들면 미리보기와 등록 후 선의 색이 달라진다
  */
 export function OrderPickPreview({ orderPick, pickDraft, scales, IW }) {
+  // ⚠ 훅은 조기 반환보다 **앞**이어야 한다 (React 규칙)
+  const { step: qStep } = useStore(s => s.symbolFilters);
   if (!orderPick || !pickDraft || !scales) return null;
 
+  // ⚠ 실주문(orderSlice.placeSplitOrders)과 **같은 인자**로 부를 것 — 수량 단위가
+  //   다르면 미리보기에 뜬 조각과 실제로 나가는 조각이 어긋난다
   const orders = splitPlan(pickDraft.p1, pickDraft.p2, orderPick.count, orderPick.qty,
-                           orderPick.side === "LONG", orderPick.kind);
+                           orderPick.side === "LONG", orderPick.kind, qStep);
   if (!orders.length) return null;
 
   const color = orderPick.side === "LONG" ? PALETTE.long : PALETTE.short;

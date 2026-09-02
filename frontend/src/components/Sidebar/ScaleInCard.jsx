@@ -3,6 +3,8 @@ import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
 import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, SubmitButton, CardWrapper, CancelAllButton } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
+import { floorQty, qtyLabel } from "../../utils/qty";
+import { useStore } from "../../store";
 
 /**
  * 추가 진입.
@@ -22,13 +24,15 @@ import { iconBtn } from "../sidebarBtn";
  */
 export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders, onCancelScaleIn, embedded }) {
   const { theme } = useTheme();
+  // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1)
+  const { step: qStep, base: qBase } = useStore(s => s.symbolFilters);
   const isLong = side === "LONG";
   const [orderType, setOrderType] = useState("LIMIT");
   const [pct, setPct]     = usePersistedNum("scaleInPct", 50);
   const [count, setCount] = usePersistedNum("scaleInCount", 3);
 
   const color  = isLong ? PALETTE.long : PALETTE.short;
-  const addQty = parseFloat(((posData?.size ?? 0) * pct / 100).toFixed(3));
+  const addQty = floorQty((posData?.size ?? 0) * pct / 100, qStep);
 
   // ⚠ 훅은 early return **앞**에 있어야 한다 (React 규칙) — posData가 없어지는
   //   순간(청산)에도 훅 개수가 같아야 하고, 그때 useChartPick의 정리 이펙트가
@@ -57,7 +61,7 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
           padding: "5px 8px", marginBottom: "4px", borderRadius: "4px",
           background: `${PALETTE.info}18`, border: `1px solid ${PALETTE.info}44` }}>
           <span style={{ fontSize: "11px", color: PALETTE.info }}>
-            대기중 ${o.price?.toLocaleString()} · {o.qty} BTC
+            대기중 ${o.price?.toLocaleString()} · {qtyLabel(o.qty, qStep, qBase)}
           </span>
           <button onClick={() => onCancelScaleIn(o.orderId)}
             style={iconBtn(PALETTE.short, "12px")}>✕</button>
@@ -79,7 +83,7 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
 
       <PercentSlider
         pct={pct} onChange={setPct} color={color}
-        label="추가 수량" secondaryText={`${pct}% (${addQty} BTC)`}
+        label="추가 수량" secondaryText={`${pct}% (${qtyLabel(addQty, qStep, qBase)})`}
       />
 
       {orderType === "LIMIT" && (

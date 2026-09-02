@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { BN_PUBLIC, TF_MS, INTERVALS } from "../constants";
+import { BN_PUBLIC, TF_MS, INTERVALS, DEFAULT_SYMBOL } from "../constants";
 import { computePivotLevels, combineTfLevels } from "../chart/pivotLevels";
 
 // 각 TF에서 받아올 캔들 수 — lookback(600) + 피벗 확인봉 여유
@@ -10,11 +10,11 @@ const MAX_REFETCH_MS = 30 * 60_000;
 
 const TF_ORDER = INTERVALS.map(i => i.value);
 
-async function fetchCandles(tf, signal, endMs) {
+async function fetchCandles(tf, signal, endMs, symbol) {
   // endMs가 있으면 그 시각까지만 — 리플레이에서 **미래 봉으로 만든 레벨**이 뜨는 걸 막는다
   const until = endMs ? `&endTime=${endMs - 1}` : "";
   const r = await fetch(
-    `${BN_PUBLIC}/fapi/v1/klines?symbol=BTCUSDT&interval=${tf}&limit=${FETCH_LIMIT}${until}`,
+    `${BN_PUBLIC}/fapi/v1/klines?symbol=${symbol}&interval=${tf}&limit=${FETCH_LIMIT}${until}`,
     { signal },
   );
   if (!r.ok) throw new Error(`klines ${tf} ${r.status}`);
@@ -41,7 +41,7 @@ async function fetchCandles(tf, signal, endMs) {
  *   레벨은 현재까지의 고/저점으로 계산돼, 아직 오지 않은 가격에 지지·저항선이 그려진다.
  *   그 선을 보고 매매하면 연습 자체가 무의미해진다.
  */
-export function usePivotLevels(params = {}, endMs = null) {
+export function usePivotLevels(params = {}, endMs = null, symbol = DEFAULT_SYMBOL) {
   const pivot_bars = params.pivot_bars ?? 8;
   const merge_atr  = params.merge_atr  ?? 0.5;
   const min_touch  = params.min_touch  ?? 2;
@@ -76,7 +76,9 @@ export function usePivotLevels(params = {}, endMs = null) {
     if (!tfs.length) return;
 
     const endAt = endMsRef.current;
-    const mode = endAt ? "replay" : "live";
+    // ⚠ 캐시 키에 심볼이 들어간다. 안 넣으면 **BTC로 만든 지지·저항이 ETH 차트에 뜬다**
+    //   (모드 전환에서 캐시를 버리는 것과 정확히 같은 이유)
+    const mode = (endAt ? "replay" : "live") + ":" + symbol;
     // 모드가 바뀌면 캐시를 버린다 — 실거래에서 받아 둔(=미래가 섞인) 캔들이
     // 리플레이 첫 프레임에 잠깐 그려지면 그게 곧 누출이다
     if (modeRef.current !== mode) {
@@ -104,7 +106,7 @@ export function usePivotLevels(params = {}, endMs = null) {
     const pull = async (tf, doFetch) => {
       if (doFetch) {
         try {
-          const c = await fetchCandles(tf, ac.signal, endAt);
+          const c = await fetchCandles(tf, ac.signal, endAt, symbol);
           fetchedAtRef.current[tf]  = Date.now();
           if (endAt) fetchedKeyRef.current[tf] = bucketOf(tf);
           if (alive) setCandlesByTf(prev => ({ ...prev, [tf]: c }));
@@ -129,7 +131,7 @@ export function usePivotLevels(params = {}, endMs = null) {
       ac.abort();
       timers.forEach(clearTimeout);
     };
-  }, [tfKey, endKey]);
+  }, [tfKey, endKey, symbol]);   // 심볼이 바뀌면 캐시를 버리고 그 심볼의 캔들을 다시 받는다
 
   return useMemo(() => {
     const tfs = tfKey ? tfKey.split(",") : [];

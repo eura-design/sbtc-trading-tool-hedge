@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { BN_PUBLIC, BN_WS, TF_MS } from "../constants";
+import { BN_PUBLIC, BN_WS, TF_MS, DEFAULT_SYMBOL } from "../constants";
 
 const ALL_TF      = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
 const TF_LABEL    = { "5m": "5분", "15m": "15분", "1h": "1시간", "4h": "4시간", "1d": "1일", "1w": "1주", "1M": "1월" };
@@ -10,7 +10,7 @@ import { buildRSIState, tickRSI } from "../utils/rsi";
 
 // ── 타임프레임별 모니터 ────────────────────────────────────────────────────────
 
-function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef) {
+function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef, symbol) {
   let closed = false;
 
   stateRef.current[tf] = {
@@ -23,7 +23,7 @@ function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef) {
   };
 
   // 초기 캔들 REST 로드
-  fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=BTCUSDT&interval=${tf}&limit=300`)
+  fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=${symbol}&interval=${tf}&limit=300`)
     .then(r => r.json())
     .then(d => {
       if (closed) return;
@@ -66,7 +66,7 @@ function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef) {
   // WebSocket 연결
   const connectWS = () => {
     if (closed) return;
-    const ws = new WebSocket(`${BN_WS}/ws/btcusdt@kline_${tf}`);
+    const ws = new WebSocket(`${BN_WS}/ws/${symbol.toLowerCase()}@kline_${tf}`);
     stateRef.current[tf].ws = ws;
 
     ws.onmessage = (evt) => {
@@ -168,7 +168,7 @@ function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef) {
  *   과거를 재생하는 중에 **현재 시각의 RSI 알림**이 울리면 그 자체가 미래 정보다
  *   ("지금 1h가 과매수"는 재생 중인 시점에서는 알 수 없는 사실이다).
  */
-export function useAlertMonitor(settings, onAlert, rsiParams = {}, enabled = true) {
+export function useAlertMonitor(settings, onAlert, rsiParams = {}, enabled = true, symbol = DEFAULT_SYMBOL) {
   const settingsRef  = useRef(settings);
   settingsRef.current = settings;
   const onAlertRef   = useRef(onAlert);
@@ -180,13 +180,15 @@ export function useAlertMonitor(settings, onAlert, rsiParams = {}, enabled = tru
   useEffect(() => {
     if (!enabled) return;
     const cleanups = ALL_TF.map(tf =>
-      startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef)
+      startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef, symbol)
     );
     return () => {
       cleanups.forEach(fn => fn());
       stateRef.current = {};
     };
-  }, [enabled]); // settings는 ref로 항상 최신값 참조 — enabled만 재연결 대상이다
+  }, [enabled, symbol]); // settings는 ref로 항상 최신값 참조.
+     // 심볼이 바뀌면 7개 스트림을 전부 다시 연다 - 기준선도 같이 초기화돼야 한다
+     // (BTC의 RSI 상태로 ETH를 판정하면 첫 틱에 바로 오알림이 뜬다)
 
   // rsiParams.period 변경 시 rsiState를 새 기간으로 재빌드 (틱 RSI 연속성 유지)
   useEffect(() => {

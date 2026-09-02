@@ -37,7 +37,8 @@ export const createOrderSlice = (set, get) => ({
       }
     } catch { /* 조회 실패 시 통과 — 서버에서 최종 차단 */ }
     const capital = balance?.availableBalance ?? 0;
-    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage);
+    const { step, minQty, tick } = get().symbolFilters;
+    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick);
     if (!posCalc) return;
     const qty = posCalc.actualQty;
     if (!qty || qty <= 0) return;
@@ -174,7 +175,8 @@ export const createOrderSlice = (set, get) => ({
       : 0;
 
     const capital = (balance?.availableBalance ?? 0) + pendingMargin;
-    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage);
+    const { step, minQty, tick } = get().symbolFilters;
+    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick);
     if (!posCalc) return;
     setDrawing(isLong, prev => prev ? { ...prev, orderId: undefined } : prev);
     const cancelSide = isLongToPosition(drawing.isLong);
@@ -377,9 +379,12 @@ export const createOrderSlice = (set, get) => ({
     // ⚠ `splitOrders`가 아니라 **`splitPlan`**이다 — 큰 조각이 갈 쪽은 **사이드와
     //   종류**가 정한다(기준가에서 먼 쪽). `splitOrders`를 직접 부르면 **드래그를
     //   어느 끝에서 시작했느냐로 배분이 갈린다** (2026-08-27에 고친 버그)
-    const orders = splitPlan(p1, p2, count, totalQty, isLong, kind);
+    // ⚠ 수량 단위는 심볼의 것을 쓴다 — 안 넘기면 splitLevels가 BTCUSDT의 0.001로
+    //   쪼개서, DOGE(단위 1)에서는 나갈 수 없는 조각이 만들어진다
+    const { step: qStep, base: qBase } = get().symbolFilters;
+    const orders = splitPlan(p1, p2, count, totalQty, isLong, kind, qStep);
     if (!orders.length) {
-      setOrderStatus({ type: "error", msg: "수량이 최소 단위(0.001 BTC)보다 작습니다" });
+      setOrderStatus({ type: "error", msg: `수량이 최소 단위(${qStep} ${qBase})보다 작습니다` });
       return;
     }
 

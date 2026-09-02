@@ -75,3 +75,39 @@ test("손절이 멀수록 수량이 준다", () => {
   const far  = calcPosition(10000, 0.01, 50000, 45000, 20).actualQty;
   assert.ok(far < near, `먼 손절 ${far} >= 가까운 손절 ${near}`);
 });
+
+// ── 심볼마다 다른 수량 단위 (2026-09-02) ────────────────────────────────────
+// 실측값: SOL step 0.01 / DOGE step 1 (최소 수량도 같다)
+
+test("수량 단위가 심볼의 것을 따른다", () => {
+  // DOGE(step 1): 소수가 남으면 거래소가 거절한다
+  const doge = calcPosition(10000, 0.01, 0.2, 0.19, 10, 1, 1, 0.00001);
+  assert.equal(doge.actualQty % 1, 0, `DOGE 수량에 소수가 남았다: ${doge.actualQty}`);
+  assert.ok(doge.actualQty >= 1);
+
+  // SOL(step 0.01)
+  const sol = calcPosition(10000, 0.01, 200, 195, 10, 0.01, 0.01, 0.01);
+  const units = sol.actualQty / 0.01;
+  assert.ok(Math.abs(units - Math.round(units)) < 1e-6, `SOL 수량이 0.01 배수가 아니다: ${sol.actualQty}`);
+});
+
+test("손절 거리 하한이 호가 단위를 따른다", () => {
+  // 옛 코드는 0.1 고정이라, 가격이 0.2인 DOGE에서는 정상 주문이 통째로 막혔다
+  const doge = calcPosition(10000, 0.01, 0.2, 0.1995, 10, 1, 1, 0.00001);
+  assert.ok(doge !== null, "호가 단위가 작은 코인에서 계산이 막혔다");
+  // 그래도 한 칸보다 가까우면 막는다
+  assert.equal(calcPosition(10000, 0.01, 0.2, 0.200005, 10, 1, 1, 0.00001), null);
+});
+
+test("최소 수량도 심볼의 것을 쓴다", () => {
+  // 자본이 작아 이상적 수량이 1 미만 → DOGE의 최소 수량 1로 올라간다
+  const r = calcPosition(50, 0.001, 0.2, 0.15, 10, 1, 1, 0.00001);
+  assert.equal(r.actualQty, 1);
+  assert.equal(r.isMinCapped, true);
+});
+
+test("안 넘기면 예전 BTCUSDT 동작 그대로다", () => {
+  const a = calcPosition(10000, 0.01, 50000, 49000, 10);
+  const b = calcPosition(10000, 0.01, 50000, 49000, 10, 0.001, 0.001, 0.1);
+  assert.deepEqual(a, b);
+});

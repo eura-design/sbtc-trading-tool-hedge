@@ -2,9 +2,14 @@ import { useState } from "react";
 import * as d3 from "d3";
 import { useTheme } from "../../ThemeContext";
 import { calcRR } from "../../utils/format";
+import { qtyLabel } from "../../utils/qty";
+import { useStore } from "../../store";
 
 export function PlanCard({ drawing, posCalc, leverage, riskPct, position, hasPending, onConfirm, onCancel }) {
   const { theme } = useTheme();
+  // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1).
+  // ⚠ 훅은 아래 조기 반환보다 **앞**이어야 한다 (React 규칙)
+  const { step: qStep, base: qBase } = useStore(s => s.symbolFilters);
   const [orderType, setOrderType] = useState("LIMIT");
   if (!drawing) return null;
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
@@ -28,7 +33,7 @@ export function PlanCard({ drawing, posCalc, leverage, riskPct, position, hasPen
         {[
           ["청산가",     "—",                                                                                          "#ff4444"],
           ["손익비 R:R", `1 : ${calcRR(drawing.entry, drawing.tp, drawing.sl, drawing.isLong)}`,                     "#a78bfa"],
-          ["수량",       posCalc ? `${posCalc.actualQty.toFixed(3)} BTC` : "—",                                      "#94a3b8"],
+          ["수량",       posCalc ? qtyLabel(posCalc.actualQty, qStep, qBase) : "—",                                  "#94a3b8"],
           ["포지션 USD", posCalc ? fmtI(posCalc.actualQty * drawing.entry) : "—",                                    "#94a3b8"],
           ["예상 손실",  posCalc ? `-${fmt(posCalc.actualQty * Math.abs(drawing.entry - drawing.sl))}` : "—",        "#f6465d"],
           ["예상 수익",  posCalc ? `+${fmt(posCalc.actualQty * Math.abs(drawing.tp - drawing.entry))}` : "—",        "#0ecb81"],

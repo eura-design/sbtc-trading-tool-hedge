@@ -17,6 +17,20 @@ import { clientLog } from "./clientLog";
 //   그래서 replaySlice가 setReplayGuard로 값을 밀어 넣는다.
 let _replayGuard = false;
 
+// ── 심볼 (2026-09-02) ─────────────────────────────────────────────────────
+// 모든 요청에 **지금 보고 있는 심볼**을 실어 보낸다. 백엔드는 없으면 기본 심볼로
+// 떨어지므로 안 실으면 조용히 BTCUSDT로 나간다.
+//
+// ⚠ **호출부마다 넣지 않고 여기 한 곳에서 넣는다.** 주문 액션이 16개가 넘는데
+//   하나만 빠뜨려도 그 경로가 다른 코인 화면에서 BTC 주문을 낸다 — 리플레이 가드와
+//   로그를 여기 둔 것과 정확히 같은 이유다.
+// ⚠ **호출부가 직접 넣은 symbol이 이긴다.** 이미 걸린 주문을 취소할 때처럼
+//   "화면이 아니라 그 주문의 심볼"이어야 하는 경우가 있다.
+// ⚠ store를 import하지 않는다 (store → api 방향이라 순환) — replayGuard와 같은 방식으로
+//   settingsSlice가 밀어 넣는다
+let _symbol = null;
+export function setApiSymbol(sym) { _symbol = sym; }
+
 // ⚠ 가드의 목적은 **실주문 차단**이지 "쓰기 금지"가 아니다.
 // 계좌와 무관한 UI 설정은 리플레이 중에도 저장돼야 한다 — 지표 파라미터가 그렇다.
 // (한때 막혀 있었는데 useIndicatorParams가 `.catch(() => {})`로 삼켜서,
@@ -48,10 +62,20 @@ export async function api(method, path, body) {
     throw new Error("리플레이 모드에서는 실제 주문을 보낼 수 없습니다 (연습 계좌로 처리됩니다)");
   }
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    // GET은 쿼리로, 나머지는 본문으로. 이미 들어 있으면 건드리지 않는다
+    let url = `${API_BASE}${path}`;
+    let sendBody = body;
+    if (_symbol) {
+      if (method === "GET") {
+        if (!/[?&]symbol=/.test(url)) url += (url.includes("?") ? "&" : "?") + "symbol=" + _symbol;
+      } else if (!body || body.symbol == null) {
+        sendBody = { ...(body ?? {}), symbol: _symbol };
+      }
+    }
+    const res = await fetch(url, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : {},
-      body: body ? JSON.stringify(body) : undefined,
+      headers: sendBody ? { "Content-Type": "application/json" } : {},
+      body: sendBody ? JSON.stringify(sendBody) : undefined,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { BN_PUBLIC, BN_WS } from "../constants";
+import { BN_PUBLIC, BN_WS, DEFAULT_SYMBOL } from "../constants";
 import { useStore } from "../store";
 
 /**
@@ -7,7 +7,7 @@ import { useStore } from "../store";
  *   실시간 캔들이 계속 흐르면 liveClose가 현재가로 덮이고(과거를 보는 중인데 현재가가
  *   뜬다) WS도 쓸데없이 열려 있다. 리플레이는 useReplay가 같은 계약으로 대체한다.
  */
-export function useCandles(interval, onTickRef, enabled = true) {
+export function useCandles(interval, onTickRef, enabled = true, symbol = DEFAULT_SYMBOL) {
   const [candles, setCandles] = useState([]);
   const [loading, setLoading] = useState(true);
   const candlesRef = useRef([]);
@@ -25,7 +25,8 @@ export function useCandles(interval, onTickRef, enabled = true) {
         ws.onclose = null;
         ws.close();
       }
-      ws = new WebSocket(`${BN_WS}/ws/btcusdt@kline_${interval}`);
+      // 스트림 이름은 **소문자**여야 한다 — 대문자로 보내면 조용히 아무것도 안 온다
+      ws = new WebSocket(`${BN_WS}/ws/${symbol.toLowerCase()}@kline_${interval}`);
       ws.onmessage = (evt) => {
         const k = JSON.parse(evt.data).k;
         const candle = { t: new Date(k.t), o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v };
@@ -64,14 +65,14 @@ export function useCandles(interval, onTickRef, enabled = true) {
     const load = async () => {
       try {
         const parse = d => Array.isArray(d) ? d.map(k => ({ t: new Date(k[0]), o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] })) : [];
-        const r1 = await fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=BTCUSDT&interval=${interval}&limit=1500`);
+        const r1 = await fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=1500`);
         const recent = parse(await r1.json());
         if (!recent.length) {
-          console.warn(`[useCandles] ${interval} 캔들 응답 없음 — 재연결 대기`);
+          console.warn(`[useCandles] ${symbol} ${interval} 캔들 응답 없음 - 재연결 대기`);
           return;
         }
         const endTime = recent[0].t.getTime() - 1;
-        const r2 = await fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=BTCUSDT&interval=${interval}&limit=1500&endTime=${endTime}`);
+        const r2 = await fetch(`${BN_PUBLIC}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=1500&endTime=${endTime}`);
         const older = parse(await r2.json());
         const parsed = [...older, ...recent];
         if (closed) return;
@@ -100,7 +101,7 @@ export function useCandles(interval, onTickRef, enabled = true) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (ws) ws.close();
     };
-  }, [interval, enabled]);
+  }, [interval, enabled, symbol]);   // 심볼이 바뀌면 캔들을 통째로 다시 받는다
 
   return { candles, candlesRef, loading };
 }

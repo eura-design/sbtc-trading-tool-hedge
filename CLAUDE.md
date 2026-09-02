@@ -81,6 +81,7 @@ logs/  backups/  daily_summary.jsonl  income_cursor.json  pending_orders.json  .
 ### 프론트엔드 (`frontend/src/`)
 ```
 constants.js               테마(DARK/LIGHT), 레이아웃 상수, API_BASE, BN_WS, INTERVALS, CANVAS_C, POLLING
+                           ⚠ MIN_QTY·QTY_STEP은 **BTCUSDT 값이자 대비책일 뿐** — useSymbolFilters를 쓸 것
 ThemeContext.jsx           ThemeProvider + useTheme()
 App.jsx                    hooks 조합 + TopBar/SidebarPanel/ChartArea 조립
 main.jsx   index.css
@@ -88,7 +89,7 @@ main.jsx   index.css
 store/
   index.js                 Zustand 스토어 조립 (4 slice) — useStore
   serverSlice.js           balance/position/tpsl/liveClose + refetch 콜백
-  settingsSlice.js         riskPctLong·riskPctShort/leverage/interval_/indicators (localStorage)
+  settingsSlice.js         riskPctLong·riskPctShort/leverage/interval_/indicators/symbol/symbolFilters (localStorage)
   uiSlice.js               drawings/drawMode/orderStatus/criticalAlerts/selectedBox/드래그 상태
   replaySlice.js           리플레이 모드 상태 (replayOn/구간/시계/페이퍼 브로커)
   orderSlice.js            주문 액션 전부 (아래 "주문 액션" 참고)
@@ -102,6 +103,7 @@ utils/
   storage.js               lsGet/lsSet/lsRemove/lsGetJSON/lsSetJSON — localStorage 직접 호출 금지
   calc.js                  calcPosition() — 리스크 기반 수량 계산
   splitLevels.js           분할 주문 가격·수량 배분 (splitPlan/splitOrders/maxSplitCount)
+  qty.js                   수량 표시·내림 (fmtQty/floorQty/qtyLabel) — 심볼 단위를 따른다
   equity.js                unrealizedFor/totalUnrealized/totalEquity
   side.js                  헷지모드 side 매핑 (+ isLongToPosition/isLongToSide)
   coordUtils.js            idxToTimestamp/getCandleMs/addMonthsUTC
@@ -112,6 +114,7 @@ hooks/
   useRealtimeData.js       백엔드 WebSocket 연결
   usePoll.js               폴링 공통 훅 (enabled=false면 리플레이용 no-op)
   useBalance / usePosition / useTpsl / useDailyLoss / useStats / useMarketInfo / useHealth
+  useSymbolFilters.js      심볼별 호가·수량 단위 (GET /api/symbols) — **수량 계산의 유일한 출처**
   usePositionFlags.js      derivePositionFlags(position) → hasLong/hasShort/hasPos/hasBoth/hasPending/drawLocked
   useOrderFlow.js          orderSlice 액션 재-export 래퍼
   useChartSize / useChartRenderer / useChartInteraction / useCrosshair
@@ -140,6 +143,7 @@ chart/
 components/
   TopBar.jsx               TF 선택, 현재가, 드로잉 모드 버튼, 지표·알림·단축키 메뉴, 테마
   ChartArea.jsx            차트 영역 조합
+  SymbolPicker.jsx         심볼 검색·선택 (목록은 백엔드가 exchangeInfo에서 준다)
   IndicatorMenu / NotificationMenu / ShortcutMenu / ReplayBar
   Toast / StatusAlert / Slider / Divider / sidebarBtn.js(버튼 규격)
   Chart/
@@ -191,6 +195,12 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
 
 ### 심볼
 - 심볼별 규칙(호가·수량 단위)은 **바이낸스 `exchangeInfo`가 원본** — `services/symbolInfo.js`
+- **프론트**: 상태는 `settingsSlice.symbol` 하나(localStorage). 규칙은 `useSymbolFilters`가
+  받아 `symbolFilters`로 스토어에 밀어 넣는다 (수량 계산이 스토어 안에서도 돌기 때문)
+- `api/client.js`가 **모든 요청에 심볼을 자동으로 싣는다** — 호출부마다 넣지 않는다
+  (주문 액션이 16개라 하나만 빠뜨려도 그 경로가 다른 코인 화면에서 BTC 주문을 낸다).
+  호출부가 직접 넣은 `symbol`이 이긴다
+- ⚠ 수량 자릿수를 `toFixed(3)`으로 쓰지 말 것 — `utils/qty.js`가 심볼 단위를 따른다
 - 라우트는 body/query의 `symbol`을 받는다 (`symbolInfo.fromRequest`, 없으면 기본 심볼).
   **모르는 심볼은 400**이다 — 통과시키면 가격이 이미 기본 심볼 단위로 만들어진 뒤 거절된다
 - **이미 걸린 주문을 건드릴 때는 `store.symbolOf(orderId)`를 쓴다** (요청이 아니라).

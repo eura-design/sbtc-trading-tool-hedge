@@ -45,6 +45,12 @@ export const RSI_GAP   = 1;
 //   (chart/overlayRenderers.js의 lastRsiZoneRun)
 export const VOL_H     = 80;
 export const VOL_GAP   = 1;
+// ⚠ **BTCUSDT의 값이자, 서버에서 못 받았을 때의 대비책일 뿐이다** (2026-09-02).
+//   진짜 값은 바이낸스 `exchangeInfo`가 정하고 `GET /api/symbols`로 내려온다
+//   (`hooks/useSymbolFilters.js`). 코인마다 다르다 — SOL은 0.01, DOGE는 **1**이다.
+//   ⚠ 새 코드에서 이걸 직접 import하지 말 것. 화면에 DOGE를 띄워 놓고 0.001로
+//     계산하면 "0.001 DOGE 주문"이 뜨는데 실제로는 나갈 수 없는 수량이다.
+//     `useSymbolFilters()`가 주는 값을 쓸 것
 export const MIN_QTY   = 0.001;
 export const QTY_STEP  = 0.001;
 export const HIT       = 8;
@@ -59,6 +65,9 @@ export const HIT       = 8;
 // ※ 그리는 중 프리뷰 점(r=3)은 대상이 아니다 — 그건 "선택"이 아니라 "지금 찍은 첫 점" 표시고
 //   구조 draft 점과 이미 같은 크기다.
 export const SEL_HANDLE_R = 2.5;
+
+// 처음 켤 때의 심볼. 사용자가 고른 값은 localStorage("symbol")에 남는다
+export const DEFAULT_SYMBOL = "BTCUSDT";
 
 export const API_BASE  = "http://localhost:3002";
 export const BN_PUBLIC = "https://fapi.binance.com";

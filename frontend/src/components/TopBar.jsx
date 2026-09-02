@@ -5,9 +5,10 @@ import { useStore } from "../store";
 import { IndicatorMenu }      from "./IndicatorMenu";
 import { NotificationMenu }  from "./NotificationMenu";
 import { ShortcutMenu }      from "./ShortcutMenu";
+import { SymbolPicker }      from "./SymbolPicker";
 
 
-export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, measureMode, onMeasureModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
+export function TopBar({ symbol, symbols, onSymbolChange, interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, measureMode, onMeasureModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
   const fmtI  = p => `$${d3.format(",.0f")(p)}`;
@@ -20,8 +21,15 @@ export function TopBar({ interval_, onIntervalChange, lineMode, onLineModeToggle
     <div style={{ display:"flex", alignItems:"center", gap:"6px", padding:"8px 12px",
       borderBottom:`1px solid ${theme.border}`, background:theme.bgMain, flexShrink:0 }}>
 
-      {/* Brand */}
-      <span style={{ fontSize:"14px", fontWeight:"700", color:"#f7931a", whiteSpace:"nowrap" }}>₿ BTC/USDT</span>
+      {/* 심볼 — 예전엔 `₿ BTC/USDT` 고정 문구였다 (2026-09-02에 선택기로 바뀜).
+          ⚠ 여기에 코인 목록을 하드코딩하지 말 것. 목록은 백엔드가 exchangeInfo에서
+            받아 주고(`GET /api/symbols`), 그래서 코인을 늘릴 때 손댈 곳이 없다 */}
+      <SymbolPicker
+        symbol={symbol} symbols={symbols} onChange={onSymbolChange}
+        disabled={replayOn || !symbols.length}
+        disabledReason={replayOn ? "리플레이 중에는 심볼을 바꿀 수 없습니다"
+                                 : "심볼 목록을 받지 못했습니다 (백엔드 확인)"}
+      />
       <span style={{ fontSize:"11px", color:theme.textSec, background:theme.border,
         padding:"1px 5px", borderRadius:"3px", flexShrink:0 }}>PERP</span>
 

@@ -1,5 +1,7 @@
 // Module-level timer: riskPct/leverage 변경 시 pending 주문 재등록 debounce
 import { lsGet, lsSet } from "../utils/storage";
+import { DEFAULT_SYMBOL, QTY_STEP, MIN_QTY } from "../constants";
+import { setApiSymbol } from "../api/client";
 
 let _replaceTimer = null;
 // 이 debounce 창 안에서 값이 바뀐 **사이드**. 리스크는 한쪽만 바꾸므로,
@@ -125,6 +127,10 @@ export function swapTradeSettings(replayOn) {
  */
 export const riskPctFor = (s, isLong) => (isLong ? s.riskPctLong : s.riskPctShort);
 
+// ⚠ 저장돼 있던 심볼을 **스토어를 만들기 전에** API 클라이언트에 알린다.
+//   안 하면 첫 폴링 몇 번이 기본 심볼로 나가서, ETH를 보고 있는데 BTC 포지션이 뜬다
+setApiSymbol(lsGet("symbol") || DEFAULT_SYMBOL);
+
 export const createSettingsSlice = (set, get) => ({
   // ── 설정 (localStorage 동기화) ────────────────────────────────────────────
   // ⚠ 리스크·레버리지의 저장 키는 모드에 따라 바뀐다 (위 swapTradeSettings).
@@ -134,6 +140,20 @@ export const createSettingsSlice = (set, get) => ({
   riskPctShort: readRisk(false),
   leverage:   readLev(),
   interval_:  lsGet("interval") || "1h",
+  // -- 심볼 (2026-09-02) ---------------------------------------------------
+  // 주의: **실거래와 연습이 값을 나누지 않는다.** 리스크/레버리지와 다른 이유는,
+  //   저건 "얼마를 걸까"라 연습에서 과감해진 값이 실거래로 새면 위험하지만
+  //   심볼은 "무엇을 보는가"이기 때문이다. 연습에서 ETH를 보다 실거래로 돌아왔을 때
+  //   화면이 BTC로 튀면 그게 더 놀랍다.
+  // 주의: 심볼을 바꾸면 캔들/도형/포지션이 전부 따라 바뀐다. 값 하나가 화면 전체를
+  //   갈아끼우므로 **여기 말고 다른 곳에 심볼 상태를 또 두지 말 것**
+  symbol:     lsGet("symbol") || DEFAULT_SYMBOL,
+  // 이 심볼의 거래 규칙 — `useSymbolFilters`가 서버에서 받아 App이 밀어 넣는다.
+  // ⚠ **스토어에 두는 이유**: 수량 계산(calcPosition)을 부르는 곳이 스토어 안(orderSlice·
+  //   paperActions)에도 있어서, 훅 반환값을 props로 흘리면 그 두 곳에 닿지 않는다.
+  // ⚠ 처음 값은 BTCUSDT 것이다 — 못 받았을 때 화면이 멈추는 것보다 낫지만,
+  //   다른 코인에서 이 값이 그대로면 수량이 틀린다. 그래서 선택기가 목록을 못 받으면 죽는다
+  symbolFilters: { step: QTY_STEP, minQty: MIN_QTY, tick: 0.1, base: "BTC" },
   indicators: (() => {
     try { return JSON.parse(lsGet("indicators") || "{}"); }
     catch { return {}; }
@@ -151,6 +171,17 @@ export const createSettingsSlice = (set, get) => ({
     // 레버리지는 심볼 단위라 양쪽 다 영향을 받는다 (바이낸스가 사이드별로 안 받는다)
     scheduleReplace(get, ["long", "short"]);
   },
+
+  setSymbol: (symbol) => {
+    if (!symbol || symbol === get().symbol) return;
+    lsSet("symbol", symbol);
+    // ⚠ API 클라이언트에도 즉시 알린다. 여기서 안 하면 심볼을 바꾼 직후의 주문이
+    //   **옛 심볼로 나간다** (client.js는 store를 import할 수 없어 밀어 넣는 방식이다)
+    setApiSymbol(symbol);
+    set({ symbol });
+  },
+
+  setSymbolFilters: (f) => set({ symbolFilters: f }),
 
   setInterval_: (interval_) => {
     lsSet("interval", interval_);

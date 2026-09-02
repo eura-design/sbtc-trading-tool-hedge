@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { BN_PUBLIC } from "../constants";
+import { BN_PUBLIC, DEFAULT_SYMBOL } from "../constants";
 
 // 펀딩비 + 공포·탐욕 지수
 //
@@ -74,7 +74,7 @@ function useFundingCountdown(nextFundingTime, nowOverride) {
 /**
  * @param replayNowMs 리플레이 재생 시각. null이면 실거래(현재 값 폴링).
  */
-export function useMarketInfo(replayNowMs = null) {
+export function useMarketInfo(replayNowMs = null, symbol = DEFAULT_SYMBOL) {
   const replay = replayNowMs != null;
 
   // ── 실거래 ──────────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ export function useMarketInfo(replayNowMs = null) {
     let alive = true;
     const fetchFunding = async () => {
       try {
-        const r = await fetch(`${BN_PUBLIC}/fapi/v1/premiumIndex?symbol=BTCUSDT`);
+        const r = await fetch(`${BN_PUBLIC}/fapi/v1/premiumIndex?symbol=${symbol}`);
         const d = await r.json();
         const rate = parseFloat(d.lastFundingRate);
         if (alive && !isNaN(rate)) setLive({ rate: rate * 100, next: d.nextFundingTime });
@@ -95,7 +95,7 @@ export function useMarketInfo(replayNowMs = null) {
     fetchFunding();
     const id = setInterval(fetchFunding, 60_000);
     return () => { alive = false; clearInterval(id); };
-  }, [replay]);
+  }, [replay, symbol]);   // 심볼이 바뀌면 펀딩비를 다시 받는다
 
   useEffect(() => {
     if (replay) return;
@@ -133,7 +133,7 @@ export function useMarketInfo(replayNowMs = null) {
     (async () => {
       try {
         const r = await fetch(
-          `${BN_PUBLIC}/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=${from}&limit=1000`,
+          `${BN_PUBLIC}/fapi/v1/fundingRate?symbol=${symbol}&startTime=${from}&limit=1000`,
           { signal: ac.signal },
         );
         if (!r.ok) return;
@@ -145,7 +145,7 @@ export function useMarketInfo(replayNowMs = null) {
       } catch (e) { if (e.name !== "AbortError") console.error("[useMarketInfo] funding 이력 실패", e); }
     })();
     return () => ac.abort();
-  }, [replay, replayDay]);
+  }, [replay, replayDay, symbol]);   // 펀딩비 이력도 심볼별이다
 
   // 공포탐욕은 하루 1건이라 세션 전체를 한 번에 받는다 (오늘까지의 일수 + 여유)
   const fgLoadedRef = useRef(false);

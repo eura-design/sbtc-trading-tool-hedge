@@ -86,7 +86,10 @@ export function MarketInfoCard() {
   // 리플레이면 재생 시각의 과거 값을 보여준다 — 오늘의 펀딩비·심리 지표가 뜨면
   // 그것 자체가 미래 정보다 (둘 다 이력 API가 있다 — useMarketInfo 상단 참고)
   const replayNowMs = useStore(s => s.replayOn ? s.replayNowMs : null);
-  const { fundingRate, fundingCountdown, fearGreed } = useMarketInfo(replayNowMs);
+  // 심볼은 스토어에서 바로 읽는다 - 이 카드 하나 때문에 App -> Sidebar로 props를
+  // 한 단계 더 흘리지 않는다 (펀딩비는 심볼마다 다르다)
+  const symbol = useStore(s => s.symbol);
+  const { fundingRate, fundingCountdown, fearGreed } = useMarketInfo(replayNowMs, symbol);
   const [open, toggle] = useAccordion("accordion_marketInfo");
 
   // ※ 예전엔 라벨 옆에 붙이는 `sub`가 있었다 — 펀딩비 카운트다운 전용이었는데

@@ -32,7 +32,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   const {
     balance, balError,
     position, tpsl, tpslSaving,
-    riskPctLong, riskPctShort, setRiskPct, leverage, setLeverage,
+    riskPctLong, riskPctShort, setRiskPct, leverage, setLeverage, symbolFilters,
     drawMode, drawings, orderStatus, setOrderStatus,
     liveClose, executeOrder, replayOn, paperBroker, replayNowMs,
   } = useStore(useShallow(s => ({
@@ -40,6 +40,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     position: s.position, tpsl: s.tpsl, tpslSaving: s.tpslSaving,
     riskPctLong: s.riskPctLong, riskPctShort: s.riskPctShort, setRiskPct: s.setRiskPct,
     leverage: s.leverage, setLeverage: s.setLeverage,
+    symbolFilters: s.symbolFilters,
     drawMode: s.drawMode, drawings: s.drawings, orderStatus: s.orderStatus, setOrderStatus: s.setOrderStatus,
     liveClose: s.liveClose, executeOrder: s.executeOrder,
     replayOn: s.replayOn, paperBroker: s.paperBroker, replayNowMs: s.replayNowMs,
@@ -160,10 +161,11 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     }
 
     const risk = riskPctFor({ riskPctLong, riskPctShort }, drawing.isLong);
-    return calcPosition(balance.availableBalance ?? 0, risk / 100, drawing.entry, drawing.sl, leverage);
+    return calcPosition(balance.availableBalance ?? 0, risk / 100, drawing.entry, drawing.sl, leverage,
+                       symbolFilters.step, symbolFilters.minQty, symbolFilters.tick);
   };
 
-  const deps = [balance, drawings, riskPctLong, riskPctShort, leverage, position?.pending];
+  const deps = [balance, drawings, riskPctLong, riskPctShort, leverage, position?.pending, symbolFilters];
   const longCalc  = useMemo(() => calcFor(drawings.long),  deps);  // eslint-disable-line react-hooks/exhaustive-deps
   const shortCalc = useMemo(() => calcFor(drawings.short), deps);  // eslint-disable-line react-hooks/exhaustive-deps
 

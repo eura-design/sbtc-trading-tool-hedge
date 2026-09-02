@@ -2,6 +2,8 @@ import { useTheme } from "../../ThemeContext";
 import { PALETTE } from "../../constants";
 import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, CardWrapper, CancelAllButton } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
+import { qtyLabel } from "../../utils/qty";
+import { useStore } from "../../store";
 
 /**
  * 분할 SL — 수량을 지정한 조건부 시장가 손절. 분할 TP의 손절 쪽 짝이다.
@@ -28,6 +30,8 @@ import { iconBtn } from "../sidebarBtn";
  */
 export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }) {
   const { theme } = useTheme();
+  // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1)
+  const { step: qStep, base: qBase } = useStore(s => s.symbolFilters);
   const isLong = side === "LONG";
   const [pct, setPct]     = usePersistedNum("partialSlPct", 50);
   const [count, setCount] = usePersistedNum("partialSlCount", 3);
@@ -52,7 +56,7 @@ export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }
           alignItems: "center", padding: "5px 8px", marginBottom: "4px",
           borderRadius: "4px", background: `${color}18`, border: `1px solid ${color}44` }}>
           <span style={{ fontSize: "11px", color }}>
-            ${o.price?.toLocaleString()} · {o.qty.toFixed(3)} BTC
+            ${o.price?.toLocaleString()} · {qtyLabel(o.qty, qStep, qBase)}
           </span>
           <button onClick={() => onCancelPartialSl(o.orderId)}
             style={iconBtn(PALETTE.short, "12px")}>✕</button>
@@ -64,7 +68,7 @@ export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }
       {partialSls.length > 0 && remaining > 0.0001 && (
         <div style={{ fontSize: "10px", color: theme.textFaint,
           marginBottom: "6px", padding: "2px 2px" }}>
-          잔여 {remaining.toFixed(3)} BTC
+          잔여 {qtyLabel(remaining, qStep, qBase)}
         </div>
       )}
 

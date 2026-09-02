@@ -30,6 +30,7 @@ import { usePositionCloseAlert }     from "./hooks/usePositionCloseAlert";
 import { useNotificationSettings }   from "./hooks/useNotificationSettings";
 import { useAlertMonitor }           from "./hooks/useAlertMonitor";
 import { useIndicatorParams }        from "./hooks/useIndicatorParams";
+import { useSymbolFilters }          from "./hooks/useSymbolFilters";
 import { useEMA }                    from "./hooks/useEMA";
 import { useKeyboardShortcuts }      from "./hooks/useKeyboardShortcuts";
 import { useShortcutSettings }      from "./hooks/useShortcutSettings";
@@ -48,6 +49,7 @@ export default function App() {
   // ── 스토어 ────────────────────────────────────────────────────────────────
   const {
     interval_, setInterval_,
+    symbol, setSymbol, setSymbolFilters,
     indicators, toggleIndicator,
     setDrawMode, setOrderPick,
     drawings, setDrawing, clearDrawings,
@@ -97,6 +99,17 @@ export default function App() {
   // ── 지표 파라미터 ─────────────────────────────────────────────────────────
   // showStruct가 struct.tfs를 봐야 해서 지표 표시 여부보다 먼저 로드한다.
   const { params: indicatorParams, setParam: setIndicatorParam, setEmaList, resetIndicator } = useIndicatorParams();
+
+  // ── 심볼 규칙 (호가·수량 단위) ────────────────────────────────────────────
+  // 원본은 바이낸스 exchangeInfo, 백엔드가 캐시해 준다. 수량 계산이 스토어 안에서도
+  // 돌아서(orderSlice·paperActions) 훅 값을 스토어로 밀어 넣는다
+  const symbolFilters = useSymbolFilters(symbol);
+  useEffect(() => {
+    setSymbolFilters({ step: symbolFilters.qtyStep, minQty: symbolFilters.minQty,
+                       tick: symbolFilters.tickSize,
+                       base: symbolFilters.filters?.baseAsset ?? symbol.replace(/USDT$/, "") });
+  }, [symbolFilters.qtyStep, symbolFilters.minQty, symbolFilters.tickSize,
+      symbolFilters.filters?.baseAsset, symbol, setSymbolFilters]);
 
   // ── 지표 표시 여부 ────────────────────────────────────────────────────────
   // RSI — 지표 토글은 **전 TF 공통**이다. RSI 패널(선)은 어느 프레임에서든 보인다.
@@ -234,14 +247,14 @@ export default function App() {
   const { settings: notifSettings, toggle: notifToggle } = useNotificationSettings();
   // 리플레이 중에는 끈다 — 재생 시점에서는 알 수 없는 "현재 시각의 RSI"가 울리면
   // 그 자체가 미래 정보다
-  useAlertMonitor(notifSettings, addToast, indicatorParams.rsi, !replayOn);
+  useAlertMonitor(notifSettings, addToast, indicatorParams.rsi, !replayOn, symbol);
 
   // ── 캔들 데이터 ───────────────────────────────────────────────────────────
   // 실거래와 리플레이는 **같은 계약**(`{ candles, candlesRef, loading }`)을 돌려주므로
   // 아래 지표·렌더는 어느 쪽이 물렸는지 모른 채 그대로 동작한다.
   // 훅은 둘 다 항상 호출하고(리액트 규칙), 꺼진 쪽이 스스로 아무것도 안 한다.
   const onTickRef = useRef(null);
-  const live   = useCandles(interval_, onTickRef, !replayOn);
+  const live   = useCandles(interval_, onTickRef, !replayOn, symbol);
   const replay = useReplay({
     enabled: replayOn, tf: interval_, onTickRef,
     startMs: replayStartMs,
@@ -317,6 +330,7 @@ export default function App() {
   // ※ 예전엔 "sticky가 아니라 일반 토스트"라는 구분이 여기 있었다 —
   //   2026-08-25에 토스트가 한 종류로 합쳐지면서 그 구분 자체가 없어졌다.
   useChochAlert({
+    symbol,
     structures: structs.structures,
     zzParams:   indicatorParams.zz,
     zzTfs:      showZZ && indicatorParams.zz?.alert_choch === true
@@ -335,7 +349,7 @@ export default function App() {
   // 멀티 TF — 차트 캔들이 아니라 pivot.tfs에서 고른 TF들을 직접 받아 계산한다
   // ⚠ 리플레이에서는 **반드시 시뮬 시각까지만** 계산한다. 안 그러면 2023년을 재생하는
   //   중에 오늘까지의 고/저점으로 만든 지지·저항이 그려져 연습이 무의미해진다
-  const pivotLevels = usePivotLevels(indicatorParams.pivot, replayOn ? replayNowMs : null);
+  const pivotLevels = usePivotLevels(indicatorParams.pivot, replayOn ? replayNowMs : null, symbol);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
   // ⚠ `addSplitTp`/`addPartialSl`은 여기로 내려보내지 않는다 (2026-08-27) —
@@ -515,6 +529,7 @@ export default function App() {
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, overflow: "hidden" }}>
 
         <TopBar
+          symbol={symbol} symbols={symbolFilters.symbols} onSymbolChange={setSymbol}
           interval_={interval_} onIntervalChange={val => { if (val === interval_) return; setInterval_(val); chartActionsRef.current?.resetDomain({ defer: true }); }}
           lineMode={trendLines.lineMode} onLineModeToggle={() => {
             setOrderPick(null); setDrawMode(false); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw(); fibTool.cancelFibDraw(); measureTool.cancelMeasureDraw(); structs.cancelStructDraw();
