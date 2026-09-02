@@ -404,7 +404,11 @@ Auto Structure Zigzag / Custom Structure Zigzag
 - 도형·플랜 박스·리스크·레버리지는 `replay_` 접두사로 분리
 - 세션은 localStorage에 저장 (진행 위치를 **시각**으로) — 구간이 바뀌면 장부만 복원
 - 연습 성적이 사라지는 경로는 `성적 초기화` 버튼 하나뿐
-- 재생 가능 시작: 2019-09-08 (BTCUSDT 무기한 선물 상장일), 세션 최대 90일
+- 재생 가능 시작: **그 심볼의 상장일** (`onboardDate`, exchangeInfo가 준다) — BTC 2019-09-08 /
+  ETH 2019-11-27 / DOGE 2020-07-10. 하나로 박으면 늦게 상장된 코인에서 빈 캔들이 재생된다.
+  세션 최대 90일
+- 연습 청산가의 유지증거금률도 심볼별이다 (`/fapi/v1/leverageBracket` 1구간) —
+  BTC 0.004 / DOGE 0.0065, 작은 코인은 0.1까지 **25배 차이**다
 - ⚠ `replay/`만 상대 import에 `.js` 확장자 — node로 직접 검산하기 위해서다
 
 ---

@@ -14,7 +14,7 @@ const cors    = require("cors");
 
 const { recoverPendingOrders }   = require("./services/recoveryService");
 const { stop: stopWatcher }      = require("./services/orderWatcher");
-const { syncServerTime }         = require("./services/binanceClient");
+const { syncServerTime, loadMaintRates } = require("./services/binanceClient");
 const incomeLogger               = require("./services/incomeLogger");
 const dailySummary               = require("./services/dailySummary");
 const backupStore                = require("./store/backupStore");
@@ -144,6 +144,8 @@ const server = app.listen(PORT, HOST, async () => {
     logStore.log("API_KEY_MISSING", { level: "warn" });
   } else {
     await syncServerTime();
+    // 연습 청산가용 유지증거금률 — 서명이 필요해 키가 있을 때만 (실거래에는 안 쓴다)
+    loadMaintRates().catch(() => {});
     await recoverPendingOrders();
     // 손익·수수료·펀딩비를 로그에 남긴다 (10분 주기) — 이게 있어야 로그 하나로
     // 수익 곡선을 그릴 수 있다. API 키가 있을 때만 의미가 있으므로 여기서 시작한다

@@ -44,6 +44,26 @@ let _map      = new Map(Object.entries(SEED));
 let _loadedAt = 0;
 let _timer    = null;
 
+// ── 유지증거금률 (2026-09-02) ──────────────────────────────────────────────
+// 리플레이의 **연습 청산가**가 이 값으로 정해진다 (replay/paperBroker._liqPrice).
+// ⚠ **코인마다 크게 다르다.** 실측: BTC·ETH 0.004 / SOL 0.005 / DOGE 0.0065,
+//   작은 코인은 0.1까지 간다 — 25배 차이라, 하나로 박아 두면 연습 청산가가
+//   실제와 완전히 달라진다. 그러면 연습이 잘못된 것을 가르친다.
+//
+// ⚠ **여기서 직접 받아오지 않는다.** `/fapi/v1/leverageBracket`은 **서명이 필요한데**
+//   이 파일은 순환 참조를 피하려고 서명 없는 axios만 쓴다 (머리 주석).
+//   그래서 binanceClient가 받아서 `setMaintRates`로 밀어 넣는다.
+// ⚠ API 키가 없으면 못 받는다 — 그때는 기본값으로 떨어진다. 실거래에는 안 쓰는
+//   값이라(청산은 거래소가 한다) 연습이 조금 덜 정확할 뿐이다
+const DEFAULT_MAINT_RATE = 0.004;   // BTCUSDT 1구간
+let _maint = new Map();             // symbol → 1구간 maintMarginRatio
+
+/** binanceClient가 leverageBracket을 받아 넘긴다 */
+function setMaintRates(map) {
+  if (map?.size) _maint = map;
+}
+const maintRateOf = (symbol = DEFAULT_SYMBOL) => _maint.get(symbol) ?? DEFAULT_MAINT_RATE;
+
 const filterOf = (list, type) => list.find(f => f.filterType === type);
 
 /** exchangeInfo를 받아 캐시를 갈아 끼운다. 실패하면 **기존 캐시를 유지한다** */
@@ -136,7 +156,8 @@ function listTradable() {
   return [..._map.values()]
     .filter(s => s.quoteAsset === "USDT" && s.contractType === "PERPETUAL" && s.status === "TRADING")
     .map(({ symbol, baseAsset, tickSize, stepSize, minQty, minNotional, onboardDate }) =>
-      ({ symbol, baseAsset, tickSize, stepSize, minQty, minNotional, onboardDate }))
+      ({ symbol, baseAsset, tickSize, stepSize, minQty, minNotional, onboardDate,
+         maintRate: maintRateOf(symbol) }))
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 
@@ -163,4 +184,4 @@ function fromRequest(req) {
 }
 
 module.exports = { DEFAULT_SYMBOL, load, start, stop, filtersOf, has, fromRequest,
-  roundPrice, roundQty, listTradable, isStale };
+  roundPrice, roundQty, listTradable, isStale, setMaintRates, maintRateOf };

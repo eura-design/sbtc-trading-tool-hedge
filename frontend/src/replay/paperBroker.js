@@ -28,8 +28,14 @@ const MAKER_FEE = 0.0002;   // 지정가·TP
 const CLOSE_SIDE = { LONG: "SELL", SHORT: "BUY" };
 const ENTRY_SIDE = { LONG: "BUY",  SHORT: "SELL" };
 
-/** 유지증거금률 — 바이낸스 BTCUSDT 1구간(≤50k 명목) 근사값 */
-const MAINT_MARGIN_RATE = 0.004;
+// 유지증거금률 — **BTCUSDT 1구간 값이자 기본값일 뿐이다** (2026-09-02).
+// ⚠ 코인마다 크게 다르다: BTC·ETH 0.004 / SOL 0.005 / DOGE 0.0065, 작은 코인은 0.1까지
+//   (실측, `/fapi/v1/leverageBracket`). **25배 차이라 하나로 박으면 연습 청산가가
+//   실제와 완전히 달라진다** — 그러면 연습이 잘못된 것을 가르친다.
+//   값은 백엔드가 받아 `/api/symbols`로 준다 (services/symbolInfo.js).
+// ⚠ 1구간만 쓴다 — 명목가가 커지면 구간이 올라가며 비율도 오르지만, 연습 계좌 규모에서
+//   1구간을 넘는 일은 드물고 구간 표를 통째로 들고 오면 이 파일이 무거워진다
+const DEFAULT_MAINT_RATE = 0.004;
 // ⚠ **BTCUSDT의 값이자 기본값일 뿐이다** (2026-09-02). 리플레이가 심볼을 따르게 되면서
 //   부르는 쪽이 그 심볼의 LOT_SIZE를 넘겨야 한다 — DOGE는 단위가 **1**이다.
 //   backend/utils/splitTp.js와 **같은 규칙**을 유지할 것 (그게 이 미러링의 존재 이유다)
@@ -50,8 +56,12 @@ function roundTo(v, step) {
 
 export class PaperBroker {
   // @param step 그 심볼의 수량 단위 (LOT_SIZE stepSize). 안 넘기면 BTCUSDT 값
-  constructor({ startBalance = 10_000, fundingRates = [], step = DEFAULT_STEP } = {}) {
+  // @param step      그 심볼의 수량 단위 (LOT_SIZE stepSize). 안 넘기면 BTCUSDT 값
+  // @param maintRate  그 심볼의 유지증거금률(1구간). 청산가 계산에만 쓴다
+  constructor({ startBalance = 10_000, fundingRates = [],
+                step = DEFAULT_STEP, maintRate = DEFAULT_MAINT_RATE } = {}) {
     this.step = Number(step) > 0 ? Number(step) : DEFAULT_STEP;
+    this.maintRate = Number(maintRate) > 0 ? Number(maintRate) : DEFAULT_MAINT_RATE;
     this.startBalance = startBalance;
     this.balance = startBalance;        // 지갑 잔고 (실현손익·수수료 반영)
     this.fundingRates = fundingRates;   // [{ time, rate }] 오름차순
@@ -413,7 +423,7 @@ export class PaperBroker {
   _liqPrice(side) {
     const p = this.pos[side];
     if (!p || !p.leverage) return null;
-    const d = p.entryPrice * (1 / p.leverage - MAINT_MARGIN_RATE);
+    const d = p.entryPrice * (1 / p.leverage - this.maintRate);
     const liq = side === "LONG" ? p.entryPrice - d : p.entryPrice + d;
     return liq > 0 ? liq : null;
   }

@@ -23,6 +23,7 @@ import { MIN_QTY, QTY_STEP, DEFAULT_SYMBOL } from "../constants";
 const FALLBACK = {
   symbol: DEFAULT_SYMBOL, baseAsset: "BTC",
   tickSize: "0.10", stepSize: String(QTY_STEP), minQty: String(MIN_QTY), minNotional: "100",
+  maintRate: 0.004,   // BTCUSDT 1구간 — 연습 청산가에만 쓴다
 };
 
 // 단위 문자열의 유효 소수 자릿수 — backend/utils/round.js의 decimalsOf와 같은 규칙.
@@ -67,6 +68,8 @@ export function useSymbolFilters(symbol = DEFAULT_SYMBOL) {
       minQty:      Number(filters.minQty ?? MIN_QTY),
       tickSize:    Number(filters.tickSize ?? 0.1),
       qtyDecimals: decimalsOf(stepSize),
+      // 연습 청산가용 유지증거금률. ⚠ 코인마다 25배까지 차이 난다 (DOGE 0.0065 / 일부 0.1)
+      maintRate:   Number(filters.maintRate) || 0.004,
       // 이 심볼의 진짜 규칙을 알고 있는가. false면 화면 숫자를 믿으면 안 된다
       ready: symbols.some(s => s.symbol === symbol),
     };

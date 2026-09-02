@@ -286,9 +286,13 @@ function EntryLine({ yPx, color, label, row, qtyText, IH, path, confirm, closeHo
 export const PositionLines = memo(function PositionLines({ position, tpsl, dragTpsl, tpslSaving, scaleInOrders, dragScaleIn, splitTps, dragSplitTp, partialSls, dragPartialSl, closeConfirm, drawings, scales, candles, IW, IH }) {
   // 배지 수량의 자릿수는 심볼의 수량 단위를 따른다 (DOGE는 1이라 소수가 없다)
   const qStep = useStore(s => s.symbolFilters.step);
-  if (!position || !scales) return null;
-  const { yScale, xScale } = scales;
 
+  // ⚠ **훅을 전부 부른 뒤에 조기 반환한다** (2026-09-02에 순서를 바로잡음).
+  //   예전에는 `if (!position || !scales) return null`이 아래 useState 여덟 개보다
+  //   **앞**에 있었다. 실제로는 안 터졌는데 — ChartSvg가 포지션·대기 주문이 있을 때만
+  //   이 컴포넌트를 마운트해서 그 분기를 탈 일이 없었다 — 훅 개수가 렌더마다 달라질 수
+  //   있는 모양이라 React가 언제든 "Rendered more hooks than…"으로 죽일 수 있었다.
+  //   조건을 하나 바꾸거나 부모가 무조건 렌더하게 되는 순간 터진다
   const [hoveredTpSide, setHoveredTpSide]   = useState(null);
   const [hoveredSlSide, setHoveredSlSide]   = useState(null);
   const [hoveredScaleIn, setHoveredScaleIn] = useState(null);
@@ -298,6 +302,11 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
   const [hoveredAddBtn, setHoveredAddBtn]   = useState(null);
   // × 버튼 호버는 한 곳에 모은다 — 화면에 한 번에 하나만 호버되므로 키 하나면 충분하다
   const [hoveredClose, setHoveredClose]     = useState(null);
+
+  // 훅을 전부 부른 뒤에 나간다 (위 주석)
+  if (!position || !scales) return null;
+  const { yScale, xScale } = scales;
+
   const closeProps = (key) => ({
     closeHovered: hoveredClose === key,
     onCloseEnter: () => setHoveredClose(key),

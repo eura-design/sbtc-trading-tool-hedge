@@ -15,6 +15,7 @@ import { calcPosition } from "../utils/calc";
 import { isLongToPosition, closeToPosition } from "../utils/side";
 import { computePaperDailyLoss } from "./dailyLoss";
 import { riskPctFor } from "../store/settingsSlice";
+import { qtyLabel } from "../utils/qty";
 import { boxKey } from "../store/uiSlice";
 
 // 분할 주문 종류의 화면 이름.
@@ -75,7 +76,7 @@ export const paperActions = {
       });
       if (orderType === "LIMIT") setDrawing(isLong, prev => prev ? { ...prev, orderId: r.orderId } : prev);
       else setDrawing(isLong, null);
-      ok(get, `연습 주문 완료 (${posCalc.actualQty.toFixed(3)} BTC)`);
+      ok(get, `연습 주문 완료 (${qtyLabel(posCalc.actualQty, step, get().symbolFilters.base)})`);
     } catch (e) { err(get, e, "연습 주문 실패"); }
   },
 

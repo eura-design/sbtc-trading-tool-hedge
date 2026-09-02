@@ -19,7 +19,11 @@ import { tfMs } from "./timeframes.js";
 import { soaFromRows, concatSoA } from "./soa.js";
 
 export const MAX_LIMIT = 1500;
-export const FIRST_LISTING_MS = 1567900800000; // BTCUSDT 무기한 상장일
+// BTCUSDT 무기한 상장일 — **가장 이른 날짜이자 대비책일 뿐이다** (2026-09-02).
+// ⚠ 코인마다 다르다 (ETH 2019-11-27 / DOGE 2020-07-10). 실제 하한은 그 심볼의
+//   `onboardDate`이고 `/api/symbols`가 준다 — ReplayBar가 그 값을 쓴다.
+//   여기 값은 아래 fetch가 "그보다 이르게는 요청하지 않는다"는 안전선이다
+export const FIRST_LISTING_MS = 1567900800000;
 
 // ── Rate limit ───────────────────────────────────────────────────────────
 // 선물 REST는 IP당 분당 2400 weight, klines는 limit이 1001~1500이면 요청당 10이다.

@@ -466,5 +466,31 @@ async function checkExistingTPSL(positionSide, symbol = SYM()) {
   }
 }
 
-module.exports = { binance, roundPrice, roundQty, cancelOrder, placeTPSL, preplaceTPSL, cancelPresetTPSL,
+/**
+ * 심볼별 유지증거금률(1구간)을 받아 symbolInfo에 넘긴다 — **연습 청산가용**이다.
+ *
+ * ⚠ 서명이 필요한 엔드포인트라 여기 있다. symbolInfo는 순환 참조를 피하려고
+ *   서명 없는 axios만 쓴다 (그쪽 머리 주석).
+ * ⚠ 응답이 약 950KB(1026심볼)지만 **가중치는 작고 12시간에 한 번**이라 부담이 없다.
+ * ⚠ 실패해도 조용히 넘어간다 — 실거래에는 안 쓰는 값이다(청산은 거래소가 한다).
+ *   못 받으면 연습 청산가가 BTC 기준으로 조금 어긋날 뿐이다
+ */
+async function loadMaintRates() {
+  try {
+    const { data } = await binance("GET", "/fapi/v1/leverageBracket", {});
+    const m = new Map();
+    for (const e of data ?? []) {
+      const r = Number(e.brackets?.[0]?.maintMarginRatio);
+      if (e.symbol && r > 0) m.set(e.symbol, r);
+    }
+    symbolInfo.setMaintRates(m);
+    log("MAINT_RATES_LOADED", { count: m.size, btc: m.get("BTCUSDT") ?? null });
+    return m.size;
+  } catch (e) {
+    log("MAINT_RATES_LOAD_FAILED", { level: "warn", err: errOf(e) });
+    return 0;
+  }
+}
+
+module.exports = { binance, roundPrice, roundQty, cancelOrder, loadMaintRates, placeTPSL, preplaceTPSL, cancelPresetTPSL,
   assertCancelKind, checkExistingTPSL, syncServerTime };

@@ -29,7 +29,9 @@ import { useStore } from "../store";
 const BASE_TICK_MS = 300;   // 속도 1배 = 구동 봉 하나에 0.3초
 // 페이퍼 체결의 수량 단위 — **그 심볼의 것**을 쓴다 (DOGE는 1이다).
 // ⚠ 훅 밖(콜백 안)에서도 부르므로 스토어를 그 자리에서 읽는다
-const qtyStep = () => useStore.getState().symbolFilters.step;
+const qtyStep   = () => useStore.getState().symbolFilters.step;
+// 연습 청산가는 심볼의 유지증거금률을 따른다 (DOGE 0.0065 / BTC 0.004)
+const maintRate = () => useStore.getState().symbolFilters.maintRate;
 
 const DEFAULT_WARMUP_BARS = 750;   // ATR(100)·EMA(60)·ZZ 피벗이 첫 봉부터 제대로 나오도록
 
@@ -148,7 +150,7 @@ export function useReplay({
   const resetPaper = useCallback(() => {
     const e = engineRef.current, b = brokerRef.current;
     if (!b) return;
-    const fresh = new PaperBroker({ startBalance, fundingRates: b.fundingRates, step: qtyStep() });
+    const fresh = new PaperBroker({ startBalance, fundingRates: b.fundingRates, step: qtyStep(), maintRate: maintRate() });
     fresh.lastPrice = e?.price ?? null;
     fresh.lastTime  = e?.nowMs ?? null;
     // 펀딩비 커서는 이미 지나온 구간만큼 앞으로 당겨 둔다 — 0으로 두면 재생을
@@ -231,7 +233,7 @@ export function useReplay({
         engineRef.current = eng;
         candlesRef.current = eng.candles;
 
-        const broker = new PaperBroker({ startBalance, fundingRates, step: qtyStep() });
+        const broker = new PaperBroker({ startBalance, fundingRates, step: qtyStep(), maintRate: maintRate() });
         broker.lastPrice = eng.price ?? display.c[Math.max(0, eng.closedCount() - 1)];
         broker.lastTime  = eng.nowMs;
         fedRef.current = 0;
