@@ -44,11 +44,13 @@ routes/
   stats.js                 GET  /api/stats?startTime=&endTime= (수수료·펀딩비·순손익)
   dailyloss.js             GET  /api/daily-loss + checkDailyLoss() export
   health.js                GET  /api/health (서버 상태 + UDS·계정감시 상태)
+  symbols.js               GET  /api/symbols (거래 가능 USDT 무기한 + 호가·수량 단위)
   tracker.js               GET/POST /api/tracker (월별 결산 페이지용)
   backup.js                POST /api/backup (브라우저 저장소 백업 수신)
   log.js                   POST /api/log (프론트 이벤트 수집, kind:"client")
 services/
-  binanceClient.js         sign/binance/roundPrice/placeTPSL/preplaceTPSL/checkExistingTPSL/syncServerTime
+  binanceClient.js         sign/binance/roundPrice/roundQty/placeTPSL/preplaceTPSL/checkExistingTPSL/syncServerTime
+  symbolInfo.js            심볼별 호가·수량 단위 (exchangeInfo 캐시, 12시간) — **원본은 바이낸스**
   orderWatcher.js          User Data Stream(체결 감지) + watchAccount(3초) + reconcile(60초)
   recoveryService.js       서버 재시작 시 미체결/체결 주문 복구
   entryTime.js             현재 포지션의 평단 변화 이력(entrySteps)을 userTrades에서 역산
@@ -65,12 +67,13 @@ middleware/validate.js     POST /api/order 입력 검증
 utils/
   side.js                  헷지모드 side 매핑 (sideToPosition/positionToSide/closeToPosition/positionToClose)
   orderKind.js             미체결 LIMIT 정체 판정(limitKind) + 트리거 전량/부분 판정
+  round.js                 호가·수량 단위 맞추기 (순수 함수) — **가격은 반올림, 수량은 내림**
   splitTp.js               rescaleSplitTps() — 부분 청산 후 분할 TP 재계산 (순수 함수, import 없음)
 tools/
   logq.js                  로그 조회 (--since/--count/--sum/--event/--level/--day/--grep/--summary)
   backup.js                백업 조회·되돌리기 (--list/--show/--restore-files)
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
-  splitTp / orderKind / side.test.js   돈이 걸린 순수 함수부터
+  splitTp / orderKind / side / round.test.js   돈이 걸린 순수 함수부터
 logs/  backups/  daily_summary.jsonl  income_cursor.json  pending_orders.json  .env
 ```
 

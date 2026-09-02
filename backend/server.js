@@ -6,6 +6,7 @@ require("dotenv").config({ quiet: true });
 //   남기는데, 이 줄 앞에서 찍힌 것은 파일에 안 남는다
 //   (모듈은 require 되는 순간 로그를 찍을 수 있다)
 const logStore = require("./store/logStore");
+const symbolInfo = require("./services/symbolInfo");
 logStore.install();
 
 const express = require("express");
@@ -97,6 +98,7 @@ app.use((req, res, next) => {
 
 // ── 라우트 ────────────────────────────────────────────────────────────────────
 app.use("/api/health",   require("./routes/health"));
+app.use("/api/symbols",  require("./routes/symbols"));
 app.use("/api/balance",  require("./routes/balance"));
 app.use("/api/position", require("./routes/position"));
 app.use("/api/order",    require("./routes/order"));
@@ -131,6 +133,13 @@ const server = app.listen(PORT, HOST, async () => {
   push.init(server); // WebSocket push 서버 초기화
   const hasKey = !!(process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET);
   logStore.log("SERVER_LISTENING", { port: PORT, host: HOST, url: `http://localhost:${PORT}`, apiKey: hasKey });
+
+  // ⚠ **주문을 내기 전에 받아야 한다** — 호가·수량 단위가 여기서 온다 (services/symbolInfo.js).
+  //   못 받아도 서버는 뜬다: BTCUSDT는 코드에 심어 둔 값으로 지금까지처럼 돌아가고,
+  //   다른 심볼은 주문할 때 던진다. 조용히 BTC 단위로 떨어지는 것보다 낫다.
+  //   API 키와 무관하게 받는다 — 공개 API이고, 화면 심볼 목록도 이걸 쓴다
+  await symbolInfo.load();
+  symbolInfo.start();
   if (!hasKey) {
     logStore.log("API_KEY_MISSING", { level: "warn" });
   } else {

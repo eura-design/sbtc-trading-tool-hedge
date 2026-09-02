@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, cancelOrder } = require("../services/binanceClient");
+const { binance, cancelOrder, roundQty } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const push    = require("../services/pushService");
 const { log, errOf } = require("../store/logStore");
@@ -155,7 +155,7 @@ router.post("/", async (req, res) => {
       side:         closeSide,
       positionSide: side,
       type:         "MARKET",
-      quantity:     closeQty.toFixed(3),
+      quantity:     roundQty(closeQty),
     });
 
     // 3) 부분 청산 성공 → 분할 TP를 잔여 포지션 비율로 재등록
@@ -170,7 +170,7 @@ router.post("/", async (req, res) => {
         try {
           const { data: newOrder } = await binance("POST", "/fapi/v1/order", {
             symbol: "BTCUSDT", side: o.side, positionSide: side, type: "LIMIT",
-            price: o.price, quantity: qty.toFixed(3),
+            price: o.price, quantity: roundQty(qty),
             timeInForce: "GTC",
           });
           store.set(String(newOrder.orderId), {
@@ -221,7 +221,7 @@ router.post("/", async (req, res) => {
             algoType: "CONDITIONAL", symbol: "BTCUSDT",
             side: closeSide, positionSide: side,
             type: "STOP_MARKET", triggerPrice: o.price,
-            quantity: qty.toFixed(3), workingType: "CONTRACT_PRICE",
+            quantity: roundQty(qty), workingType: "CONTRACT_PRICE",
           });
           await cancelOrder({ orderId: o.id, algoId: o.id, isAlgo: o.isAlgo })
             .catch(e => { anyFailed = true;

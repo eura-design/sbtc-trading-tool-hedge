@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, roundPrice, cancelOrder, cancelPresetTPSL, assertCancelKind } = require("../services/binanceClient");
+const { binance, roundPrice, roundQty, cancelOrder, cancelPresetTPSL, assertCancelKind } = require("../services/binanceClient");
 const store = require("../store/pendingOrders");
 const { sideToPosition } = require("../utils/side");
 const { log, errOf } = require("../store/logStore");
@@ -21,7 +21,7 @@ router.post("/", async (req, res) => {
       side,
       positionSide,
       type:     orderType,
-      quantity: parseFloat(quantity).toFixed(3),
+      quantity: roundQty(quantity),
       ...(orderType === "LIMIT" && { price: roundPrice(price), timeInForce: "GTC" }),
     };
     const { data } = await binance("POST", "/fapi/v1/order", params);

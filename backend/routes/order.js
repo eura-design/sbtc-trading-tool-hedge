@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, roundPrice, placeTPSL, preplaceTPSL, cancelPresetTPSL } = require("../services/binanceClient");
+const { binance, roundPrice, roundQty, placeTPSL, preplaceTPSL, cancelPresetTPSL } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { validateOrder } = require("../middleware/validate");
 const { checkDailyLoss } = require("./dailyloss");
@@ -41,7 +41,7 @@ router.post("/", validateOrder, async (req, res) => {
     // 3) 진입 주문
     const entryParams = {
       symbol: "BTCUSDT", side, positionSide, type: orderType,
-      quantity: parseFloat(quantity).toFixed(3),
+      quantity: roundQty(quantity),
       ...(orderType === "LIMIT" && { price: roundPrice(entry), timeInForce: "GTC" }),
     };
     const { data: entryOrder } = await binance("POST", "/fapi/v1/order", entryParams);

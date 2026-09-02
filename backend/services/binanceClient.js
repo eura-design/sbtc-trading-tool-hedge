@@ -4,6 +4,7 @@ const { closeToPosition } = require("../utils/side");
 const { isFullClose, isStopOrder, isTpOrder, coversPosition, orderQtyOf, triggerPriceOf,
   TPSL_TYPES, STOP_TYPES } = require("../utils/orderKind");
 const store = require("../store/pendingOrders");
+const symbolInfo = require("./symbolInfo");
 const { log, errOf } = require("../store/logStore");
 
 const BASE = "https://fapi.binance.com";
@@ -107,9 +108,14 @@ function noteWeight(res) {
   } catch {}
 }
 
-function roundPrice(p) {
-  return (Math.round(parseFloat(p) * 10) / 10).toFixed(1);
-}
+// 가격·수량 단위 맞추기 — **심볼마다 다르다.** 값은 바이낸스 exchangeInfo가 준다
+// (services/symbolInfo.js). 여기 숫자를 다시 박지 말 것:
+//   0.1 고정이던 시절의 값은 BTCUSDT 것이고, DOGE는 0.00001, SOL은 0.01이다.
+//   수량도 마찬가지 — DOGE의 최소 단위는 **1**이라 `toFixed(3)`은 거절당한다.
+// ⚠ 심볼을 안 넘기면 기본 심볼(BTCUSDT)로 떨어진다. 심볼이 여러 개가 되면
+//   **부르는 쪽이 반드시 넘길 것** — 안 넘기면 ETH 주문에 BTC 단위가 붙는다
+const roundPrice = (p, symbol) => symbolInfo.roundPrice(p, symbol);
+const roundQty   = (q, symbol) => symbolInfo.roundQty(q, symbol);
 
 // 일반 주문/알고 주문 취소 공통 헬퍼
 // 사용처: routes/order, routes/tpsl, routes/close, services/orderWatcher 등
@@ -257,7 +263,7 @@ async function placeTPSL({ closeSide, tp, sl }) {
 //   주문 응답을 30초씩 붙들면 화면이 멈춘 것처럼 보인다. 실패해도 진입 주문은 살린다
 async function preplaceTPSL({ closeSide, tp, sl, qty }) {
   const positionSide = closeToPosition(closeSide);
-  const quantity     = parseFloat(qty).toFixed(3);
+  const quantity     = roundQty(qty);
   const out = { tp: null, sl: null, failed: [] };
 
   const place = async (label, type, price) => {
@@ -455,5 +461,5 @@ async function checkExistingTPSL(positionSide) {
   }
 }
 
-module.exports = { binance, roundPrice, cancelOrder, placeTPSL, preplaceTPSL, cancelPresetTPSL,
+module.exports = { binance, roundPrice, roundQty, cancelOrder, placeTPSL, preplaceTPSL, cancelPresetTPSL,
   assertCancelKind, checkExistingTPSL, syncServerTime };

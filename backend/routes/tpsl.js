@@ -1,5 +1,5 @@
 const express = require("express");
-const { binance, roundPrice, cancelOrder, assertCancelKind } = require("../services/binanceClient");
+const { binance, roundPrice, roundQty, cancelOrder, assertCancelKind } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
 const { isLiveLimit, isCloseDir, isFullClose, orderQtyOf } = require("../utils/orderKind");
@@ -244,7 +244,7 @@ router.post("/split", async (req, res) => {
     const closeSide = positionToClose(side);
     const { data } = await binance("POST", "/fapi/v1/order", {
       symbol: "BTCUSDT", side: closeSide, positionSide: side, type: "LIMIT",
-      price: roundPrice(price), quantity: parseFloat(qty).toFixed(3),
+      price: roundPrice(price), quantity: roundQty(qty),
       timeInForce: "GTC",
     });
     store.set(String(data.orderId), {
@@ -302,7 +302,7 @@ router.post("/partial-sl", async (req, res) => {
       algoType: "CONDITIONAL", symbol: "BTCUSDT",
       side: positionToClose(side), positionSide: side,
       type: "STOP_MARKET", triggerPrice: roundPrice(price),
-      quantity: parseFloat(qty).toFixed(3), workingType: "CONTRACT_PRICE",
+      quantity: roundQty(qty), workingType: "CONTRACT_PRICE",
     });
     log("PARTIAL_SL_PLACED", { posSide: side, qty: parseFloat(qty),
       price: parseFloat(price), orderId: String(data.algoId),
