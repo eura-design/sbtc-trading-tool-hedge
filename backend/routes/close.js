@@ -1,5 +1,6 @@
 const express = require("express");
 const { binance, cancelOrder, roundQty } = require("../services/binanceClient");
+const symbolInfo = require("../services/symbolInfo");
 const store   = require("../store/pendingOrders");
 const push    = require("../services/pushService");
 const { log, errOf } = require("../store/logStore");
@@ -27,6 +28,7 @@ router.post("/", async (req, res) => {
   closeInProgress.add(side);
   try {
 
+  const symbol    = symbolInfo.fromRequest(req);
   const closeSide = positionToClose(side);
   const closeQty  = parseFloat(quantity);
 
@@ -38,9 +40,9 @@ router.post("/", async (req, res) => {
   if (partial) {
     try {
       const [{ data: openOrders }, { data: posData }, algoRes] = await Promise.all([
-        binance("GET", "/fapi/v1/openOrders",   { symbol: "BTCUSDT" }),
-        binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }),
-        binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
+        binance("GET", "/fapi/v1/openOrders",   { symbol }),
+        binance("GET", "/fapi/v2/positionRisk", { symbol }),
+        binance("GET", "/fapi/v1/openAlgoOrders", { symbol }),
       ]);
       const algoRaw = algoRes.data;
       const algos = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
@@ -92,7 +94,7 @@ router.post("/", async (req, res) => {
     if (splitTpOrders.length > 0 && originalSize > 0) {
       await Promise.allSettled(
         splitTpOrders.map(o =>
-          cancelOrder({ orderId: o.orderId })
+          cancelOrder({ orderId: o.orderId, symbol })
             .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.orderId, kindOf: "SPLIT_TP", ctx: "closePrepare", err: errOf(e) }))
         )
       );
@@ -108,8 +110,8 @@ router.post("/", async (req, res) => {
   // 1) 전량 청산 시에만 TP/SL + SCALE_IN 취소 (해당 사이드만)
   if (!partial) try {
     const [regularRes, algoRes] = await Promise.allSettled([
-      binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
+      binance("GET", "/fapi/v1/openOrders",     { symbol }),
+      binance("GET", "/fapi/v1/openAlgoOrders", { symbol }),
     ]);
     const regular = regularRes.status === "fulfilled" ? regularRes.value.data : [];
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
@@ -131,12 +133,12 @@ router.post("/", async (req, res) => {
       //   (조건부 주문은 포지션이 0이 돼도 자동 취소되지 않는다 — 같은 날 실측)
       ...regular
         .filter(o => TPSL_TYPES.includes(o.type) && o.positionSide === side)
-        .map(o => cancelOrder({ orderId: o.orderId })),
+        .map(o => cancelOrder({ orderId: o.orderId, symbol })),
       ...algo
         .filter(o => TPSL_TYPES.includes(o.orderType) && o.positionSide === side)
-        .map(o => cancelOrder({ algoId: o.algoId, isAlgo: true })),
+        .map(o => cancelOrder({ algoId: o.algoId, isAlgo: true, symbol })),
       ...scaleInToCancel
-        .map(o => cancelOrder({ orderId: o.orderId })),
+        .map(o => cancelOrder({ orderId: o.orderId, symbol })),
     ]);
     scaleInToCancel.forEach(o => {
       store.delete(String(o.orderId));
@@ -151,11 +153,11 @@ router.post("/", async (req, res) => {
   // 2) 시장가 청산
   try {
     const { data } = await binance("POST", "/fapi/v1/order", {
-      symbol:       "BTCUSDT",
+      symbol,
       side:         closeSide,
       positionSide: side,
       type:         "MARKET",
-      quantity:     roundQty(closeQty),
+      quantity:     roundQty(closeQty, symbol),
     });
 
     // 3) 부분 청산 성공 → 분할 TP를 잔여 포지션 비율로 재등록
@@ -169,11 +171,12 @@ router.post("/", async (req, res) => {
       for (const { order: o, qty, pct } of items) {
         try {
           const { data: newOrder } = await binance("POST", "/fapi/v1/order", {
-            symbol: "BTCUSDT", side: o.side, positionSide: side, type: "LIMIT",
-            price: o.price, quantity: roundQty(qty),
+            symbol, side: o.side, positionSide: side, type: "LIMIT",
+            price: o.price, quantity: roundQty(qty, symbol),
             timeInForce: "GTC",
           });
           store.set(String(newOrder.orderId), {
+            symbol,
             status: "SPLIT_TP",
             price:  parseFloat(o.price),
             qty,
@@ -218,12 +221,12 @@ router.post("/", async (req, res) => {
       for (const { order: o, qty } of items) {
         try {
           await binance("POST", "/fapi/v1/algoOrder", {
-            algoType: "CONDITIONAL", symbol: "BTCUSDT",
+            algoType: "CONDITIONAL", symbol,
             side: closeSide, positionSide: side,
             type: "STOP_MARKET", triggerPrice: o.price,
-            quantity: roundQty(qty), workingType: "CONTRACT_PRICE",
+            quantity: roundQty(qty, symbol), workingType: "CONTRACT_PRICE",
           });
-          await cancelOrder({ orderId: o.id, algoId: o.id, isAlgo: o.isAlgo })
+          await cancelOrder({ orderId: o.id, algoId: o.id, isAlgo: o.isAlgo, symbol })
             .catch(e => { anyFailed = true;
               log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.id, kindOf: "PARTIAL_SL",
                 ctx: "rescaleOld", err: errOf(e) }); });
@@ -268,11 +271,12 @@ router.post("/", async (req, res) => {
       for (const o of splitTpOrders) {
         try {
           const { data: restored } = await binance("POST", "/fapi/v1/order", {
-            symbol: "BTCUSDT", side: o.side, positionSide: side, type: "LIMIT",
+            symbol, side: o.side, positionSide: side, type: "LIMIT",
             price: o.price, quantity: o.origQty,
             timeInForce: "GTC",
           });
           store.set(String(restored.orderId), {
+            symbol,
             status: "SPLIT_TP",
             price:  parseFloat(o.price),
             qty:    parseFloat(o.origQty),
@@ -289,7 +293,7 @@ router.post("/", async (req, res) => {
       push.pushUpdate(["tpsl"]);
     }
 
-    res.status(500).json({ error: msg });
+    res.status(err.status ?? 500).json({ error: msg });
   }
 
   } finally {

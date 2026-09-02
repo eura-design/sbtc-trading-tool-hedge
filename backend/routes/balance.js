@@ -17,7 +17,7 @@ router.get("/", async (req, res) => {
       crossUnPnl:       parseFloat(usdt.crossUnPnl),
     });
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.msg || err.message });
+    res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
   }
 });
 

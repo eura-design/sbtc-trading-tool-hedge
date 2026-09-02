@@ -8,6 +8,11 @@ const symbolInfo = require("./symbolInfo");
 const { log, errOf } = require("../store/logStore");
 
 const BASE = "https://fapi.binance.com";
+
+// ⚠ **심볼은 부르는 쪽이 넘긴다.** 여기 있는 기본값은 "안 넘겼을 때 BTCUSDT"라는
+//   과거 동작을 그대로 두기 위한 것이고, 새 코드는 반드시 넘길 것 —
+//   기본값에 기대면 ETH 주문이 BTC로 나가고 그 사실이 아무 데도 안 드러난다
+const SYM = () => symbolInfo.DEFAULT_SYMBOL;
 // const BASE = "https://demo-fapi.binance.com";
 
 let _timeOffset  = 0;   // 로컬 시간 - 바이낸스 서버 시간 (ms)
@@ -119,17 +124,17 @@ const roundQty   = (q, symbol) => symbolInfo.roundQty(q, symbol);
 
 // 일반 주문/알고 주문 취소 공통 헬퍼
 // 사용처: routes/order, routes/tpsl, routes/close, services/orderWatcher 등
-function cancelOrder({ orderId, algoId, isAlgo }) {
+function cancelOrder({ orderId, algoId, isAlgo, symbol = SYM() }) {
   return isAlgo
-    ? binance("DELETE", "/fapi/v1/algoOrder", { symbol: "BTCUSDT", algoId: algoId ?? orderId })
-    : binance("DELETE", "/fapi/v1/order",     { symbol: "BTCUSDT", orderId });
+    ? binance("DELETE", "/fapi/v1/algoOrder", { symbol, algoId: algoId ?? orderId })
+    : binance("DELETE", "/fapi/v1/order",     { symbol, orderId });
 }
 
 // TP/SL 등록 전 해당 방향의 기존 알고 TP/SL을 모두 취소
 // 이전 포지션의 찌꺼기 주문이 새 TP/SL 등록을 막는 -4130 에러 방지
-async function cancelExistingAlgoTPSL(positionSide) {
+async function cancelExistingAlgoTPSL(positionSide, symbol = SYM()) {
   try {
-    const { data: algoRaw } = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" });
+    const { data: algoRaw } = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol });
     const algo = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
     // ⚠ **지정가형(`STOP`/`TAKE_PROFIT`)도 대상이다** (2026-08-23 감사).
     //   `GET /api/tpsl`은 지정가형도 TP/SL로 읽는데 여기서만 빼면, 바이낸스 웹에서
@@ -185,7 +190,7 @@ async function cancelExistingAlgoTPSL(positionSide) {
 
 // TP/SL 등록 (SL 우선, exponential backoff, 부분 실패 허용)
 // SL이 실패하면 TP는 시도하지 않음 — SL 없는 포지션 노출 시간을 최소화하기 위함
-async function placeTPSL({ closeSide, tp, sl }) {
+async function placeTPSL({ closeSide, tp, sl, symbol = SYM() }) {
 
   const results = { tp: null, sl: null, failed: [] };
   const RETRY = 5;
@@ -209,12 +214,12 @@ async function placeTPSL({ closeSide, tp, sl }) {
   const positionSide = closeToPosition(closeSide);
   // ⚠ 이 호출이 **사전 등록분(preset)도 함께 지운다** — 같은 사이드의 알고 TP/SL을
   //   전부 취소하기 때문이다. 그래서 체결 경로에서는 preset을 따로 지울 필요가 없다
-  await cancelExistingAlgoTPSL(positionSide);
+  await cancelExistingAlgoTPSL(positionSide, symbol);
 
   // 1) SL 먼저 등록 — 손절 안전판이 최우선
   const slResult = await tryPlace("SL", {
-    algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
-    type: "STOP_MARKET", triggerPrice: roundPrice(sl),
+    algoType: "CONDITIONAL", symbol, side: closeSide, positionSide,
+    type: "STOP_MARKET", triggerPrice: roundPrice(sl, symbol),
     closePosition: "true", workingType: "CONTRACT_PRICE",
   });
   if (slResult && !slResult.error) {
@@ -232,8 +237,8 @@ async function placeTPSL({ closeSide, tp, sl }) {
 
   // 2) SL 성공 후에만 TP 등록
   const tpResult = await tryPlace("TP", {
-    algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
-    type: "TAKE_PROFIT_MARKET", triggerPrice: roundPrice(tp),
+    algoType: "CONDITIONAL", symbol, side: closeSide, positionSide,
+    type: "TAKE_PROFIT_MARKET", triggerPrice: roundPrice(tp, symbol),
     closePosition: "true", workingType: "CONTRACT_PRICE",
   });
   if (tpResult && !tpResult.error) results.tp = { ...tpResult, orderType: "TAKE_PROFIT_MARKET", closePosition: true };
@@ -261,16 +266,16 @@ async function placeTPSL({ closeSide, tp, sl }) {
 //
 // ⚠ **재시도하지 않는다**(placeTPSL은 5회 31초). 여긴 아직 체결 전이라 급하지 않고,
 //   주문 응답을 30초씩 붙들면 화면이 멈춘 것처럼 보인다. 실패해도 진입 주문은 살린다
-async function preplaceTPSL({ closeSide, tp, sl, qty }) {
+async function preplaceTPSL({ closeSide, tp, sl, qty, symbol = SYM() }) {
   const positionSide = closeToPosition(closeSide);
-  const quantity     = roundQty(qty);
+  const quantity     = roundQty(qty, symbol);
   const out = { tp: null, sl: null, failed: [] };
 
   const place = async (label, type, price) => {
     try {
       const r = await binance("POST", "/fapi/v1/algoOrder", {
-        algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
-        type, triggerPrice: roundPrice(price), quantity, workingType: "CONTRACT_PRICE",
+        algoType: "CONDITIONAL", symbol, side: closeSide, positionSide,
+        type, triggerPrice: roundPrice(price, symbol), quantity, workingType: "CONTRACT_PRICE",
       });
       return { orderId: r.data.algoId, status: r.data.algoStatus,
         orderType: type, closePosition: false, qty: parseFloat(quantity) };
@@ -296,10 +301,10 @@ async function preplaceTPSL({ closeSide, tp, sl, qty }) {
 // ⚠ **`cancelExistingAlgoTPSL`을 쓰면 안 된다.** 그건 그 사이드의 알고 TP/SL을 전부
 //   지우므로, 같은 사이드에 (외부에서 생긴) 포지션의 TP/SL이 있으면 그것까지 날아간다.
 //   사전 등록분은 우리가 id를 알고 있으니 **그것만** 지운다
-async function cancelPresetTPSL(preset) {
+async function cancelPresetTPSL(preset, symbol = SYM()) {
   const ids = [preset?.sl?.orderId, preset?.tp?.orderId].filter(Boolean);
   if (!ids.length) return 0;
-  const r = await Promise.allSettled(ids.map(id => cancelOrder({ algoId: id, isAlgo: true })));
+  const r = await Promise.allSettled(ids.map(id => cancelOrder({ algoId: id, isAlgo: true, symbol })));
   const ok = r.filter(x => x.status === "fulfilled").length;
   log("PRESET_TPSL_CANCELED", { ok, total: ids.length,
     level: ok < ids.length ? "warn" : "info" });
@@ -317,10 +322,10 @@ async function cancelPresetTPSL(preset) {
 // ※ 목록에서 못 찾으면 **막지 않는다** — 이미 체결·취소된 주문일 수 있고,
 //   그때는 취소 요청이 바이낸스에서 -2011로 떨어지므로 결과가 같다.
 //   조회가 실패했을 때도 마찬가지다 (통신 문제로 정상 취소를 막으면 더 나쁘다)
-async function assertCancelKind(orderId, kind) {
+async function assertCancelKind(orderId, kind, symbol = SYM()) {
   const [regR, algoR] = await Promise.allSettled([
-    binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
-    binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
+    binance("GET", "/fapi/v1/openOrders",     { symbol }),
+    binance("GET", "/fapi/v1/openAlgoOrders", { symbol }),
   ]);
   if (regR.status !== "fulfilled" || algoR.status !== "fulfilled") return;
   const algoRaw = algoR.value.data;
@@ -371,11 +376,11 @@ async function assertCancelKind(orderId, kind) {
 //   재등록 재시도 경로는 지금처럼 "없다"로 보고 다시 걸면 그만이지만(멱등),
 //   **경보 경로는 그러면 안 된다** — 통신이 한 번 튄 것을 "SL이 없다"고 알리게 된다.
 //   → 경보를 내는 쪽(orderWatcher의 안전망)은 `ok === false`면 침묵할 것
-async function checkExistingTPSL(positionSide) {
+async function checkExistingTPSL(positionSide, symbol = SYM()) {
   try {
     const [regularRes, algoRes] = await Promise.allSettled([
-      binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
+      binance("GET", "/fapi/v1/openOrders",     { symbol }),
+      binance("GET", "/fapi/v1/openAlgoOrders", { symbol }),
     ]);
     const regular = regularRes.status === "fulfilled" ? regularRes.value.data : [];
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
@@ -430,7 +435,7 @@ async function checkExistingTPSL(positionSide) {
 
     // 2차: 부분 주문뿐이라 판단 불가(null)일 때만 포지션 수량을 물어본다
     if (positionSide && (hasSL === null || hasTP === null)) {
-      const posRes = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" })
+      const posRes = await binance("GET", "/fapi/v2/positionRisk", { symbol })
         .catch(e => { log("QUERY_FAILED", { level: "warn", what: "positionRisk",
           ctx: "tpslCheck", posSide: positionSide, err: errOf(e) }); return null; });
       posAmt = posRes

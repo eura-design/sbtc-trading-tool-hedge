@@ -99,7 +99,10 @@ function scanEntry(trades, side, size) {
  * @param {{long: object|null, short: object|null}} pos  makePos() 결과
  * @returns {Promise<{LONG: object|null, SHORT: object|null}>}  scanEntry 결과
  */
-async function resolveEntryInfo(pos) {
+// @param symbol 어느 심볼의 체결을 훑을지. **필수에 가깝다** — userTrades는 심볼을
+//   안 받으면 부를 수 없고, 안 넘기면 기본 심볼로 떨어져 다른 코인 포지션의
+//   진입 이력이 통째로 비어 보인다 (차트 진입선이 계단으로 안 그려진다)
+async function resolveEntryInfo(pos, symbol = require("./symbolInfo").DEFAULT_SYMBOL) {
   const want = { LONG: pos.long, SHORT: pos.short };
   const out  = { LONG: null, SHORT: null };
   const need = [];
@@ -122,7 +125,7 @@ async function resolveEntryInfo(pos) {
     for (let w = 0; w < MAX_WINDOWS; w++) {
       const end   = now - w * WINDOW_MS;
       const { data } = await binance("GET", "/fapi/v1/userTrades", {
-        symbol: "BTCUSDT", startTime: end - WINDOW_MS, endTime: end, limit: TRADE_LIMIT,
+        symbol, startTime: end - WINDOW_MS, endTime: end, limit: TRADE_LIMIT,
       });
       // ⚠ **오래된 창을 앞에 붙인다** — scanEntry는 전체가 시간 오름차순이라고 보고
       //   뒤에서부터 훑는다. 순서가 섞이면 엉뚱한 체결을 시작점으로 잡는다

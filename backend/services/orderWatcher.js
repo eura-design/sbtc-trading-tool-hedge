@@ -125,7 +125,7 @@ async function verifyImmediateFill(orderId, entryOrder) {
     // UDS가 정상 처리할 시간을 조금 주고 → 그래도 WATCHING이면 직접 확인
     await new Promise(r => setTimeout(r, 700));
     if (store.get(orderId)?.status !== "WATCHING") return;
-    const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+    const { data } = await binance("GET", "/fapi/v1/order", { symbol: store.symbolOf(orderId), orderId });
     if (data.status === "FILLED") {
       log("FILL_DETECTED", { orderId, by: "verifyImmediate" });
       await onFilled(orderId, data);
@@ -148,7 +148,7 @@ async function verifyImmediateFill(orderId, entryOrder) {
 async function dropPreset(orderId) {
   const info = store.get(String(orderId));
   if (!info?.presetTpsl) return;
-  await cancelPresetTPSL(info.presetTpsl)
+  await cancelPresetTPSL(info.presetTpsl, store.symbolOf(orderId))
     .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "dropPreset", err: errOf(e) }));
 }
 
@@ -158,7 +158,7 @@ async function resolveOrphans(entries) {
     if (resolvingOrphans.has(key)) continue;
     resolvingOrphans.add(key);
     try {
-      const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+      const { data } = await binance("GET", "/fapi/v1/order", { symbol: store.symbolOf(orderId), orderId });
       if (data.status === "FILLED") {
         log("FILL_DETECTED", { orderId, by: "orphan" });
         if (store.get(orderId)?.status === "WATCHING") await onFilled(orderId, data);
@@ -305,7 +305,7 @@ async function pollForFills() {
   const watching = [...store.entries()].filter(([, o]) => o.status === "WATCHING");
   for (const [orderId] of watching) {
     try {
-      const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+      const { data } = await binance("GET", "/fapi/v1/order", { symbol: store.symbolOf(orderId), orderId });
       if (data.status === "FILLED")                                     await onFilled(orderId, data);
       else if (data.status === "CANCELED" || data.status === "EXPIRED") {
         log("ORDER_GONE", { orderId, status: data.status, by: "poll" });
@@ -333,6 +333,14 @@ async function reconcileWithBinance() {
 }
 
 async function runReconcile() {
+  // ⚠ **reconcile은 아직 기본 심볼만 본다** (2026-09-02). 3초짜리 watchAccount가
+  //   계정 전체를 보므로 다른 심볼의 무방비는 그쪽이 잡는다. 여기는 store에 있는
+  //   우리 주문의 TP/SL 재등록이 본업이고, 그건 주문마다 `store.symbolOf()`로 읽는다.
+  //   ⚠ **함수 맨 위에 둘 것** — 아래 여러 곳에서 쓰는데 중간에 선언하면 그 앞 사용이
+  //     TDZ로 터진다 (실제로 한 번 그렇게 썼다가 잡았다).
+  //   ⚠ 무방비 경보 키를 watchAccount와 **같은 형태**로 맞춰야 한다 — 어긋나면
+  //     한쪽이 띄운 배너를 다른 쪽이 못 거둔다
+  const RSYM = symbolInfo.DEFAULT_SYMBOL;
   const relevant = [...store.entries()].filter(
     ([, o]) => o.status === "WATCHING" || o.status === "SCALE_IN" || o.status === "SPLIT_TP"
   );
@@ -346,8 +354,8 @@ async function runReconcile() {
 
   try {
     const [{ data: openOrders }, { data: posData }] = await Promise.all([
-      binance("GET", "/fapi/v1/openOrders",   { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }),
+      binance("GET", "/fapi/v1/openOrders",   { symbol: RSYM }),
+      binance("GET", "/fapi/v2/positionRisk", { symbol: RSYM }),
     ]);
     const openIds  = new Set(openOrders.map(o => String(o.orderId)));
     const hasLong  = posData.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0);
@@ -408,7 +416,7 @@ async function runReconcile() {
       const posSide = closeToPosition(info.closeSide);
       if (posSide === "LONG" ? hasLong : hasShort) continue;   // 포지션이 있으면 유효한 TP/SL이다
       log("PRESET_TPSL_ORPHANED", { level: "warn", orderId, posSide });
-      await cancelPresetTPSL(info.presetTpsl)
+      await cancelPresetTPSL(info.presetTpsl, store.symbolOf(orderId))
         .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "reconcile", err: errOf(e) }));
       store.set(orderId, { ...info, presetTpsl: null });
       push.pushUpdate(["tpsl"]);
@@ -457,7 +465,7 @@ async function runReconcile() {
         .map(o => o.positionSide));
       const targets = emptySides.filter(sd => !entrySides.has(sd));
       if (targets.length) {
-        const algoRaw = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" })
+        const algoRaw = await binance("GET", "/fapi/v1/openAlgoOrders", { symbol: RSYM })
           .then(r => r.data)
           .catch(e => { log("QUERY_FAILED", { level: "warn", what: "algoOrders",
             ctx: "staleTriggerSweep", err: errOf(e) }); return null; });
@@ -471,7 +479,7 @@ async function runReconcile() {
           for (const { o, id, isAlgo } of stale) {
             log("STALE_TRIGGER_CANCELED", { level: "warn", orderId: id, posSide: o.positionSide,
               qty: orderQtyOf(o), price: triggerPriceOf(o) });
-            await cancelOrder({ orderId: id, algoId: id, isAlgo })
+            await cancelOrder({ orderId: id, algoId: id, isAlgo, symbol: o.symbol ?? RSYM })
               .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: id,
                 kindOf: "STALE_TRIGGER", ctx: "reconcile", err: errOf(e) }));
           }
@@ -493,7 +501,7 @@ async function runReconcile() {
           // 헤지 모드: 해당 포지션 방향의 TP/SL만 확인
           const orderPosSide = closeToPosition(info.closeSide);
           // TP·SL **둘 다** 있어야 완료다 — 한쪽만 보고 넘기면 빠진 쪽이 영영 재시도되지 않는다
-          const { hasTP, hasSL } = await checkExistingTPSL(orderPosSide);
+          const { hasTP, hasSL } = await checkExistingTPSL(orderPosSide, store.symbolOf(orderId));
           if (hasTP && hasSL) {
             // TP/SL이 이미 등록돼 있으면 PLACED로 전환
             store.set(orderId, { ...info, status: "TPSL_PLACED" });
@@ -526,16 +534,10 @@ async function runReconcile() {
     // 무방비 포지션은 아무도 알려주지 않았다 (실제로 1.6시간 방치된 적이 있다).
     // 여기선 등록을 대신 해주지 않는다 — store에 tp/sl이 없으면 가격을 지어내는 셈이라
     // 위 retryable 경로가 못 고친 건 사람이 판단해야 한다. 알리기만 한다.
-    // ⚠ **reconcile은 아직 기본 심볼만 본다** (2026-09-02). 3초짜리 watchAccount가
-    //   계정 전체를 보므로 다른 심볼의 무방비는 그쪽이 잡는다. 여기는 store에 있는
-    //   우리 주문의 TP/SL 재등록이 본업이고, 그건 아직 심볼별이 아니다 (2b-2에서 한다).
-    //   ⚠ 경보 키를 watchAccount와 **같은 형태**로 맞춰야 한다 — 어긋나면 한쪽이 띄운
-    //     배너를 다른 쪽이 못 거둔다
-    const RSYM = symbolInfo.DEFAULT_SYMBOL;
     for (const side of ["LONG", "SHORT"]) {
       const open = side === "LONG" ? hasLong : hasShort;
       if (!open) { resolveNaked(RSYM, side, "closed"); continue; }
-      const first = await checkExistingTPSL(side);
+      const first = await checkExistingTPSL(side, RSYM);
       if (first.hasSL) { resolveNaked(RSYM, side, "sl", { price: first.slPrice }); continue; }
       // 위 retryable이 이번 사이클에 고칠 예정이면 중복 경보를 내지 않는다
       const willRetry = retryable.some(([, o]) => closeToPosition(o.closeSide) === side);
@@ -550,8 +552,8 @@ async function runReconcile() {
       //   수 있어서다 — 닫힌 포지션에 "SL이 없다"고 알리면 그것도 오경보다
       await sleep(NAKED_RECHECK_MS);
       const [second, posRes] = await Promise.all([
-        checkExistingTPSL(side),
-        binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }).catch(() => null),
+        checkExistingTPSL(side, RSYM),
+        binance("GET", "/fapi/v2/positionRisk", { symbol: RSYM }).catch(() => null),
       ]);
       if (second.hasSL) { resolveNaked(RSYM, side, "sl", { price: second.slPrice }); continue; }
       if (posRes) {
@@ -598,7 +600,7 @@ async function runReconcile() {
     }
     for (const [orderId, posSide] of scaleIns) {
       try {
-        await cancelOrder({ orderId });
+        await cancelOrder({ orderId, symbol: store.symbolOf(orderId) });
       } catch (e) {
         log("ORDER_CANCEL_FAILED", { level: "warn", orderId, kindOf: "SCALE_IN", ctx: "reconcile", err: errOf(e) });
       }
@@ -612,7 +614,7 @@ async function runReconcile() {
     if (toCheck.length > 0) {
       const results = await Promise.allSettled(
         toCheck.map(([orderId]) =>
-          binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId }).then(r => r.data)
+          binance("GET", "/fapi/v1/order", { symbol: store.symbolOf(orderId), orderId }).then(r => r.data)
         )
       );
       for (let i = 0; i < toCheck.length; i++) {

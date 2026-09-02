@@ -137,5 +137,25 @@ function listTradable() {
 
 const isStale = () => _loadedAt === 0 || Date.now() - _loadedAt > REFRESH_MS * 2;
 
-module.exports = { DEFAULT_SYMBOL, load, start, stop, filtersOf, has,
+/**
+ * 요청에서 심볼을 뽑는다 — body/query의 `symbol`, 없으면 기본 심볼.
+ *
+ * ⚠ **모르는 심볼이면 던진다.** 그냥 통과시키면 바이낸스가 `-1121 Invalid symbol`로
+ *   거절하는데, 그 전에 이미 `roundPrice`가 기본 심볼 단위로 가격을 만들어 둔 뒤라
+ *   "왜 거절됐는지"가 화면에 안 드러난다. 여기서 막고 이름을 말해 주는 편이 낫다.
+ * ⚠ 대소문자를 맞춘다 — 바이낸스는 `btcusdt`를 안 받는다
+ */
+function fromRequest(req) {
+  const raw = req?.body?.symbol ?? req?.query?.symbol;
+  if (raw == null || raw === "") return DEFAULT_SYMBOL;
+  const sym = String(raw).toUpperCase();
+  if (!has(sym)) {
+    const e = new Error(`알 수 없는 심볼입니다 (${sym})`);
+    e.status = 400;
+    throw e;
+  }
+  return sym;
+}
+
+module.exports = { DEFAULT_SYMBOL, load, start, stop, filtersOf, has, fromRequest,
   roundPrice, roundQty, listTradable, isStale };

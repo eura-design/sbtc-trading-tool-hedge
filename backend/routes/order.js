@@ -6,6 +6,7 @@ const { checkDailyLoss } = require("./dailyloss");
 const { sideToPosition } = require("../utils/side");
 const { verifyImmediateFill } = require("../services/orderWatcher");
 const push     = require("../services/pushService");
+const symbolInfo = require("../services/symbolInfo");
 const { log, errOf } = require("../store/logStore");
 
 const router  = express.Router();
@@ -15,7 +16,11 @@ router.post("/", validateOrder, async (req, res) => {
   const closeSide = side === "BUY" ? "SELL" : "BUY";
 
   let leverageChanged = false;
+  let symbol;
   try {
+    // 심볼은 요청이 정한다 (안 보내면 기본). 모르는 심볼은 여기서 400으로 막는다 —
+    // 그냥 보내면 가격이 이미 기본 심볼 단위로 만들어진 뒤 거절돼 원인이 안 드러난다
+    symbol = symbolInfo.fromRequest(req);
     // 0) 일일 손실 한도 체크
     await checkDailyLoss();
 
@@ -24,7 +29,7 @@ router.post("/", validateOrder, async (req, res) => {
 
     // 2) 레버리지 설정 — 반대쪽 포지션이 이미 있으면 건너뜀 (기존 포지션 레버리지 보호)
     if (leverage) {
-      const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
+      const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol });
       const oppositeSide = positionSide === "LONG" ? "SHORT" : "LONG";
       const hasOppositePos = posCheck.some(p =>
         p.positionSide === oppositeSide && parseFloat(p.positionAmt) !== 0
@@ -33,27 +38,27 @@ router.post("/", validateOrder, async (req, res) => {
         log("LEVERAGE_SKIPPED", { requested: leverage, oppositeSide });
       } else {
         await binance("POST", "/fapi/v1/leverage", {
-          symbol: "BTCUSDT", leverage: parseInt(leverage),
+          symbol, leverage: parseInt(leverage),
         });
         leverageChanged = true;
       }
     }
     // 3) 진입 주문
     const entryParams = {
-      symbol: "BTCUSDT", side, positionSide, type: orderType,
-      quantity: roundQty(quantity),
-      ...(orderType === "LIMIT" && { price: roundPrice(entry), timeInForce: "GTC" }),
+      symbol, side, positionSide, type: orderType,
+      quantity: roundQty(quantity, symbol),
+      ...(orderType === "LIMIT" && { price: roundPrice(entry, symbol), timeInForce: "GTC" }),
     };
     const { data: entryOrder } = await binance("POST", "/fapi/v1/order", entryParams);
     const orderId   = entryOrder.orderId;
     const drawingData = req.body.drawing || null;
-    const orderInfo = { side, closeSide, tp, sl, qty: quantity, status: "WATCHING", drawing: drawingData };
+    const orderInfo = { symbol, side, closeSide, tp, sl, qty: quantity, status: "WATCHING", drawing: drawingData };
     // ⚠ **주문을 낸 것 자체를 남긴다** (2026-08-25). 예전엔 시장가만 `ENTRY_FILLED`로
     //   남고 **지정가는 체결될 때까지 아무 흔적이 없었다** — "몇 시에 걸었나",
     //   "걸고 체결까지 얼마나 걸렸나", "걸었다가 취소된 게 몇 건인가"를 답할 수 없었다.
     //   시장가도 같이 남긴다: 체결(`ENTRY_FILLED`)과 접수는 다른 사건이고,
     //   접수는 됐는데 체결 기록이 없는 경우가 곧 사고다
-    log("ENTRY_PLACED", { orderId, orderSide: side, posSide: positionSide, orderType,
+    log("ENTRY_PLACED", { symbol, orderId, orderSide: side, posSide: positionSide, orderType,
       qty: parseFloat(quantity), price: orderType === "LIMIT" ? entry : null,
       tp: tp ?? null, sl: sl ?? null, leverage: leverage ?? null, status: entryOrder.status });
 
@@ -116,7 +121,7 @@ router.post("/", validateOrder, async (req, res) => {
       //     (브레이크아웃 진입에서 실제로 가능하다). 그때 백엔드가 켜져 있으면 채워준다
       //   ※ SL은 순서상 안전하다 — 롱이면 손절이 진입가보다 아래라, 손절에 닿으려면
       //     반드시 진입가를 지나면서 지정가가 먼저 체결된다
-      const preset = await preplaceTPSL({ closeSide, tp, sl, qty: quantity });
+      const preset = await preplaceTPSL({ closeSide, tp, sl, qty: quantity, symbol });
       orderInfo.presetTpsl = preset;
       store.set(orderId, orderInfo);
 
@@ -194,10 +199,13 @@ router.patch("/", async (req, res) => {
     // 아직 체결 전이라 그 사이에 지킬 포지션도 없어 위험 창이 없다
     let preset = existing.presetTpsl ?? null;
     if (existing.status === "WATCHING" && preset) {
-      await cancelPresetTPSL(preset)
+      // 심볼은 **그 주문의 기록**에서 온다 — 요청이 아니라. PATCH는 이미 걸린 주문을
+      // 고치는 것이라, 요청에 심볼이 없거나 다르더라도 원래 심볼로 처리해야 한다
+      const psym = store.symbolOf(orderId);
+      await cancelPresetTPSL(preset, psym)
         .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId, ctx: "patchOrder", err: errOf(e) }));
       preset = await preplaceTPSL({
-        closeSide: existing.closeSide, tp: updated.tp, sl: updated.sl, qty: existing.qty,
+        closeSide: existing.closeSide, tp: updated.tp, sl: updated.sl, qty: existing.qty, symbol: psym,
       });
       updated.presetTpsl = preset;
     }
@@ -218,7 +226,7 @@ router.patch("/", async (req, res) => {
   } catch (err) {
     log("TPSL_UPDATE_FAILED", { level: "error", ctx: "pendingOrder",
       orderId: req.body?.orderId ?? null, err: errOf(err) });
-    res.status(500).json({ error: err.message });
+    res.status(err.status ?? 500).json({ error: err.message });
   }
 });
 

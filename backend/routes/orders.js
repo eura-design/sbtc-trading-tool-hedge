@@ -3,6 +3,7 @@ const { binance, cancelOrder, cancelPresetTPSL } = require("../services/binanceC
 const store   = require("../store/pendingOrders");
 const { isLiveLimit, limitKind } = require("../utils/orderKind");
 const { log, errOf } = require("../store/logStore");
+const symbolInfo = require("../services/symbolInfo");
 const router  = express.Router();
 
 // DELETE /api/orders — 바이낸스 미체결 LIMIT 진입 주문 취소 (source of truth: Binance)
@@ -17,6 +18,9 @@ const router  = express.Router();
 router.delete("/", async (req, res) => {
   try {
     const { side, orderId } = req.body ?? {};
+    // 조회 범위는 요청이 정한다. 취소는 **그 주문의 기록에 적힌 심볼**을 우선한다
+    // (아래 `csym`) — 화면이 다른 심볼로 옮겨간 뒤에도 원래 심볼로 지워야 한다
+    const symbol = symbolInfo.fromRequest(req);
     // 바이낸스에서 실제 미체결 LIMIT 주문 조회 후 취소
     // ⚠ **취소 대상은 `utils/orderKind.js`가 정한다** (2026-08-23).
     //   예전엔 store 기록으로 걸렀는데, **밖에서 낸 추가 진입은 기록이 없어서
@@ -28,8 +32,8 @@ router.delete("/", async (req, res) => {
     //     "이 주문 하나"는 대상이 분명하고, 방향·store 가드가 그대로 서 있다.
     //     사이드 일괄 취소는 무엇이 딸려갈지 모르므로 그때는 거절한다
     const [ooRes, posRes] = await Promise.allSettled([
-      binance("GET", "/fapi/v1/openOrders",   { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }),
+      binance("GET", "/fapi/v1/openOrders",   { symbol }),
+      binance("GET", "/fapi/v2/positionRisk", { symbol }),
     ]);
     if (ooRes.status !== "fulfilled") throw ooRes.reason;
     const openOrders = ooRes.value.data;
@@ -62,14 +66,15 @@ router.delete("/", async (req, res) => {
     });
 
     for (const o of entryOrders) {
-      await cancelOrder({ orderId: o.orderId })
+      const csym = store.get(String(o.orderId))?.symbol ?? o.symbol ?? symbol;
+      await cancelOrder({ orderId: o.orderId, symbol: csym })
         .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.orderId, kindOf: "ENTRY", err: errOf(e) }));
       // ⚠ **사전 등록해 둔 TP/SL도 같이 내린다** (2026-08-23). 안 내리면 진입 주문만
       //   사라지고 트리거 주문이 거래소에 남는다 — 나중에 그 사이드에 포지션이 생기면
       //   엉뚱한 가격에 발동한다 (수량 지정이라 그만큼 잘려 나간다)
       const info = store.get(String(o.orderId));
       if (info?.presetTpsl) {
-        await cancelPresetTPSL(info.presetTpsl)
+        await cancelPresetTPSL(info.presetTpsl, csym)
           .catch(e => log("PRESET_TPSL_CANCEL_FAILED", { level: "warn", orderId: o.orderId, ctx: "cancelOrders", err: errOf(e) }));
       }
       store.delete(String(o.orderId));
@@ -95,7 +100,7 @@ router.delete("/", async (req, res) => {
         qty: parseFloat(o.origQty) || null })) });
     res.json({ success: true, cancelled: entryOrders.length });
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.msg || err.message });
+    res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
   }
 });
 

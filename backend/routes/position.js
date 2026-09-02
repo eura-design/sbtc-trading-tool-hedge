@@ -5,14 +5,19 @@ const { resolveOrphans } = require("../services/orderWatcher");
 const { resolveEntryInfo } = require("../services/entryTime");
 const { isLiveLimit, limitKind } = require("../utils/orderKind");
 const { log, errOf } = require("../store/logStore");
+const symbolInfo = require("../services/symbolInfo");
 const router  = express.Router();
 
 router.get("/", async (req, res) => {
   try {
+    // 화면이 보고 있는 심볼 하나. ⚠ 여기는 **v2**를 심볼 지정으로 부른다 —
+    // 화면이 레버리지를 쓰는데 v3에는 그 필드가 없다 (orderWatcher 주석 참고).
+    // 심볼을 지정하면 한 행이라 v2의 1784행 문제도 없다
+    const symbol = symbolInfo.fromRequest(req);
     const [{ data: posData }, { data: openOrders }, { data: fundingData }] = await Promise.all([
-      binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v1/openOrders",   { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v1/premiumIndex", { symbol: "BTCUSDT" }),
+      binance("GET", "/fapi/v2/positionRisk", { symbol }),
+      binance("GET", "/fapi/v1/openOrders",   { symbol }),
+      binance("GET", "/fapi/v1/premiumIndex", { symbol }),
     ]);
 
     // 헷지모드: LONG / SHORT 각각 분리
@@ -111,7 +116,7 @@ router.get("/", async (req, res) => {
     //   부분 청산 때마다 앞으로 밀린다 (실측 8시간 차이) — services/entryTime.js 주석 참고.
     // 포지션이 바뀌지 않으면 캐시라 추가 요청이 없다. 실패하면 null이고,
     // 그때는 프론트가 예전처럼 전 폭 직선으로 긋는다
-    const entry = await resolveEntryInfo(out);
+    const entry = await resolveEntryInfo(out, symbol);
     for (const [key, side] of [["long", "LONG"], ["short", "SHORT"]]) {
       if (!out[key]) continue;
       out[key].entryTime  = entry[side]?.time  ?? null;
@@ -125,7 +130,7 @@ router.get("/", async (req, res) => {
       funding,
     });
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.msg || err.message });
+    res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
   }
 });
 

@@ -27,7 +27,9 @@ async function fetchIncome(incomeType, startTime, endTime) {
   let from = startTime;
   for (let page = 0; page < MAX_PAGES; page++) {
     const { data } = await binance("GET", "/fapi/v1/income", {
-      symbol: "BTCUSDT", incomeType, startTime: from, endTime, limit: MAX_LIMIT,
+      // ⚠ 심볼 필터 없음 — 계정 전체 손익이다 (dailyloss·incomeLogger와 같은 이유).
+      //   한 코인만 보고 싶어지면 여기가 아니라 **응답을 심볼로 나누는** 쪽이 맞다
+      incomeType, startTime: from, endTime, limit: MAX_LIMIT,
     });
     if (!Array.isArray(data) || data.length === 0) break;
     out.push(...data);
@@ -83,7 +85,7 @@ router.get("/", async (req, res) => {
     if (!hasRange) statsCache.setCache(result, now);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.msg || err.message });
+    res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
   }
 });
 

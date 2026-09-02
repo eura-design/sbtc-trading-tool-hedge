@@ -70,9 +70,10 @@ function saveCursor() {
 async function pollIncome() {
   const startTime = cursor.time > 0 ? cursor.time : Date.now() - BACKFILL_MS;
   try {
-    const { data } = await binance("GET", "/fapi/v1/income", {
-      symbol: "BTCUSDT", startTime, limit: 1000,
-    });
+    // ⚠ **심볼 필터를 걸지 않는다** (2026-09-02). INCOME은 수익 곡선·수수료·펀딩비의
+    //   유일한 출처인데(CLAUDE.md), BTCUSDT로 좁히면 다른 코인의 손익이 통째로 빠진다.
+    //   각 행에 `symbol`이 들어 있으므로 나중에 코인별로 나눠 볼 수도 있다
+    const { data } = await binance("GET", "/fapi/v1/income", { startTime, limit: 1000 });
     if (!Array.isArray(data) || data.length === 0) return;
 
     // ⚠ 시각 오름차순으로 훑는다 — 커서가 뒤로 가면 안 된다
@@ -143,9 +144,10 @@ function stop() {
  */
 async function logTradesFor(orderId, ctx = {}) {
   try {
-    const { data } = await binance("GET", "/fapi/v1/userTrades", {
-      symbol: "BTCUSDT", orderId, limit: 100,
-    });
+    // ⚠ userTrades는 **심볼이 필수**다 — 계정 전체로는 못 부른다.
+    //   그 주문의 기록에 적힌 심볼을 쓴다 (없으면 기본 심볼 = 2026-09-02 이전 기록)
+    const symbol = require("../store/pendingOrders").symbolOf(orderId);
+    const { data } = await binance("GET", "/fapi/v1/userTrades", { symbol, orderId, limit: 100 });
     if (!Array.isArray(data) || data.length === 0) return;
     let qty = 0, quote = 0, pnl = 0, fee = 0;
     for (const t of data) {

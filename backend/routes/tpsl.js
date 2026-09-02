@@ -1,5 +1,6 @@
 const express = require("express");
 const { binance, roundPrice, roundQty, cancelOrder, assertCancelKind } = require("../services/binanceClient");
+const symbolInfo = require("../services/symbolInfo");
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
 const { isLiveLimit, isCloseDir, isFullClose, orderQtyOf } = require("../utils/orderKind");
@@ -12,9 +13,10 @@ const SPLIT_TP_GRACE_MS = 30_000;
 
 router.get("/", async (req, res) => {
   try {
+    const symbol = symbolInfo.fromRequest(req);
     const [regularRes, algoRes] = await Promise.allSettled([
-      binance("GET", "/fapi/v1/openOrders",     { symbol: "BTCUSDT" }),
-      binance("GET", "/fapi/v1/openAlgoOrders", { symbol: "BTCUSDT" }),
+      binance("GET", "/fapi/v1/openOrders",     { symbol }),
+      binance("GET", "/fapi/v1/openAlgoOrders", { symbol }),
     ]);
     const regular = regularRes.status === "fulfilled" ? regularRes.value.data : [];
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
@@ -137,7 +139,7 @@ router.get("/", async (req, res) => {
                splitTps: shortSplitTps, partialSls: partialOf("STOP_MARKET", "SHORT") },
     });
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.msg || err.message });
+    res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
   }
 });
 
@@ -146,6 +148,9 @@ router.put("/", async (req, res) => {
   const { tp, sl, side, tpOrderId, slOrderId, tpIsAlgo, slIsAlgo } = req.body;
   if (!side) return res.status(400).json({ error: "side 필요" });
   if (!tp && !sl) return res.status(400).json({ error: "tp 또는 sl 중 하나는 필요" });
+  let symbol;
+  try { symbol = symbolInfo.fromRequest(req); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
 
   const closeSide    = side === "BUY" ? "SELL" : "BUY";
   const positionSide = sideToPosition(side);
@@ -153,7 +158,7 @@ router.put("/", async (req, res) => {
   let noSl = false;
 
   const cancelExisting = (isAlgo, id) =>
-    cancelOrder({ orderId: id, algoId: id, isAlgo })
+    cancelOrder({ orderId: id, algoId: id, isAlgo, symbol })
       .catch(e => log("ORDER_CANCEL_FAILED", { level: "warn", orderId: id, kindOf: "TPSL",
         ctx: "tpslReplace", err: errOf(e) }));
 
@@ -180,8 +185,8 @@ router.put("/", async (req, res) => {
   //   한쪽만 되돌리지 말 것 — 두 파일이 같은 값이어야 한다.
   const placeAlgo = (type, price) =>
     binance("POST", "/fapi/v1/algoOrder", {
-      algoType: "CONDITIONAL", symbol: "BTCUSDT", side: closeSide, positionSide,
-      type, triggerPrice: roundPrice(price),
+      algoType: "CONDITIONAL", symbol, side: closeSide, positionSide,
+      type, triggerPrice: roundPrice(price, symbol),
       closePosition: "true", workingType: "CONTRACT_PRICE",
     });
 
@@ -190,7 +195,7 @@ router.put("/", async (req, res) => {
     if (tp) {
       if (tpOrderId) await cancelExisting(tpIsAlgo, tpOrderId);
       const r = await placeAlgo("TAKE_PROFIT_MARKET", tp);
-      newOrders.tp = { orderId: r.data.algoId, price: parseFloat(roundPrice(tp)), isAlgo: true };
+      newOrders.tp = { orderId: r.data.algoId, price: parseFloat(roundPrice(tp, symbol)), isAlgo: true };
     }
 
     // SL이 변경된 경우에만 처리 (H1)
@@ -198,7 +203,7 @@ router.put("/", async (req, res) => {
       if (slOrderId) await cancelExisting(slIsAlgo, slOrderId);
       try {
         const r = await placeAlgo("STOP_MARKET", sl);
-        newOrders.sl = { orderId: r.data.algoId, price: parseFloat(roundPrice(sl)), isAlgo: true };
+        newOrders.sl = { orderId: r.data.algoId, price: parseFloat(roundPrice(sl, symbol)), isAlgo: true };
       } catch (e) {
         log("TPSL_PLACE_FAILED", { level: "error", type: "SL", ctx: "putTpsl",
           posSide: positionSide, price: sl, err: errOf(e) });
@@ -222,8 +227,9 @@ router.delete("/", async (req, res) => {
   const { orderId, isAlgo } = req.body ?? {};
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
-    const found = await assertCancelKind(orderId, "TPSL");   // 엉뚱한 주문 취소 방지 (2026-08-23 감사)
-    await cancelOrder({ orderId, algoId: orderId, isAlgo });
+    const symbol = store.get(String(orderId))?.symbol ?? symbolInfo.fromRequest(req);
+    const found = await assertCancelKind(orderId, "TPSL", symbol);   // 엉뚱한 주문 취소 방지 (2026-08-23 감사)
+    await cancelOrder({ orderId, algoId: orderId, isAlgo, symbol });
     log("ORDER_CANCELED", { kindOf: "TPSL", orderIds: [String(orderId)], count: 1, ...(found ?? {}) });
     res.json({ success: true });
   } catch (err) {
@@ -241,26 +247,27 @@ router.post("/split", async (req, res) => {
   const { side, price, qty, pct } = req.body;
   if (!side || !price || !qty) return res.status(400).json({ error: "side, price, qty 필요" });
   try {
+    const symbol    = symbolInfo.fromRequest(req);
     const closeSide = positionToClose(side);
     const { data } = await binance("POST", "/fapi/v1/order", {
-      symbol: "BTCUSDT", side: closeSide, positionSide: side, type: "LIMIT",
-      price: roundPrice(price), quantity: roundQty(qty),
+      symbol, side: closeSide, positionSide: side, type: "LIMIT",
+      price: roundPrice(price, symbol), quantity: roundQty(qty, symbol),
       timeInForce: "GTC",
     });
     store.set(String(data.orderId), {
-      status: "SPLIT_TP", price: parseFloat(roundPrice(price)),
+      symbol, status: "SPLIT_TP", price: parseFloat(roundPrice(price, symbol)),
       qty: parseFloat(qty), pct: pct ?? null, side: closeSide, positionSide: side,
     });
     // 거래소가 돌려준 값을 그대로 (우리가 보낸 값이 아니라) — 깎였거나 다르게
     // 접수됐으면 그것이 사실이다
-    log("SPLIT_TP_PLACED", { posSide: side, qty: parseFloat(qty),
+    log("SPLIT_TP_PLACED", { symbol, posSide: side, qty: parseFloat(qty),
       price: parseFloat(price), orderId: String(data.orderId),
       orderType: data.type ?? "LIMIT", timeInForce: data.timeInForce ?? null,
       reduceOnly: data.reduceOnly ?? null, closePosition: false });
     res.json({ success: true, orderId: String(data.orderId),
-      price: parseFloat(roundPrice(price)), qty: parseFloat(qty) });
+      price: parseFloat(roundPrice(price, symbol)), qty: parseFloat(qty) });
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.msg || err.message });
+    res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
   }
 });
 
@@ -269,13 +276,14 @@ router.delete("/split", async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
-    const found = await assertCancelKind(orderId, "SPLIT_TP");   // 엉뚱한 주문 취소 방지
-    await cancelOrder({ orderId });
+    const symbol = store.get(String(orderId))?.symbol ?? symbolInfo.fromRequest(req);
+    const found = await assertCancelKind(orderId, "SPLIT_TP", symbol);   // 엉뚱한 주문 취소 방지
+    await cancelOrder({ orderId, symbol });
     store.delete(String(orderId));
     log("ORDER_CANCELED", { kindOf: "SPLIT_TP", orderIds: [String(orderId)], count: 1, ...(found ?? {}) });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.msg || err.message });
+    res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
   }
 });
 
@@ -298,11 +306,12 @@ router.post("/partial-sl", async (req, res) => {
   const { side, price, qty } = req.body;
   if (!side || !price || !qty) return res.status(400).json({ error: "side, price, qty 필요" });
   try {
+    const symbol = symbolInfo.fromRequest(req);
     const { data } = await binance("POST", "/fapi/v1/algoOrder", {
-      algoType: "CONDITIONAL", symbol: "BTCUSDT",
+      algoType: "CONDITIONAL", symbol,
       side: positionToClose(side), positionSide: side,
-      type: "STOP_MARKET", triggerPrice: roundPrice(price),
-      quantity: roundQty(qty), workingType: "CONTRACT_PRICE",
+      type: "STOP_MARKET", triggerPrice: roundPrice(price, symbol),
+      quantity: roundQty(qty, symbol), workingType: "CONTRACT_PRICE",
     });
     log("PARTIAL_SL_PLACED", { posSide: side, qty: parseFloat(qty),
       price: parseFloat(price), orderId: String(data.algoId),
@@ -327,8 +336,9 @@ router.delete("/partial-sl", async (req, res) => {
   if (!orderId) return res.status(400).json({ error: "orderId 필요" });
   try {
     // ⚠ 전량 손절을 여기로 지우지 못하게 막는다 (그 반대도 `DELETE /`가 막는다)
-    const found = await assertCancelKind(orderId, "PARTIAL_SL");
-    await cancelOrder({ orderId, algoId: orderId, isAlgo: true });
+    const symbol = store.get(String(orderId))?.symbol ?? symbolInfo.fromRequest(req);
+    const found = await assertCancelKind(orderId, "PARTIAL_SL", symbol);
+    await cancelOrder({ orderId, algoId: orderId, isAlgo: true, symbol });
     log("ORDER_CANCELED", { kindOf: "PARTIAL_SL", orderIds: [String(orderId)], count: 1, ...(found ?? {}) });
     res.json({ success: true });
   } catch (err) {

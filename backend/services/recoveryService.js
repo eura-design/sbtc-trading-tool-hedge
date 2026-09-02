@@ -1,4 +1,5 @@
 const { binance, placeTPSL, checkExistingTPSL } = require("./binanceClient");
+const symbolInfo = require("./symbolInfo");
 const store = require("../store/pendingOrders");
 const { startUserDataStream } = require("./orderWatcher");
 const { closeToPosition, positionToSide } = require("../utils/side");
@@ -9,7 +10,7 @@ async function recoverPendingOrders() {
 
   try {
     // ── 1단계: 미체결 지정가 주문 복구 ──────────────────────────────────────
-    const { data: openOrds } = await binance("GET", "/fapi/v1/openOrders", { symbol: "BTCUSDT" });
+    const { data: openOrds } = await binance("GET", "/fapi/v1/openOrders", { symbol: symbolInfo.DEFAULT_SYMBOL });
     const limitOrders = openOrds.filter(o =>
       o.type === "LIMIT" && (o.status === "NEW" || o.status === "PARTIALLY_FILLED")
     );
@@ -78,11 +79,14 @@ async function recoverPendingOrders() {
       if (!info.createdAt || now - info.createdAt > MAX_AGE_MS) continue;
 
       try {
-        const { data } = await binance("GET", "/fapi/v1/order", { symbol: "BTCUSDT", orderId });
+        // ⚠ 심볼은 **그 기록에 적힌 것**을 쓴다. 2026-09-02 이전 기록에는 필드가
+        //   없는데, 그때는 전부 BTCUSDT였으므로 store.symbolOf가 그렇게 읽어 준다
+        const rsym = store.symbolOf(orderId);
+        const { data } = await binance("GET", "/fapi/v1/order", { symbol: rsym, orderId });
 
         if (data.status === "FILLED" && info.tp && info.sl) {
           log("RECOVERY_FILL_DETECTED", { orderId });
-          const { data: posData } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
+          const { data: posData } = await binance("GET", "/fapi/v2/positionRisk", { symbol: rsym });
           const orderPosSide = closeToPosition(info.closeSide);
           // 헷지모드: 주문 사이드와 매칭되는 포지션이 있어야만 TP/SL 등록 시도
           // (반대쪽만 열려있을 때 잘못된 사이드로 placeTPSL 호출하면 5회 재시도 = 31초 낭비)
@@ -92,7 +96,7 @@ async function recoverPendingOrders() {
 
           if (pos) {
             // TP·SL 둘 다 있을 때만 완료로 본다 (한쪽만 있으면 placeTPSL이 양쪽 다시 건다)
-            const { hasTP, hasSL } = await checkExistingTPSL(orderPosSide);
+            const { hasTP, hasSL } = await checkExistingTPSL(orderPosSide, rsym);
             if (!(hasTP && hasSL)) {
               const tpsl = await placeTPSL(info);
               if (tpsl.failed.length > 0) {
@@ -119,7 +123,11 @@ async function recoverPendingOrders() {
 
     // ── 3단계: 안전망 — 포지션이 열려 있는데 TP/SL 없으면 자동 복구 시도 ─────
     // 헷지모드: LONG/SHORT 각각 독립적으로 확인
-    const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: "BTCUSDT" });
+    // ⚠ 3단계는 아직 **기본 심볼만** 본다. 다른 심볼의 무방비 포지션은 3초짜리
+    //   watchAccount가 경보로 잡는다 (여기는 store 기록으로 TP/SL을 "대신 걸어주는"
+    //   경로라, 기록이 심볼별이 되기 전에는 범위를 넓히면 엉뚱한 값을 걸 수 있다)
+    const SYM = symbolInfo.DEFAULT_SYMBOL;
+    const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: SYM });
     const openPositions = posCheck.filter(p => parseFloat(p.positionAmt) !== 0);
     const PRICE_TOLERANCE = 0.02; // 현재 포지션 entryPrice ±2% 내 매칭만 신뢰
     const usedRecoverIds = new Set();
@@ -128,7 +136,7 @@ async function recoverPendingOrders() {
       const openPosSide = openPos.positionSide === "LONG" || openPos.positionSide === "SHORT"
         ? openPos.positionSide
         : parseFloat(openPos.positionAmt) > 0 ? "LONG" : "SHORT";
-      const { hasTP, hasSL } = await checkExistingTPSL(openPosSide);
+      const { hasTP, hasSL } = await checkExistingTPSL(openPosSide, SYM);
       if (!(hasTP && hasSL)) {
         const posEntry = parseFloat(openPos.entryPrice);
         // ⚠ `=====` 배너로 다섯 줄 찍던 것을 이벤트 한 줄로 바꿨다 (2026-08-25).

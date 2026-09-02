@@ -62,6 +62,7 @@ store/
   logStore.js              로그 한 벌 — logs/<날짜>.jsonl (구조화 이벤트 + 콘솔 캡처)
   backupStore.js           백업 — backups/<날짜>.json (60일)
   pendingOrders.js         PendingOrderStore (Map + debounce 저장, 7일 정리)
+                           `symbol` 필드 — set()이 채운다. 낡은 기록은 `symbolOf()`가 기본 심볼로 읽는다
   trackerStore.js          기타/tracker_data.json 읽기·쓰기
 middleware/validate.js     POST /api/order 입력 검증
 utils/
@@ -187,6 +188,16 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
 - **tpsl API**: `{ long: { tp, sl, splitTps, partialSls }, short: { … } }`
   - splitTps 분류: SELL = 롱 청산, BUY = 숏 청산
 - **side 매핑**은 `utils/side.js` 헬퍼로 (직접 문자열 비교 금지)
+
+### 심볼
+- 심볼별 규칙(호가·수량 단위)은 **바이낸스 `exchangeInfo`가 원본** — `services/symbolInfo.js`
+- 라우트는 body/query의 `symbol`을 받는다 (`symbolInfo.fromRequest`, 없으면 기본 심볼).
+  **모르는 심볼은 400**이다 — 통과시키면 가격이 이미 기본 심볼 단위로 만들어진 뒤 거절된다
+- **이미 걸린 주문을 건드릴 때는 `store.symbolOf(orderId)`를 쓴다** (요청이 아니라).
+  화면이 다른 심볼로 옮겨간 뒤에도 원래 심볼로 취소·수정해야 한다
+- **손익 조회에는 심볼 필터를 걸지 않는다** (`/api/stats`·일일 손실·`INCOME`) —
+  한도의 기준인 지갑 잔고가 계정 전체 값이라, 손익만 좁히면 한도가 헐거워진다
+- ⚠ `"BTCUSDT"` 문자열은 `symbolInfo.DEFAULT_SYMBOL`과 `SEED` 두 곳에만 있다. 늘리지 말 것
 - **포지션 플래그**: `derivePositionFlags(position)` → hasLong/hasShort/hasPos/hasBoth/hasPending/drawLocked
 
 ### 주문의 정체는 바이낸스가 정한다

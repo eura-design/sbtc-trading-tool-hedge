@@ -49,7 +49,16 @@ const crypto = require("crypto");
 
 const DIR          = path.join(__dirname, "../logs");
 const RETAIN_DAYS  = 30;
-const SYMBOL       = "BTCUSDT";
+// 로그 줄의 기본 심볼 — 이벤트가 `symbol`을 안 실어 보냈을 때만 쓴다.
+//
+// ⚠ **호출 시점에 읽는다(파일 맨 위에서 require하지 말 것).** symbolInfo가 이 파일을
+//   부르므로 위에서 require하면 순환 참조가 되어 `errOf`가 undefined가 된다
+//   (2026-09-02에 실제로 그렇게 만들었다가 잡았다). log()는 모듈이 다 뜬 뒤에만
+//   불리므로 그때 읽으면 안전하고, 심볼 기본값이 두 곳에 적히는 것도 막는다.
+// ⚠ 여러 코인을 다루게 된 뒤로는 **이벤트가 직접 실어 보내는 것이 원칙**이다.
+//   여기 기본값에 기대면 ETH 사건이 로그에 BTCUSDT로 남아, 나중에 심볼로 grep했을 때
+//   조용히 엉뚱한 답이 나온다
+const defaultSymbol = () => require("../services/symbolInfo").DEFAULT_SYMBOL;
 
 // 부팅마다 새로 — **재시작 경계를 알 수 있게 한다**. 이 시스템은 "꺼져 있던 사이"가
 // 곧 사고 원인이라(지정가가 체결됐는데 TP/SL을 못 걸었다 등), 로그가 이어져 보이는데
@@ -172,7 +181,7 @@ function write(kind, event, fields) {
   const now = Date.now();
   writeLine({
     ts: now, iso: new Date(now).toISOString(), boot: BOOT,
-    kind, level, event, symbol: rest.symbol || SYMBOL,
+    kind, level, event, symbol: rest.symbol || defaultSymbol(),
     ...rest,
   });
   // ⚠ 구조화 이벤트도 터미널에 낸다 — 예전엔 **아무리 심각해도 안 떴다**.
