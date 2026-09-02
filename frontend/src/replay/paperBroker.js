@@ -30,10 +30,28 @@ const ENTRY_SIDE = { LONG: "BUY",  SHORT: "SELL" };
 
 /** 유지증거금률 — 바이낸스 BTCUSDT 1구간(≤50k 명목) 근사값 */
 const MAINT_MARGIN_RATE = 0.004;
-const MIN_QTY = 0.001;      // BTCUSDT LOT_SIZE (backend/utils/splitTp.js와 같은 값)
+// ⚠ **BTCUSDT의 값이자 기본값일 뿐이다** (2026-09-02). 리플레이가 심볼을 따르게 되면서
+//   부르는 쪽이 그 심볼의 LOT_SIZE를 넘겨야 한다 — DOGE는 단위가 **1**이다.
+//   backend/utils/splitTp.js와 **같은 규칙**을 유지할 것 (그게 이 미러링의 존재 이유다)
+const DEFAULT_STEP = 0.001;
+
+/** 그 단위의 유효 소수 자릿수 — backend/utils/round.js의 decimalsOf와 같은 규칙 */
+function decOf(step) {
+  const t = String(step);
+  const dot = t.indexOf(".");
+  return dot < 0 ? 0 : t.slice(dot + 1).replace(/0+$/, "").length;
+}
+/** 단위의 **배수로** 반올림 — 자릿수만 맞추면 step이 10일 때 배수가 깨진다 */
+function roundTo(v, step) {
+  const d = decOf(step), scale = 10 ** d;
+  const su = Math.round(step * scale);
+  return Number((Math.round(v * scale / su) * su / scale).toFixed(d));
+}
 
 export class PaperBroker {
-  constructor({ startBalance = 10_000, fundingRates = [] } = {}) {
+  // @param step 그 심볼의 수량 단위 (LOT_SIZE stepSize). 안 넘기면 BTCUSDT 값
+  constructor({ startBalance = 10_000, fundingRates = [], step = DEFAULT_STEP } = {}) {
+    this.step = Number(step) > 0 ? Number(step) : DEFAULT_STEP;
     this.startBalance = startBalance;
     this.balance = startBalance;        // 지갑 잔고 (실현손익·수수료 반영)
     this.fundingRates = fundingRates;   // [{ time, rate }] 오름차순
@@ -169,7 +187,7 @@ export class PaperBroker {
     const rest = this.pos[positionSide];
     const t = this.tpsl[positionSide];
     if (!rest) return;
-    if (t.splitTps.length) t.splitTps = rescaleSplitTps(t.splitTps, originalSize, amount);
+    if (t.splitTps.length) t.splitTps = rescaleSplitTps(t.splitTps, originalSize, amount, this.step);
 
     // ── 분할 SL도 같은 비율로 (2026-08-24) — 실거래 `routes/close.js` 3-2)의 미러 ──
     //
@@ -179,7 +197,7 @@ export class PaperBroker {
     // ⚠ **최소 수량 미만이 되는 항목은 원래 수량을 그대로 둔다** — 지우면 그만큼
     //   무방비다. 분할 TP는 지워도 손해가 없어 규칙이 다르다 (실거래도 같다)
     if (t.partialSls?.length) {
-      const scaled = rescaleSplitTps(t.partialSls, originalSize, amount);
+      const scaled = rescaleSplitTps(t.partialSls, originalSize, amount, this.step);
       t.partialSls = t.partialSls.map(ps =>
         scaled.find(x => x.orderId === ps.orderId) ?? ps);
     }
@@ -477,8 +495,6 @@ export class PaperBroker {
 
 function blankTpsl() { return { tp: null, sl: null, splitTps: [], partialSls: [] }; }
 
-const r3 = (v) => Math.round(v * 1000) / 1000;
-
 /**
  * 부분 청산 후 분할 TP를 잔여 비율로 다시 계산한다.
  *
@@ -496,9 +512,10 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
  * `splitTps`는 `addSplitTp`가 **가격 내림차순**으로 정렬해 둔다 — 반올림 초과분을
  * 뒤에서부터 깎으므로 순서가 결과를 0.001만큼 좌우한다 (백엔드도 같은 정렬).
  */
-function rescaleSplitTps(splitTps, originalSize, closeQty) {
+function rescaleSplitTps(splitTps, originalSize, closeQty, step = DEFAULT_STEP) {
+  const r3 = (v) => roundTo(v, step);
   const newSize = Math.max(0, r3(originalSize - closeQty));
-  if (!splitTps.length || !(originalSize > 0) || newSize < MIN_QTY) return [];
+  if (!splitTps.length || !(originalSize > 0) || newSize < step) return [];
 
   const ratio = newSize / originalSize;
   const out = splitTps.map(sp => ({ ...sp, qty: r3(sp.qty * ratio) }));
@@ -506,14 +523,14 @@ function rescaleSplitTps(splitTps, originalSize, closeQty) {
   // 반올림으로 합이 잔여를 넘었을 때만, 넘친 만큼을 **뒤에서부터** 깎는다
   // (모자라는 건 그대로 둔다 — 미커버는 정상 상태다)
   let over = r3(out.reduce((s, x) => s + x.qty, 0) - newSize);
-  for (let i = out.length - 1; i >= 0 && over >= MIN_QTY / 2; i--) {
+  for (let i = out.length - 1; i >= 0 && over >= step / 2; i--) {
     const cut = Math.min(out[i].qty, over);
     out[i].qty = r3(out[i].qty - cut);
     over = r3(over - cut);
   }
 
   return out
-    .filter(x => x.qty >= MIN_QTY)
+    .filter(x => x.qty >= step)
     .map(x => ({ ...x, pct: Math.round((x.qty / newSize) * 100) }));
 }
 

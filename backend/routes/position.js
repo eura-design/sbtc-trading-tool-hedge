@@ -123,11 +123,20 @@ router.get("/", async (req, res) => {
       out[key].entrySteps = entry[side]?.steps ?? null;
     }
 
+    // ⚠ **포지션이 없어도 그 심볼의 레버리지를 내려준다** (2026-09-02).
+    //   바이낸스는 레버리지를 **심볼 단위로** 들고 있어서, 화면이 값 하나만 갖고 있으면
+    //   BTC에서 5x로 둔 뒤 ETH로 옮겼을 때 **화면은 5x인데 거래소의 ETH는 예전 값**이다.
+    //   v2 positionRisk는 포지션이 0이어도 그 심볼의 행을 주므로 여기서 읽을 수 있다.
+    //   (v3에는 leverage가 없다 — orderWatcher 주석 참고)
+    const symbolLeverage = parseInt(posData.find(p => p.leverage)?.leverage) || null;
+
     res.json({
       ...out,
       pending,
       scaleInOrders,
       funding,
+      symbol,
+      symbolLeverage,
     });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });

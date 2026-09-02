@@ -88,3 +88,45 @@ test("합은 어떤 조합에서도 잔여를 넘지 않는다", () => {
     }
   }
 });
+
+// ── 심볼마다 다른 수량 단위 (2026-09-02 전수조사) ──────────────────────────
+// DOGE는 LOT_SIZE가 **1**이다. 0.001로 계산하면 0.5짜리 조각이 최소 수량 필터를
+// 통과한 뒤 routes/close.js의 roundQty에서 0으로 내려가 **수량 0인 주문**이 나간다.
+
+test("수량 단위가 1인 심볼에서 조각이 정수로 떨어진다", () => {
+  // 포지션 300(=100+200)을 절반 청산 → 기대 50/100
+  const r = rescaleSplitTps(ord(200, 100), 300, 150, 1, 1);
+  assert.equal(r.newSize, 150);
+  assert.deepEqual(qtysOf(r), [100, 50]);
+  for (const q of qtysOf(r)) assert.equal(q % 1, 0, `소수가 남았다: ${q}`);
+});
+
+test("단위가 1이면 1 미만 조각은 걸러진다 (수량 0 주문 방지)", () => {
+  // 0.5로 줄어드는 조각은 거래소에 못 낸다 — 여기서 빠져야 한다
+  const r = rescaleSplitTps(ord(100, 1), 200, 100, 1, 1);
+  assert.equal(r.newSize, 100);
+  assert.ok(!qtysOf(r).some(q => q < 1), `1 미만이 남았다: ${qtysOf(r)}`);
+});
+
+test("합은 어떤 단위에서도 잔여를 넘지 않는다", () => {
+  for (const [step, size] of [[1, 300], [0.01, 3], [0.001, 1.5], [10, 5000]]) {
+    for (const pct of [0.25, 0.333, 0.5, 0.9]) {
+      const closeQty = size * pct;
+      const r = rescaleSplitTps(ord(size * 0.5, size * 0.3, size * 0.2), size, closeQty, step, step);
+      const total = qtysOf(r).reduce((s, v) => s + v, 0);
+      assert.ok(total <= r.newSize + 1e-9,
+        `step=${step} size=${size} → 합 ${total} > 잔여 ${r.newSize}`);
+      for (const q of qtysOf(r)) {
+        const units = q / step;
+        assert.ok(Math.abs(units - Math.round(units)) < 1e-6, `${q}는 ${step}의 배수가 아니다`);
+      }
+    }
+  }
+});
+
+test("안 넘기면 예전 BTCUSDT 동작 그대로다", () => {
+  const a = rescaleSplitTps(ord(0.6, 0.4), 1.5, 0.75);
+  const b = rescaleSplitTps(ord(0.6, 0.4), 1.5, 0.75, 0.001, 0.001);
+  assert.deepEqual(qtysOf(a), qtysOf(b));
+  assert.deepEqual(qtysOf(a), [0.3, 0.2]);
+});

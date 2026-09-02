@@ -155,6 +155,8 @@ export const createSettingsSlice = (set, get) => ({
   // ⚠ 처음 값은 BTCUSDT 것이다 — 못 받았을 때 화면이 멈추는 것보다 낫지만,
   //   다른 코인에서 이 값이 그대로면 수량이 틀린다. 그래서 선택기가 목록을 못 받으면 죽는다
   symbolFilters: { step: QTY_STEP, minQty: MIN_QTY, tick: 0.1, base: "BTC", onboardMs: null },
+  // 심볼을 막 바꿨고 아직 그 심볼의 레버리지를 못 읽었다 (serverSlice가 지운다)
+  leverageSyncPending: false,
   indicators: (() => {
     try { return JSON.parse(lsGet("indicators") || "{}"); }
     catch { return {}; }
@@ -173,6 +175,23 @@ export const createSettingsSlice = (set, get) => ({
     scheduleReplace(get, ["long", "short"]);
   },
 
+  /**
+   * 거래소가 들고 있는 그 심볼의 레버리지로 **표시만** 맞춘다 (serverSlice가 부른다).
+   *
+   * ⚠ `setLeverage`를 쓰지 말 것 — 그건 `scheduleReplace`로 800ms 뒤 미체결 주문을
+   *   재등록한다. 여기는 "거래소가 이미 이 값이다"를 화면에 반영하는 것이라
+   *   거래소로 되돌려 보낼 것이 없고, 재등록은 사용자가 시키지 않은 주문 조작이 된다.
+   * ⚠ localStorage에도 쓴다 — 안 쓰면 새로고침했을 때 옛 값이 되살아난다
+   */
+  syncLeverageFromExchange: (leverage) => {
+    if (!(leverage > 0) || leverage === get().leverage) {
+      set({ leverageSyncPending: false });
+      return;
+    }
+    lsSet(_keys.lev, leverage);
+    set({ leverage, leverageSyncPending: false });
+  },
+
   setSymbol: (symbol) => {
     if (!symbol || symbol === get().symbol) return;
     lsSet("symbol", symbol);
@@ -184,7 +203,13 @@ export const createSettingsSlice = (set, get) => ({
     //   "ETH에는 그런 미체결이 없다"고 보고 **그 박스를 지운다**.
     //   다른 도형은 키에 심볼이 들어가 useDrawableStore가 알아서 다시 읽는다
     const drawings = swapDrawingStorage(get().replayOn, get().drawings, symbol);
-    set({ symbol, drawings });
+    // ⚠ **레버리지는 바이낸스가 심볼 단위로 들고 있다.** 화면은 값 하나뿐이라,
+    //   BTC에서 5x로 두고 ETH로 옮기면 화면은 5x인데 거래소의 ETH는 예전 값이다
+    //   (실측 2026-09-02: BTC 5x / ETH 1x / DOGE 1x).
+    //   → 여기서 **거래소에 밀어 넣지 않는다.** 심볼을 고른 것만으로 거래소 설정이
+    //     바뀌면, 그 심볼에 포지션이 있을 때 청산가가 말없이 움직인다.
+    //     대신 표시를 거래소에 맞춘다: 다음 position 응답이 알려 준다 (serverSlice)
+    set({ symbol, drawings, leverageSyncPending: true });
   },
 
   setSymbolFilters: (f) => set({ symbolFilters: f }),

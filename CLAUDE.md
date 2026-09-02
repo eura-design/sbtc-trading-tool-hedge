@@ -217,6 +217,13 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
 - **손익 조회에는 심볼 필터를 걸지 않는다** (`/api/stats`·일일 손실·`INCOME`) —
   한도의 기준인 지갑 잔고가 계정 전체 값이라, 손익만 좁히면 한도가 헐거워진다
 - ⚠ `"BTCUSDT"` 문자열은 `symbolInfo.DEFAULT_SYMBOL`과 `SEED` 두 곳에만 있다. 늘리지 말 것
+- **레버리지는 바이낸스가 심볼 단위로 들고 있다.** 화면은 값 하나뿐이라, 심볼을 바꾸면
+  `GET /api/position`의 `symbolLeverage`로 **표시를 거래소에 맞춘다**
+  (`leverageSyncPending` → `syncLeverageFromExchange`).
+  ⚠ 거래소로 **밀어 넣지 않는다** — 심볼을 고른 것만으로 설정이 바뀌면
+    그 심볼에 포지션이 있을 때 청산가가 말없이 움직인다
+- 수량 단위(`stepSize`)는 `rescaleSplitTps`에도 넘긴다 — 백엔드·페이퍼 브로커 **양쪽**.
+  안 넘기면 DOGE에서 0.5짜리가 최소 수량 필터를 통과한 뒤 0으로 내려가 **수량 0 주문**이 된다
 - **포지션 플래그**: `derivePositionFlags(position)` → hasLong/hasShort/hasPos/hasBoth/hasPending/drawLocked
 
 ### 주문의 정체는 바이낸스가 정한다

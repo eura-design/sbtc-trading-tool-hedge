@@ -29,6 +29,11 @@ router.post("/", async (req, res) => {
   try {
 
   const symbol    = symbolInfo.fromRequest(req);
+  // ⚠ 분할 TP/SL 재계산에도 **그 심볼의 수량 단위**를 넘긴다. 0.001로 계산하면
+  //   DOGE(단위 1)에서 0.5짜리가 최소 수량 필터를 통과한 뒤 roundQty에서 0으로
+  //   내려가 **수량 0인 주문**이 나간다
+  const { stepSize, minQty } = symbolInfo.filtersOf(symbol);
+  const qStep = Number(stepSize), qMin = Number(minQty);
   const closeSide = positionToClose(side);
   const closeQty  = parseFloat(quantity);
 
@@ -166,7 +171,7 @@ router.post("/", async (req, res) => {
     //      버그였다 (그쪽 주석에 실측값). 지금은 전부 같은 비율로 줄이고 반올림
     //      초과분만 깎는다
     if (partial && splitTpOrders.length > 0 && originalSize > 0) {
-      const { newSize, items } = rescaleSplitTps(splitTpOrders, originalSize, closeQty);
+      const { newSize, items } = rescaleSplitTps(splitTpOrders, originalSize, closeQty, qStep, qMin);
       let anyFailed = false;
       for (const { order: o, qty, pct } of items) {
         try {
@@ -216,7 +221,7 @@ router.post("/", async (req, res) => {
     // ⚠ 잔여가 최소 수량 미만이 되어 빠진 항목은 **옛 주문을 그대로 둔다.** 지우면
     //   그만큼 무방비다 (분할 TP는 지워도 손해가 없어 규칙이 다르다)
     if (partial && partialSlOrders.length > 0 && originalSize > 0) {
-      const { items } = rescaleSplitTps(partialSlOrders, originalSize, closeQty);
+      const { items } = rescaleSplitTps(partialSlOrders, originalSize, closeQty, qStep, qMin);
       let anyFailed = false;
       for (const { order: o, qty } of items) {
         try {
