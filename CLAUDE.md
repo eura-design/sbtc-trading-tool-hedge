@@ -150,6 +150,11 @@ components/
     BalanceCard / MarketInfoCard / PositionCard / PlanCard / StatsCard / ReplayStatsCard
     ScaleInCard / SplitTPCard / SplitSLCard / cardControls.jsx
 
+tests/                     `npm test` (node 내장 러너 — **의존성 0**)
+  splitLevels / calc / equity.test.js   돈이 걸린 순수 함수
+  ⚠ node가 직접 import한다 — 테스트할 모듈의 상대 import에는 `.js`를 붙일 것
+    (`replay/`가 같은 이유로 그렇게 돼 있다)
+
 replay/                    리플레이 트레이딩
   soa.js  timeframes.js  klines.js  history.js  engine.js
   paperBroker.js           페이퍼 체결 엔진 (스냅샷이 백엔드와 같은 모양)

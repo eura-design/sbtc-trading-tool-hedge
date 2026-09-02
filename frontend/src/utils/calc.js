@@ -1,4 +1,7 @@
-import { MIN_QTY, QTY_STEP } from "../constants";
+// ⚠ `.js` 확장자를 뺀 채로 되돌리지 말 것 — 그러면 node가 이 파일을 못 읽어
+//   `frontend/tests/calc.test.js`가 통째로 죽는다. Vite는 둘 다 해석하므로 화면은 그대로다.
+//   (`replay/`가 같은 이유로 상대 import에 확장자를 붙인다 — CLAUDE.md 참고)
+import { MIN_QTY, QTY_STEP } from "../constants.js";
 
 // BTC 무기한 선물 유지증거금률 (~5%) — 실제 가용 자본에서 차감
 const MAINT_MARGIN_RATE = 0.05;
