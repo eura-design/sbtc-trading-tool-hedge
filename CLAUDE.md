@@ -69,6 +69,7 @@ utils/
   side.js                  헷지모드 side 매핑 (sideToPosition/positionToSide/closeToPosition/positionToClose)
   orderKind.js             미체결 LIMIT 정체 판정(limitKind) + 트리거 전량/부분 판정
   round.js                 호가·수량 단위 맞추기 (순수 함수) — **가격은 반올림, 수량은 내림**
+                           `decimalsOf`가 자릿수 규칙의 **백엔드 정본**이다
   bigIntJson.js            큰 정수를 잃지 않는 JSON 파싱 — **주문번호가 뭉개지는 것을 막는다**
   positionDiff.js          사라진 포지션 찾기 (goneSides) — **직전 관측을 돈다**
   splitTp.js               rescaleSplitTps() — 부분 청산 후 분할 TP 재계산 (순수 함수, import 없음)
@@ -106,6 +107,9 @@ utils/
   calc.js                  calcPosition() — 리스크 기반 수량 계산
   splitLevels.js           분할 주문 가격·수량 배분 (splitPlan/splitOrders/maxSplitCount)
   qty.js                   수량 표시·내림 (fmtQty/floorQty/qtyLabel) — 심볼 단위를 따른다
+  price.js                 가격 표시 — 자릿수를 **호가 단위**가 정한다 (돈에는 쓰지 말 것)
+  decimals.js              자릿수 규칙의 **프론트 정본**. ⚠ 새로 복제하지 말 것 —
+                           일곱 벌로 늘어나 그중 둘이 갈린 적이 있다 (2026-09-03)
   equity.js                unrealizedFor/totalUnrealized/totalEquity
   side.js                  헷지모드 side 매핑 (+ isLongToPosition/isLongToSide)
   coordUtils.js            idxToTimestamp/getCandleMs/addMonthsUTC

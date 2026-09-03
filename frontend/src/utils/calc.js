@@ -3,16 +3,8 @@
 //   (`replay/`가 같은 이유로 상대 import에 확장자를 붙인다 — CLAUDE.md 참고)
 import { MIN_QTY, QTY_STEP } from "../constants.js";
 
-// 단위 문자열/숫자의 유효 소수 자릿수 — backend/utils/round.js·useSymbolFilters와 같은 규칙
-function decimalsOfStep(step) {
-  const s = String(step);
-  if (/e/i.test(s)) {
-    const n = Number(s);
-    return n > 0 && n < 1 ? Math.max(0, -Math.floor(Math.log10(n))) : 0;
-  }
-  const dot = s.indexOf(".");
-  return dot < 0 ? 0 : s.slice(dot + 1).replace(/0+$/, "").length;
-}
+// 자릿수 규칙은 `utils/decimals.js` 하나뿐이다 (2026-09-03 통합 — 일곱 벌이 갈렸다)
+import { decimalsOf as decimalsOfStep } from "./decimals.js";
 
 // BTC 무기한 선물 유지증거금률 (~5%) — 실제 가용 자본에서 차감
 const MAINT_MARGIN_RATE = 0.05;

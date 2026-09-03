@@ -31,12 +31,11 @@
 const DEFAULT_STEP    = 0.001;
 const DEFAULT_MIN_QTY = 0.001;
 
-/** 그 단위의 유효 소수 자릿수 — utils/round.js의 decimalsOf와 같은 규칙 */
-function decOf(step) {
-  const t = String(step);
-  const dot = t.indexOf(".");
-  return dot < 0 ? 0 : t.slice(dot + 1).replace(/0+$/, "").length;
-}
+// ⚠ 자릿수 규칙은 **`utils/round.js` 하나뿐이다** (2026-09-03에 통합).
+//   여기 따로 두었더니 지수 표기(`1e-5`) 방어가 빠져 **5가 아니라 0**을 냈다.
+//   지금 stepSize가 그 표기로 오지는 않지만, 같은 규칙이 두 벌이면 언젠가 갈린다.
+//   ※ 이 파일의 "의존성 0" 원칙은 그대로다 — round.js도 import가 없는 순수 함수다
+const { decimalsOf: decOf } = require("./round");
 /**
  * 단위의 **배수로** 반올림한다.
  *

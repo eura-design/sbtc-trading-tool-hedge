@@ -10,16 +10,10 @@
 //   화면에 0.05로 떠 있는데 실제로 0.04가 나가면 그건 체결된 뒤에야 보인다.
 // ⚠ 그래서 내림도 백엔드와 같다: **올리지 않는다.**
 
-/** 단위의 유효 소수 자릿수 — backend/utils/round.js의 decimalsOf와 같은 규칙 */
-export function qtyDecimals(step) {
-  const s = String(step);
-  if (/e/i.test(s)) {
-    const n = Number(s);
-    return n > 0 && n < 1 ? Math.max(0, -Math.floor(Math.log10(n))) : 0;
-  }
-  const dot = s.indexOf(".");
-  return dot < 0 ? 0 : s.slice(dot + 1).replace(/0+$/, "").length;
-}
+// 자릿수 규칙은 `utils/decimals.js` 하나뿐이다 (2026-09-03 통합 — 일곱 벌로 늘어나
+// 그중 둘이 갈렸다). 이름만 이 파일의 것으로 다시 내보낸다
+import { decimalsOf as qtyDecimals } from "./decimals.js";
+export { qtyDecimals };
 
 /** 수량을 그 심볼의 단위로 **내린다** (숫자). 백엔드 floorToStep과 같은 결과 */
 export function floorQty(q, step = 0.001) {

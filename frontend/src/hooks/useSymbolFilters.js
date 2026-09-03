@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { api } from "../api/client";
 import { MIN_QTY, QTY_STEP, DEFAULT_SYMBOL } from "../constants";
+import { decimalsOf } from "../utils/decimals.js";
 
 // 심볼별 거래 규칙 — 호가 단위(tickSize)·수량 단위(stepSize)·최소 수량
 //
@@ -26,17 +27,8 @@ const FALLBACK = {
   maintRate: 0.004,   // BTCUSDT 1구간 — 연습 청산가에만 쓴다
 };
 
-// 단위 문자열의 유효 소수 자릿수 — backend/utils/round.js의 decimalsOf와 같은 규칙.
-// ⚠ 한쪽만 바꾸면 화면에 뜨는 자릿수와 거래소로 나가는 자릿수가 갈린다
-export function decimalsOf(step) {
-  const s = String(step);
-  if (/e/i.test(s)) {
-    const n = Number(s);
-    return n > 0 && n < 1 ? Math.max(0, -Math.floor(Math.log10(n))) : 0;
-  }
-  const dot = s.indexOf(".");
-  return dot < 0 ? 0 : s.slice(dot + 1).replace(/0+$/, "").length;
-}
+// 자릿수 규칙은 `utils/decimals.js` 하나뿐이다 (2026-09-03 통합 — 일곱 벌이 갈렸다)
+export { decimalsOf } from "../utils/decimals.js";
 
 /**
  * @param symbol 지금 보고 있는 심볼

@@ -25,6 +25,8 @@
 const TAKER_FEE = 0.0004;   // 시장가·SL·청산 (바이낸스 선물 기본)
 const MAKER_FEE = 0.0002;   // 지정가·TP
 
+import { decimalsOf } from "../utils/decimals.js";
+
 const CLOSE_SIDE = { LONG: "SELL", SHORT: "BUY" };
 const ENTRY_SIDE = { LONG: "BUY",  SHORT: "SELL" };
 
@@ -41,12 +43,11 @@ const DEFAULT_MAINT_RATE = 0.004;
 //   backend/utils/splitTp.js와 **같은 규칙**을 유지할 것 (그게 이 미러링의 존재 이유다)
 const DEFAULT_STEP = 0.001;
 
-/** 그 단위의 유효 소수 자릿수 — backend/utils/round.js의 decimalsOf와 같은 규칙 */
-function decOf(step) {
-  const t = String(step);
-  const dot = t.indexOf(".");
-  return dot < 0 ? 0 : t.slice(dot + 1).replace(/0+$/, "").length;
-}
+// ⚠ 자릿수 규칙은 **`utils/decimals.js` 하나뿐이다** (2026-09-03 통합).
+//   여기 따로 두었더니 지수 표기 방어가 빠져 `1e-5`에서 **5가 아니라 0**을 냈다.
+//   ※ 이 파일이 node로 직접 돌아가는 성질은 그대로다 — decimals.js도 import가 없고
+//     `.js` 확장자로 부른다 (replay/ 전체 규칙)
+const decOf = decimalsOf;
 /** 단위의 **배수로** 반올림 — 자릿수만 맞추면 step이 10일 때 배수가 깨진다 */
 function roundTo(v, step) {
   const d = decOf(step), scale = 10 ** d;

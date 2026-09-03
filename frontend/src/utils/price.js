@@ -1,4 +1,5 @@
 import * as d3 from "d3";
+import { decimalsOf } from "./decimals.js";
 
 // 가격 표시 (2026-09-02)
 //
@@ -16,16 +17,8 @@ import * as d3 from "d3";
 //   호가 단위와 아무 상관이 없다 (BalanceCard·StatsCard가 쓰는 `,.2f`가 그것이다).
 //   여기 있는 건 **차트에 그려지는 값**을 위한 것이다.
 
-/** 호가 단위의 유효 소수 자릿수 — backend/utils/round.js의 decimalsOf와 같은 규칙 */
-export function tickDecimals(tick) {
-  const s = String(tick ?? 0.1);
-  if (/e/i.test(s)) {
-    const n = Number(s);
-    return n > 0 && n < 1 ? Math.max(0, -Math.floor(Math.log10(n))) : 0;
-  }
-  const dot = s.indexOf(".");
-  return dot < 0 ? 0 : s.slice(dot + 1).replace(/0+$/, "").length;
-}
+// 자릿수 규칙은 `utils/decimals.js` 하나뿐이다 (2026-09-03 통합 — 일곱 벌이 갈렸다)
+export const tickDecimals = (tick) => decimalsOf(tick ?? 0.1);
 
 const _cache = new Map();   // 자릿수 → d3 포매터 (매 틱 새로 만들지 않는다)
 function fmtFor(dec) {
