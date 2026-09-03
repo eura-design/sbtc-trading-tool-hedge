@@ -256,7 +256,7 @@ router.post("/", async (req, res) => {
     }
 
     log("POSITION_CLOSED", { posSide: side, partial: !!partial, qty: closeQty,
-      orderId: data.orderId, status: data.status });
+      orderId: String(data.orderId), status: data.status });
     // 이 청산이 얼마 벌었는지를 **주문번호에 붙여** 남긴다 (TRADE_SETTLED).
     // 체결이 잡힐 때까지 조금 기다린다 — 응답 직후에는 아직 비어 있다
     setTimeout(() => {
@@ -264,7 +264,7 @@ router.post("/", async (req, res) => {
         .logTradesFor(data.orderId, { posSide: side, partial: !!partial })
         .catch(() => {});
     }, 2500);
-    res.json({ success: true, orderId: data.orderId, status: data.status });
+    res.json({ success: true, orderId: String(data.orderId), status: data.status });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;
     log("POSITION_CLOSE_FAILED", { level: "error", posSide: side, partial: !!partial,

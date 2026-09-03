@@ -101,7 +101,7 @@ router.post("/", validateOrder, async (req, res) => {
       ].filter(Boolean);
       res.json({
         success: true, type: "MARKET",
-        entry: { orderId, status: entryOrder.status, fillPrice },
+        entry: { orderId: String(orderId), status: entryOrder.status, fillPrice },
         tpsl,
         warning: warnings.length ? warnings.join(" / ") : null,
         message: hasFailure ? "시장가 체결 완료, TP/SL 재시도 중" : "시장가 체결 → TP/SL 등록 완료",
@@ -145,7 +145,7 @@ router.post("/", validateOrder, async (req, res) => {
 
       res.json({
         success: true, type: "LIMIT",
-        entry: { orderId, status: entryOrder.status },
+        entry: { orderId: String(orderId), status: entryOrder.status },
         // ⚠ SL이 안 걸렸으면 **반드시 알린다** — 그 상태로 체결되면 백엔드가 꺼져 있을 때
         //   무방비다. TP만 실패한 건 돈을 잃는 문제가 아니라 경고 문구만 다르다
         warning: preset.failed.some(f => f.type === "SL")

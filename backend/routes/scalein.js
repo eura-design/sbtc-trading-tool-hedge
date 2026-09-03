@@ -32,7 +32,7 @@ router.post("/", async (req, res) => {
     }
     log("SCALE_IN_PLACED", { symbol, posSide: side, orderType, qty: parseFloat(quantity),
       price: price ? parseFloat(price) : null, orderId: String(data.orderId) });
-    res.json({ success: true, orderId: data.orderId, status: data.status,
+    res.json({ success: true, orderId: String(data.orderId), status: data.status,
       fillPrice: orderType === "MARKET" ? parseFloat(data.avgPrice || 0) : null });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });

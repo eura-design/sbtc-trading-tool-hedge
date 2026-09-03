@@ -56,13 +56,13 @@ router.get("/", async (req, res) => {
       const types = TYPES[type] ?? [type];
       const r = regular.find(o => types.includes(o.type) && o.positionSide === positionSide
         && isFullClose(o) && !presetIds.has(String(o.orderId)));
-      if (r) return { orderId: r.orderId, price: parseFloat(r.stopPrice), isAlgo: false };
+      if (r) return { orderId: String(r.orderId), price: parseFloat(r.stopPrice), isAlgo: false };
       const closeSide = positionToClose(positionSide);
       // positionSide 필드 없는 algo 주문은 side(closeSide)로 폴백
       const a = algo.find(o => types.includes(o.orderType) && !presetIds.has(String(o.algoId)) &&
         isFullClose(o) &&
         (o.positionSide === positionSide || (!o.positionSide && o.side === closeSide)));
-      if (a) return { orderId: a.algoId, price: parseFloat(a.triggerPrice), isAlgo: true };
+      if (a) return { orderId: String(a.algoId), price: parseFloat(a.triggerPrice), isAlgo: true };
       return null;
     };
 
@@ -195,7 +195,7 @@ router.put("/", async (req, res) => {
     if (tp) {
       if (tpOrderId) await cancelExisting(tpIsAlgo, tpOrderId);
       const r = await placeAlgo("TAKE_PROFIT_MARKET", tp);
-      newOrders.tp = { orderId: r.data.algoId, price: parseFloat(roundPrice(tp, symbol)), isAlgo: true };
+      newOrders.tp = { orderId: String(r.data.algoId), price: parseFloat(roundPrice(tp, symbol)), isAlgo: true };
     }
 
     // SL이 변경된 경우에만 처리 (H1)
@@ -203,7 +203,7 @@ router.put("/", async (req, res) => {
       if (slOrderId) await cancelExisting(slIsAlgo, slOrderId);
       try {
         const r = await placeAlgo("STOP_MARKET", sl);
-        newOrders.sl = { orderId: r.data.algoId, price: parseFloat(roundPrice(sl, symbol)), isAlgo: true };
+        newOrders.sl = { orderId: String(r.data.algoId), price: parseFloat(roundPrice(sl, symbol)), isAlgo: true };
       } catch (e) {
         log("TPSL_PLACE_FAILED", { level: "error", type: "SL", ctx: "putTpsl",
           posSide: positionSide, price: sl, err: errOf(e) });
