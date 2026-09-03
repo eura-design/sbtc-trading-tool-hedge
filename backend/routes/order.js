@@ -7,6 +7,7 @@ const { sideToPosition } = require("../utils/side");
 const { verifyImmediateFill } = require("../services/orderWatcher");
 const push     = require("../services/pushService");
 const symbolInfo = require("../services/symbolInfo");
+const slAlerts   = require("../utils/slAlerts");
 const { log, errOf } = require("../store/logStore");
 
 const router  = express.Router();
@@ -83,7 +84,7 @@ router.post("/", validateOrder, async (req, res) => {
           failed: tpsl.failed.map(f => f.type),
           errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })), tp, sl });
         if (tpsl.failed.some(f => f.type === "SL")) {
-          push.pushAlert("critical", `⚠ 시장가 체결됐으나 SL 등록 실패 (orderId=${orderId})`);
+          push.pushAlert("critical", slAlerts.marketFilled(orderId));
         }
       } else {
         log("TPSL_PLACED", { orderId, posSide: positionSide, tp, sl,

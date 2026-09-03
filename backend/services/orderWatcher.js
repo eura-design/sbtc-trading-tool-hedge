@@ -6,6 +6,7 @@ const store          = require("../store/pendingOrders");
 const symbolInfo     = require("./symbolInfo");
 const { parseBigInt } = require("../utils/bigIntJson");
 const { goneSides }   = require("../utils/positionDiff");
+const slAlerts        = require("../utils/slAlerts");
 const push           = require("./pushService");
 const { log, errOf } = require("../store/logStore");
 const statsCache     = require("./statsCache");
@@ -110,6 +111,19 @@ function resolveNaked(symbol, side, reason = "sl", detail = {}) {
 
   const seconds = Math.max(0, Math.round((Date.now() - warned.at) / 1000));
   log("NAKED_RESOLVED", { symbol, posSide: side, reason, seconds, price: detail.price ?? null });
+}
+
+/**
+ * 그 주문의 **SL 실패 배너를 전부 거둔다** (2026-09-03).
+ *
+ * ⚠ 예전엔 거두는 곳이 아예 없었다 — reconcile이 나중에 성공해도 화면에는
+ *   `SL 등록 실패`가 그대로 남아 거짓말을 했다. 무방비 경보(resolveNaked)는
+ *   이미 이렇게 거두고 있었는데 이쪽만 빠져 있었다.
+ * ⚠ 세 문구를 다 거둔다 — 어느 경로로 떴는지 여기서는 알 수 없다.
+ *   안 떠 있는 것을 거두는 건 무해하다 (프론트가 목록에서 못 찾고 넘어간다)
+ */
+function clearSlAlerts(orderId) {
+  for (const msg of slAlerts.allFor(orderId)) push.pushAlertClear(msg);
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -284,7 +298,7 @@ async function onFilled(orderId, executionData) {
       errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })), tp: info.tp, sl: info.sl });
 
     if (slFailed) {
-      const msg = `⚠ SL 등록 5회 실패 (orderId=${orderId})`;
+      const msg = slAlerts.retryExhausted(orderId);
       push.pushAlert("critical", msg);   // 이벤트는 위 TPSL_PARTIAL이 이미 남겼다
     }
     if (tpFailed) {
@@ -294,6 +308,7 @@ async function onFilled(orderId, executionData) {
     }
   } else {
     store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
+    clearSlAlerts(orderId);   // 앞서 뜬 실패 배너가 있으면 거둔다
     log("TPSL_PLACED", { orderId, posSide: sideToPosition(info.side), tp: info.tp, sl: info.sl,
       tpType: tpsl.tp?.orderType ?? null, slType: tpsl.sl?.orderType ?? null,
       closePosition: true, ctx: "onFilled" });
@@ -555,6 +570,7 @@ async function runReconcile() {
           if (hasTP && hasSL) {
             // TP/SL이 이미 등록돼 있으면 PLACED로 전환
             store.set(orderId, { ...info, status: "TPSL_PLACED" });
+            clearSlAlerts(orderId);   // 밖에서 걸었든 우리가 걸었든, 걸렸으면 배너를 거둔다
             log("TPSL_ALREADY_PRESENT", { orderId, posSide: orderPosSide });
           } else {
             log("TPSL_RETRY", { orderId, posSide: orderPosSide, fromStatus: info.status, hasTP, hasSL });
@@ -562,6 +578,7 @@ async function runReconcile() {
             if (!tpsl) continue; // 다른 호출자가 진행 중 → 다음 reconcile 사이클에 재확인
             if (tpsl.failed.length === 0) {
               store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
+              clearSlAlerts(orderId);   // 앞서 뜬 실패 배너가 있으면 거둔다
               log("TPSL_PLACED", { orderId, posSide: orderPosSide, ctx: "reconcile",
                 tp: info.tp ?? null, sl: info.sl ?? null });
               push.pushUpdate(["tpsl"]);
@@ -571,7 +588,7 @@ async function runReconcile() {
                 failed: tpsl.failed.map(f => f.type),
                 errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })) });
               if (tpsl.failed.some(f => f.type === "SL")) {
-                push.pushAlert("critical", `⚠ SL 재등록 실패 (orderId=${orderId})`);
+                push.pushAlert("critical", slAlerts.reRegisterFailed(orderId));
               }
             }
           }
