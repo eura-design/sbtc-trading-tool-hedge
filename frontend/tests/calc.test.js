@@ -111,3 +111,56 @@ test("안 넘기면 예전 BTCUSDT 동작 그대로다", () => {
   const b = calcPosition(10000, 0.01, 50000, 49000, 10, 0.001, 0.001, 0.1);
   assert.deepEqual(a, b);
 });
+
+// ── 최소 주문 금액 (2026-09-02 실측) ────────────────────────────────────────
+// 거래소는 **최소 수량과 최소 금액을 둘 다** 본다. 지금까지 금액을 안 봐서,
+// 계산이 내놓은 수량이 거래소에서 거절될 수 있었다.
+//   DOGE  minQty 1 (=$0.2)      / minNotional $5   → 진짜 최소 25개
+//   BTC   minQty 0.001 (=$72)   / minNotional $100 → 진짜 최소 0.002
+
+test("최소 금액에 미달하면 수량을 올린다 — DOGE", () => {
+  // 자본이 작아 이상적 수량이 1 미만 → 옛 코드는 minQty 1(=$0.2)로 끝났다
+  const r = calcPosition(50, 0.001, 0.2, 0.15, 10, 1, 1, 0.00001, 5);
+  assert.ok(r.actualQty * 0.2 >= 5 - 1e-9, `명목가 ${r.actualQty * 0.2} < $5`);
+  assert.equal(r.actualQty, 25);
+  assert.equal(r.isMinCapped, true);
+  assert.equal(r.isNotionalCapped, true, "금액 때문에 올라간 것이 표시돼야 한다");
+});
+
+test("최소 금액에 미달하면 수량을 올린다 — BTC", () => {
+  // 0.001 BTC = $72 < $100 → 0.002로 올라가야 한다
+  const r = calcPosition(100, 0.0001, 72000, 70000, 10, 0.001, 0.001, 0.1, 100);
+  assert.ok(r.actualQty * 72000 >= 100 - 1e-9, `명목가 ${r.actualQty * 72000} < $100`);
+  assert.equal(r.actualQty, 0.002);
+});
+
+test("올린 수량도 단위의 배수다", () => {
+  for (const [px, step, minQty, minNot] of [
+    [0.2,    1,     1,     5],      // DOGE
+    [0.5,    0.1,   0.1,   5],      // XRP류
+    [200,    0.01,  0.01,  5],      // SOL
+    [72000,  0.001, 0.001, 100],    // BTC
+  ]) {
+    const r = calcPosition(50, 0.0005, px, px * 0.9, 10, step, minQty, px * 0.0001, minNot);
+    const units = r.actualQty / step;
+    assert.ok(Math.abs(units - Math.round(units)) < 1e-6,
+      `px=${px} step=${step} → ${r.actualQty}가 배수가 아니다`);
+    assert.ok(r.actualQty * px >= minNot - 1e-9,
+      `px=${px} → 명목가 ${r.actualQty * px} < ${minNot}`);
+  }
+});
+
+test("이미 충분하면 건드리지 않는다", () => {
+  // 리스크 계산 결과가 최소 금액을 이미 넘으면 그대로 둔다
+  const r = calcPosition(10000, 0.01, 0.2, 0.19, 10, 1, 1, 0.00001, 5);
+  assert.equal(r.isNotionalCapped, false);
+  assert.equal(r.isMinCapped, false);
+  assert.ok(r.actualQty > 25);
+});
+
+test("최소 금액을 안 넘기면 예전 동작 그대로다", () => {
+  const a = calcPosition(50, 0.001, 0.2, 0.15, 10, 1, 1, 0.00001);
+  const b = calcPosition(50, 0.001, 0.2, 0.15, 10, 1, 1, 0.00001, 0);
+  assert.deepEqual(a, b);
+  assert.equal(a.actualQty, 1);   // minQty만 본 결과
+});

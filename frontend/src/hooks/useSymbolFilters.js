@@ -70,6 +70,9 @@ export function useSymbolFilters(symbol = DEFAULT_SYMBOL) {
       qtyDecimals: decimalsOf(stepSize),
       // 연습 청산가용 유지증거금률. ⚠ 코인마다 25배까지 차이 난다 (DOGE 0.0065 / 일부 0.1)
       maintRate:   Number(filters.maintRate) || 0.004,
+      // ⚠ **최소 수량과 별개다.** 거래소는 둘 다 본다 —
+      //   DOGE는 minQty 1(=$0.2)인데 최소 금액이 $5라 진짜 최소는 25개다
+      minNotional: Number(filters.minNotional) || 0,
       // 이 심볼의 진짜 규칙을 알고 있는가. false면 화면 숫자를 믿으면 안 된다
       ready: symbols.some(s => s.symbol === symbol),
     };

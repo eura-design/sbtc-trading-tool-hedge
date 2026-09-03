@@ -22,7 +22,7 @@ import { useStore } from "../../store";
 export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) {
   const { theme } = useTheme();
   // 수량 자릿수·코인 이름·호가 단위는 심볼마다 다르다 (SOL 0.01 / DOGE 1)
-  const { step: qStep, base: qBase, tick: qTick } = useStore(s => s.symbolFilters);
+  const { step: qStep, base: qBase, tick: qTick, minQty: qMin } = useStore(s => s.symbolFilters);
   const isLong = side === "LONG";
   const [pct, setPct]     = usePersistedNum("splitTpPct", 50);
   const [count, setCount] = usePersistedNum("splitTpCount", 3);
@@ -52,7 +52,7 @@ export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) 
 
   if (!posData) return null;
 
-  const full = remaining < 0.001;   // 분할 TP가 포지션을 다 덮은 상태
+  const full = remaining < qMin;   // 분할 TP가 포지션을 다 덮은 상태 (하한은 심볼의 최소 수량)
 
   return (
     <CardWrapper embedded={embedded} title="분할 TP">
@@ -110,7 +110,7 @@ export function SplitTPCard({ posData, side, tpsl, onCancelSplitTp, embedded }) 
       )}
 
       <ChartPickButton active={pick.active} onToggle={pick.toggle}
-        disabled={full || addQty < 0.001} color={color} count={count} qty={addQty} />
+        disabled={full || addQty < qMin} color={color} count={count} qty={addQty} />
     </CardWrapper>
   );
 }

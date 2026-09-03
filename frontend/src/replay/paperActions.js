@@ -61,8 +61,8 @@ export const paperActions = {
     }
 
     const capital = balance?.availableBalance ?? 0;
-    const { step, minQty, tick } = get().symbolFilters;
-    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick);
+    const { step, minQty, tick, minNotional } = get().symbolFilters;
+    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional);
     if (!posCalc?.actualQty) {
       get().setOrderStatus({ type: "error", msg: "수량 계산 실패 — 잔고나 손절 폭을 확인하세요" });
       return;

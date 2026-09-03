@@ -31,7 +31,7 @@ import { useStore } from "../../store";
 export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }) {
   const { theme } = useTheme();
   // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1)
-  const { step: qStep, base: qBase } = useStore(s => s.symbolFilters);
+  const { step: qStep, base: qBase, minQty: qMin } = useStore(s => s.symbolFilters);
   const isLong = side === "LONG";
   const [pct, setPct]     = usePersistedNum("partialSlPct", 50);
   const [count, setCount] = usePersistedNum("partialSlCount", 3);
@@ -83,7 +83,7 @@ export function SplitSLCard({ posData, side, tpsl, onCancelPartialSl, embedded }
       <CountSlider count={count} onChange={setCount} qty={addQty} color={color} />
 
       <ChartPickButton active={pick.active} onToggle={pick.toggle}
-        disabled={addQty < 0.001} color={color} count={count} qty={addQty} />
+        disabled={addQty < qMin} color={color} count={count} qty={addQty} />
     </CardWrapper>
   );
 }

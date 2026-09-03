@@ -25,7 +25,7 @@ import { useStore } from "../../store";
 export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders, onCancelScaleIn, embedded }) {
   const { theme } = useTheme();
   // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1)
-  const { step: qStep, base: qBase } = useStore(s => s.symbolFilters);
+  const { step: qStep, base: qBase, minQty: qMin } = useStore(s => s.symbolFilters);
   const isLong = side === "LONG";
   const [orderType, setOrderType] = useState("LIMIT");
   const [pct, setPct]     = usePersistedNum("scaleInPct", 50);
@@ -44,7 +44,9 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
   const avgPrice = orderType === "MARKET" && lastPrice > 0 && addQty > 0
     ? (posData.size * posData.entryPrice + addQty * lastPrice) / (posData.size + addQty)
     : null;
-  const valid = addQty >= 0.001;
+  // ⚠ 하한은 **심볼의 최소 수량**이다. 0.001 고정이면 DOGE(최소 1)에서
+  //   0.5 같은 값이 통과했다가 거래소 직전에 0으로 내려간다
+  const valid = addQty >= qMin;
 
   const btnStyle = (active) => ({
     flex: 1, padding: "4px 0", borderRadius: "3px", cursor: "pointer",

@@ -111,10 +111,11 @@ export default function App() {
                        tick: symbolFilters.tickSize,
                        base: symbolFilters.filters?.baseAsset ?? symbol.replace(/USDT$/, ""),
                        onboardMs: symbolFilters.filters?.onboardDate ?? null,
-                       maintRate: symbolFilters.maintRate });
+                       maintRate: symbolFilters.maintRate,
+                       minNotional: symbolFilters.minNotional });
   }, [symbolFilters.qtyStep, symbolFilters.minQty, symbolFilters.tickSize,
       symbolFilters.filters?.baseAsset, symbolFilters.filters?.onboardDate,
-      symbolFilters.maintRate, symbol, setSymbolFilters]);
+      symbolFilters.maintRate, symbolFilters.minNotional, symbol, setSymbolFilters]);
 
   // ── 지표 표시 여부 ────────────────────────────────────────────────────────
   // RSI — 지표 토글은 **전 TF 공통**이다. RSI 패널(선)은 어느 프레임에서든 보인다.

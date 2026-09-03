@@ -199,7 +199,9 @@ router.post("/", async (req, res) => {
       }
       if (anyFailed) push.pushAlert("notice", "분할 TP 재등록 일부 실패 — 분할 TP 카드에서 수동 확인 필요");
       // 잔여가 최소 수량 미만이면 items가 비어 있다 (사실상 전량 청산 — 재등록할 게 없다)
-      if (newSize >= 0.001 && items.length === 0 && splitTpOrders.length > 0) {
+      // ⚠ 하한은 **심볼의 최소 수량**이다 (2026-09-02). 0.001 고정이면 DOGE(최소 1)에서
+      //   잔여 0.5짜리를 "아직 남았다"로 읽어 있지도 않은 실패를 알린다
+      if (newSize >= qMin && items.length === 0 && splitTpOrders.length > 0) {
         push.pushAlert("notice", "분할 TP가 최소 수량 미만이 되어 재등록되지 않았습니다");
       }
 

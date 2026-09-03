@@ -34,7 +34,7 @@ export function PlanCard({ drawing, posCalc, leverage, riskPct, position, hasPen
         </div>
         {[
           ["청산가",     "—",                                                                                          "#ff4444"],
-          ["손익비 R:R", `1 : ${calcRR(drawing.entry, drawing.tp, drawing.sl, drawing.isLong)}`,                     "#a78bfa"],
+          ["손익비 R:R", `1 : ${calcRR(drawing.entry, drawing.tp, drawing.sl, drawing.isLong, qTick)}`,                     "#a78bfa"],
           ["수량",       posCalc ? qtyLabel(posCalc.actualQty, qStep, qBase) : "—",                                  "#94a3b8"],
           ["포지션 USD", posCalc ? fmtI(posCalc.actualQty * drawing.entry) : "—",                                    "#94a3b8"],
           ["예상 손실",  posCalc ? `-${fmt(posCalc.actualQty * Math.abs(drawing.entry - drawing.sl))}` : "—",        "#f6465d"],

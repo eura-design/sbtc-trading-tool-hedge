@@ -1,3 +1,4 @@
+import { qtyLabel } from "../utils/qty";
 import { calcPosition }  from "../utils/calc";
 import { api }           from "../api/client";
 import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from "../utils/side";
@@ -37,8 +38,8 @@ export const createOrderSlice = (set, get) => ({
       }
     } catch { /* 조회 실패 시 통과 — 서버에서 최종 차단 */ }
     const capital = balance?.availableBalance ?? 0;
-    const { step, minQty, tick } = get().symbolFilters;
-    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick);
+    const { step, minQty, tick, minNotional } = get().symbolFilters;
+    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional);
     if (!posCalc) return;
     const qty = posCalc.actualQty;
     if (!qty || qty <= 0) return;
@@ -175,8 +176,8 @@ export const createOrderSlice = (set, get) => ({
       : 0;
 
     const capital = (balance?.availableBalance ?? 0) + pendingMargin;
-    const { step, minQty, tick } = get().symbolFilters;
-    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick);
+    const { step, minQty, tick, minNotional } = get().symbolFilters;
+    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional);
     if (!posCalc) return;
     setDrawing(isLong, prev => prev ? { ...prev, orderId: undefined } : prev);
     const cancelSide = isLongToPosition(drawing.isLong);
@@ -199,7 +200,7 @@ export const createOrderSlice = (set, get) => ({
         },
       });
       setDrawing(isLong, prev => prev ? { ...prev, orderId: String(data.entry.orderId) } : prev);
-      setOrderStatus({ type: "success", msg: `주문 수량 재설정 완료 (${posCalc.actualQty.toFixed(3)} BTC)` });
+      setOrderStatus({ type: "success", msg: `주문 수량 재설정 완료 (${qtyLabel(posCalc.actualQty, step, get().symbolFilters.base)})` });
       setTimeout(() => { _refetchPos(); _refetchBal(); }, 500);
     } catch (e) {
       setOrderStatus({ type: "error", msg: `주문 수정 실패: ${e.message}` });

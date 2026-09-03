@@ -162,7 +162,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
 
     const risk = riskPctFor({ riskPctLong, riskPctShort }, drawing.isLong);
     return calcPosition(balance.availableBalance ?? 0, risk / 100, drawing.entry, drawing.sl, leverage,
-                       symbolFilters.step, symbolFilters.minQty, symbolFilters.tick);
+                       symbolFilters.step, symbolFilters.minQty, symbolFilters.tick,
+                       symbolFilters.minNotional);
   };
 
   const deps = [balance, drawings, riskPctLong, riskPctShort, leverage, position?.pending, symbolFilters];
