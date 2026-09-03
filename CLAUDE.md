@@ -70,6 +70,7 @@ utils/
   orderKind.js             미체결 LIMIT 정체 판정(limitKind) + 트리거 전량/부분 판정
   round.js                 호가·수량 단위 맞추기 (순수 함수) — **가격은 반올림, 수량은 내림**
                            `decimalsOf`가 자릿수 규칙의 **백엔드 정본**이다
+  slAlerts.js              SL 실패 배너 문구 — **띄우는 쪽과 거두는 쪽이 같은 글자를 쓰게** 한다
   bigIntJson.js            큰 정수를 잃지 않는 JSON 파싱 — **주문번호가 뭉개지는 것을 막는다**
   positionDiff.js          사라진 포지션 찾기 (goneSides) — **직전 관측을 돈다**
   splitTp.js               rescaleSplitTps() — 부분 청산 후 분할 TP 재계산 (순수 함수, import 없음)
@@ -498,6 +499,17 @@ Auto Structure Zigzag / Custom Structure Zigzag
 ### 배너 (`pushAlert`)
 level은 **`critical`(빨간 배너) / `notice`(금색 토스트)** 둘뿐. level을 빠뜨리면 빨강이다.
 `alert-clear`로 회수하며 **문구가 키다** — 띄울 때와 글자가 다르면 배너가 안 닫힌다.
+
+⚠ **빨간 배너를 새로 띄울 때는 "언제 거둘지"를 같이 정할 것.**
+2026-09-03 감사에서 SL 실패 배너 셋이 **거두는 곳 없이** 떠 있었다 — reconcile이
+나중에 성공해도 화면은 `SL 등록 실패`라고 계속 말했다. 무방비 경보는 이미 거두고
+있었으므로 배너가 둘 뜨고 **하나만** 사라졌다.
+
+배너는 두 종류다:
+- **저절로 해소되는 것** → 해소 지점에서 반드시 거둔다. 문구를 한 곳에서 만들어
+  띄우는 쪽과 거두는 쪽이 같은 글자를 쓰게 한다 (`utils/slAlerts.js`, `resolveNaked`)
+- **사람이 판단해야 하는 것** → 남는 게 맞다. 사용자가 눌러서 닫는다
+  (일일 손실 체크 실패 · TP/SL 가격 없음 · 분할 SL 재조정 실패)
 
 ### 종류
 - RSI 과매수/과매도 — 7 TF 독립 WebSocket, 쿨다운 + 히스테리시스, 첫 관측은 상태만 잡고 무음
