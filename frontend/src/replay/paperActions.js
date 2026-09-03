@@ -11,12 +11,12 @@
 // ⚠ 여기 없는 액션은 페이퍼 처리가 없다는 뜻이고, 그 경우 api()의 가드가
 //   에러를 던진다(api/client.js). 조용히 실주문이 나가는 일은 없다.
 
-import { calcPosition } from "../utils/calc";
-import { isLongToPosition, closeToPosition } from "../utils/side";
-import { computePaperDailyLoss } from "./dailyLoss";
-import { riskPctFor } from "../store/settingsSlice";
-import { qtyLabel } from "../utils/qty";
-import { boxKey } from "../store/uiSlice";
+import { calcPosition } from "../utils/calc.js";
+import { isLongToPosition, closeToPosition } from "../utils/side.js";
+import { computePaperDailyLoss } from "./dailyLoss.js";
+import { riskPctFor } from "../store/settingsSlice.js";
+import { qtyLabel } from "../utils/qty.js";
+import { boxKey } from "../store/uiSlice.js";
 
 // 분할 주문 종류의 화면 이름.
 // ⚠ **`store/orderSlice.js`의 같은 이름 상수와 값을 맞출 것** — 갈리면 같은 버튼인데

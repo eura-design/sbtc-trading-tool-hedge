@@ -1,4 +1,4 @@
-import { tsToIdx } from "../chart/scales";
+import { tsToIdx } from "../chart/scales.js";
 
 /**
  * 점 (px, py)에서 선분 (x1,y1)-(x2,y2)까지의 최단 거리.

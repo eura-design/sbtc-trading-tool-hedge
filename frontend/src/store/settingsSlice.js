@@ -1,8 +1,8 @@
 // Module-level timer: riskPct/leverage 변경 시 pending 주문 재등록 debounce
-import { lsGet, lsSet } from "../utils/storage";
-import { DEFAULT_SYMBOL, QTY_STEP, MIN_QTY } from "../constants";
-import { setApiSymbol } from "../api/client";
-import { swapDrawingStorage } from "./uiSlice";
+import { lsGet, lsSet } from "../utils/storage.js";
+import { DEFAULT_SYMBOL, QTY_STEP, MIN_QTY } from "../constants.js";
+import { setApiSymbol } from "../api/client.js";
+import { swapDrawingStorage } from "./uiSlice.js";
 
 let _replaceTimer = null;
 // 이 debounce 창 안에서 값이 바뀐 **사이드**. 리스크는 한쪽만 바꾸므로,

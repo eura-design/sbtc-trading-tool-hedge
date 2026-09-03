@@ -1,5 +1,5 @@
-import { API_BASE } from "../constants";
-import { clientLog } from "./clientLog";
+import { API_BASE } from "../constants.js";
+import { clientLog } from "./clientLog.js";
 
 // ── 리플레이 안전장치 ─────────────────────────────────────────────────────
 // 리플레이 모드에서는 **상태를 바꾸는 요청을 여기서 전부 막는다.**

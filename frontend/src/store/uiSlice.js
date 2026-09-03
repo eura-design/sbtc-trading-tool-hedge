@@ -1,6 +1,6 @@
 // Module-level timer: drawing localStorage 동기화 debounce
-import { lsGet, lsRemove, lsSet } from "../utils/storage";
-import { DEFAULT_SYMBOL } from "../constants";
+import { lsGet, lsRemove, lsSet } from "../utils/storage.js";
+import { DEFAULT_SYMBOL } from "../constants.js";
 
 let _drawingTimer = null;
 

@@ -1,9 +1,9 @@
-import { HIT } from "../constants";
-import { distToSeg, findHitLine } from "../utils/hitTest";
-import { tsToIdx } from "./scales";
-import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
-import { clearAllSelections, selectDrawable, ZZ_ID } from "./drawables";
-import { fibPrice, fibLevelsOf } from "./fib";
+import { HIT } from "../constants.js";
+import { distToSeg, findHitLine } from "../utils/hitTest.js";
+import { tsToIdx } from "./scales.js";
+import { idxToTimestamp, getCandleMs } from "../utils/coordUtils.js";
+import { clearAllSelections, selectDrawable, ZZ_ID } from "./drawables.js";
+import { fibPrice, fibLevelsOf } from "./fib.js";
 
 // 채널 두 선의 픽셀 좌표 계산
 export function channelXYs(ch, candles, xScale, yScale, _isLog = false) {

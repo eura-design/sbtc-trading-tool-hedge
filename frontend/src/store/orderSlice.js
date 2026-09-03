@@ -1,11 +1,11 @@
-import { qtyLabel } from "../utils/qty";
-import { calcPosition }  from "../utils/calc";
-import { api }           from "../api/client";
-import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from "../utils/side";
-import { paperActions }  from "../replay/paperActions";
-import { riskPctFor }   from "./settingsSlice";
-import { boxKey }       from "./uiSlice";
-import { splitPlan }    from "../utils/splitLevels";
+import { qtyLabel } from "../utils/qty.js";
+import { calcPosition }  from "../utils/calc.js";
+import { api }           from "../api/client.js";
+import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from "../utils/side.js";
+import { paperActions }  from "../replay/paperActions.js";
+import { riskPctFor }   from "./settingsSlice.js";
+import { boxKey }       from "./uiSlice.js";
+import { splitPlan }    from "../utils/splitLevels.js";
 
 // 리플레이(페이퍼) 모드면 같은 이름의 페이퍼 핸들러로 넘긴다.
 // 각 액션 첫 줄에서 한 번만 갈라지므로 아래 실거래 코드는 원래대로 읽힌다.
