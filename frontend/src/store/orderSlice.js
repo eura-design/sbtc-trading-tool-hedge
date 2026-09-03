@@ -14,7 +14,8 @@ import { splitPlan }    from "../utils/splitLevels";
 
 // 분할 주문 종류의 화면 이름 — 성공·실패 문구가 **어느 카드 얘기인지** 말해야 한다
 // (취소 실패 문구를 넷 다 다르게 둔 것과 같은 이유 — cancelScaleIn 주석)
-const KIND_LABEL = { scale_in: "추가 진입", split_tp: "분할 TP", partial_sl: "분할 SL" };
+// KIND_LABEL·방향 판정은 utils/splitGuard.js가 갖는다 (문구가 한 곳이어야 한다)
+import { validateSplitPrices, KIND_LABEL } from "../utils/splitGuard.js";
 
 export const createOrderSlice = (set, get) => ({
 
@@ -396,25 +397,15 @@ export const createOrderSlice = (set, get) => ({
     // ⚠ 기준이 종류마다 다르다: 추가 진입·분할 SL은 **현재가**, 분할 TP는 **진입가**.
     //   앞의 둘은 그 방향이 아니면 거래소가 -2021로 거절하거나(트리거) 즉시
     //   체결되고(지정가), 분할 TP는 진입가 반대편이면 애초에 익절이 아니다
-    const mark = liveClose || 0;
-    // ⚠ 기준값이 없으면 **판정을 건너뛰지 말고 거절한다.** 예전 방식대로 0으로 두면
-    //   롱은 "0보다 크다"가 늘 참이라 전부 걸러지고(사유가 엉뚱하다), 숏은 반대로
-    //   **전부 통과해서** 잘못된 쪽에 주문이 나간다 — 조용히 나가는 쪽이 훨씬 나쁘다
-    if (kind === "split_tp" ? !(posData?.entryPrice > 0) : !(mark > 0)) {
-      setOrderStatus({ type: "error",
-        msg: `${KIND_LABEL[kind]} — ${kind === "split_tp" ? "진입가" : "현재가"}를 아직 못 읽었습니다` });
-      return;
-    }
-    const bad = orders.find(o => {
-      if (kind === "split_tp") return isLong ? o.price <= posData.entryPrice
-                                             : o.price >= posData.entryPrice;
-      return isLong ? o.price >= mark : o.price <= mark;
+    // ⚠ 판정은 `utils/splitGuard.js` 하나가 한다 — 실제 값으로 검산하려고 뺐다
+    //   (tests/splitGuard.test.js). 여기 규칙을 다시 적지 말 것
+    const bad = validateSplitPrices({
+      orders, kind, isLong,
+      mark:       liveClose || 0,
+      entryPrice: posData?.entryPrice,
     });
     if (bad) {
-      const where = kind === "split_tp"
-        ? (isLong ? "진입가보다 높은" : "진입가보다 낮은")
-        : (isLong ? "현재가보다 낮은" : "현재가보다 높은");
-      setOrderStatus({ type: "error", msg: `${KIND_LABEL[kind]}는 ${where} 쪽에만 걸 수 있습니다` });
+      setOrderStatus({ type: "error", msg: bad.msg });
       return;
     }
 

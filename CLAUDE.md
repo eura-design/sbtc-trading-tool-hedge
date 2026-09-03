@@ -107,6 +107,8 @@ utils/
   storage.js               lsGet/lsSet/lsRemove/lsGetJSON/lsSetJSON — localStorage 직접 호출 금지
   calc.js                  calcPosition() — 리스크 기반 수량 계산
   splitLevels.js           분할 주문 가격·수량 배분 (splitPlan/splitOrders/maxSplitCount)
+  splitGuard.js            분할 주문 **가격 방향 검증** — 기준이 종류마다 다르다
+                           (추가 진입·분할 SL은 현재가 / 분할 TP는 진입가)
   qty.js                   수량 표시·내림 (fmtQty/floorQty/qtyLabel) — 심볼 단위를 따른다
   price.js                 가격 표시 — 자릿수를 **호가 단위**가 정한다 (돈에는 쓰지 말 것)
   decimals.js              자릿수 규칙의 **프론트 정본**. ⚠ 새로 복제하지 말 것 —
