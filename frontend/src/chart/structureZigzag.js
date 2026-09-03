@@ -35,7 +35,8 @@
 
 import {
   resolveZzParams, wilderATR, atrStep, pivotAt, passesNoiseFilter,
-} from "./zigzagPivots";
+} from "./zigzagPivots.js";   // ⚠ `.js`를 빼지 말 것 — node가 못 읽어
+                              //   tests/chochMirror.test.js가 통째로 죽는다 (calc.js와 같은 이유)
 
 // ⚠ 꼭짓점 판정(피벗·ATR·노이즈 필터)은 **chart/zigzagPivots.js 한 곳**에 있다.
 //   커스텀 구조의 자동 이어그리기(chart/structAutoPivots.js)가 같은 규칙을 쓰기 때문이다.

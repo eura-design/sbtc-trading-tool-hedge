@@ -166,7 +166,10 @@ components/
     ScaleInCard / SplitTPCard / SplitSLCard / cardControls.jsx
 
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
-  splitLevels / calc / equity.test.js   돈이 걸린 순수 함수
+  splitLevels / calc / equity / price / decimals   돈이 걸린 순수 함수
+  paperFills.test.js       페이퍼 체결 규칙 — **"모르면 불리하게"**가 지켜지는지
+  deriveStructure.test.js  수동 구조 CHoCH 판정
+  chochMirror.test.js      **자동 ZZ와 수동 구조가 같은 답을 내는지** (규칙이 두 벌이다)
   ⚠ node가 직접 import한다 — 테스트할 모듈의 상대 import에는 `.js`를 붙일 것
     (`replay/`가 같은 이유로 그렇게 돼 있다)
 
