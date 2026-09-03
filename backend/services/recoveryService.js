@@ -1,8 +1,9 @@
 const { binance, placeTPSL, checkExistingTPSL } = require("./binanceClient");
 const symbolInfo = require("./symbolInfo");
+const { pickRecoverable, PRICE_TOLERANCE } = require("../utils/recoverMatch");
 const store = require("../store/pendingOrders");
 const { startUserDataStream } = require("./orderWatcher");
-const { closeToPosition, positionToSide } = require("../utils/side");
+const { closeToPosition } = require("../utils/side");
 const { log, errOf } = require("../store/logStore");
 
 async function recoverPendingOrders() {
@@ -129,7 +130,6 @@ async function recoverPendingOrders() {
     const SYM = symbolInfo.DEFAULT_SYMBOL;
     const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: SYM });
     const openPositions = posCheck.filter(p => parseFloat(p.positionAmt) !== 0);
-    const PRICE_TOLERANCE = 0.02; // 현재 포지션 entryPrice ±2% 내 매칭만 신뢰
     const usedRecoverIds = new Set();
     for (const openPos of openPositions) {
       // positionSide 필드 없으면 positionAmt 부호로 판단
@@ -145,20 +145,11 @@ async function recoverPendingOrders() {
           qty: Math.abs(parseFloat(openPos.positionAmt)), entryPrice: posEntry,
           hasTP: !!hasTP, hasSL: !!hasSL });
 
-        // 해당 사이드의 TP/SL 정보가 있는 주문 중 현재 진입가 근접 + 최신 항목만 신뢰
-        const entrySide = positionToSide(openPosSide);
-        const candidates = [...store.entries()]
-          .filter(([orderId, o]) => {
-            if (usedRecoverIds.has(orderId)) return false;
-            if (!o.tp || !o.sl || o.side !== entrySide) return false;
-            // 체결가 정보가 있으면 entry 근접도 검증 (없으면 stale 데이터로 간주하고 거부)
-            if (!o.fillPrice || !posEntry) return false;
-            const dist = Math.abs(o.fillPrice - posEntry) / posEntry;
-            return dist <= PRICE_TOLERANCE;
-          })
-          .sort((a, b) => (b[1].filledAt ?? b[1].createdAt ?? 0) - (a[1].filledAt ?? a[1].createdAt ?? 0));
-
-        const recoverable = candidates[0];
+        // ⚠ 고르는 규칙은 `utils/recoverMatch.js` 하나가 갖는다 — 잘못 고르면
+        //   **엉뚱한 가격에 손절이 걸린다.** 실제 값으로 검산하려고 뺐다
+        //   (tests/recoverMatch.test.js). 여기 규칙을 다시 적지 말 것
+        const recoverable = pickRecoverable(
+          [...store.entries()], openPosSide, posEntry, usedRecoverIds);
         if (recoverable) {
           const [recoverId, recoverInfo] = recoverable;
           usedRecoverIds.add(recoverId);

@@ -73,6 +73,9 @@ utils/
   slAlerts.js              SL 실패 배너 문구 — **띄우는 쪽과 거두는 쪽이 같은 글자를 쓰게** 한다
   bigIntJson.js            큰 정수를 잃지 않는 JSON 파싱 — **주문번호가 뭉개지는 것을 막는다**
   positionDiff.js          사라진 포지션 찾기 (goneSides) — **직전 관측을 돈다**
+  recoverMatch.js          재시작 복구 — 무방비 포지션에 **어느 기록의 TP/SL을 붙일지**
+                           ⚠ 조건을 느슨하게 하지 말 것. 못 고르면 사람에게 넘기면 되지만
+                             잘못 고르면 **조용히 틀린 손절**이 걸린다
   splitTp.js               rescaleSplitTps() — 부분 청산 후 분할 TP 재계산 (순수 함수, import 없음)
 tools/
   logq.js                  로그 조회 (--since/--count/--sum/--event/--level/--day/--grep/--summary)
