@@ -37,6 +37,20 @@ require.cache[axiosId] = {
   },
 };
 
+// ⚠ **logStore도 갈아끼운다** (2026-09-04). 안 그러면 이 테스트가 내는 가짜 실패가
+//   `backend/logs/<날짜>.jsonl`에 **진짜 오류로 쌓인다.** 실제로 그렇게 됐다 —
+//   `TPSL_PLACE_FAILED` 25건과 `SYMBOL_INFO_LOAD_FAILED` 5건이 이 파일 때문에 남았고,
+//   나중에 로그를 보면 진짜 사고와 구별되지 않는다.
+//   ⚠ 다른 테스트는 `tests/helpers/routeHarness.js`가 이미 logStore를 갈아끼운다.
+//     이 파일만 axios를 직접 막느라 그 하네스를 안 써서 빠져 있었다
+const logId = require.resolve(path.join(__dirname, "..", "store", "logStore.js"));
+require.cache[logId] = {
+  id: logId, filename: logId, loaded: true, children: [], paths: [],
+  exports: {
+    log: () => {}, errOf: (e) => ({ msg: String(e?.message ?? e) }), close: async () => {},
+  },
+};
+
 // symbolInfo는 진짜를 쓰되 네트워크를 막는다 (SEED 값으로 떨어진다)
 const siId = require.resolve(path.join(__dirname, "..", "services", "symbolInfo.js"));
 const symbolInfo = require(siId);
