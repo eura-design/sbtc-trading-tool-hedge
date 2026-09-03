@@ -31,6 +31,8 @@ function makeRecorder() {
     verifies: [],         // orderWatcher.verifyImmediateFill()
     presetCancels: [],    // cancelPresetTPSL()
     kindChecks: [],       // assertCancelKind()
+    placed: [],           // placeTPSL()
+    storeWrites: [],      // store.set() 이력 (덮어쓰기 전 값도)
   };
 }
 
@@ -74,7 +76,13 @@ async function mountRoute(routeRel, opts = {}) {
       binance: mockBinance,
       cancelOrder: async (args) => { rec.cancels.push(args); return { data: {} }; },
       roundQty, roundPrice,
-      placeTPSL: async (...a) => ({ tp: null, sl: null, failed: [], _args: a }),
+      placeTPSL: async (info, sym) => {
+        rec.placed.push({ info, symbol: sym });
+        return opts.placeTPSL
+          ? await opts.placeTPSL(info, sym)
+          : { tp: { orderId: "TP1", orderType: "TAKE_PROFIT_MARKET" },
+              sl: { orderId: "SL1", orderType: "STOP_MARKET" }, failed: [] };
+      },
       preplaceTPSL: async () => ({ tp: null, sl: null, failed: [] }),
       cancelPresetTPSL: async (preset, sym) => { rec.presetCancels.push({ preset, symbol: sym }); },
       // 취소 대상이 기대한 종류인지 확인하고 못 찾으면 조용히 넘어간다(진짜와 같다).
@@ -140,7 +148,13 @@ async function mountRoute(routeRel, opts = {}) {
   const map = new Map(Object.entries(opts.store ?? {}));
   mocks["store/pendingOrders.js"] = {
     get: (id) => map.get(String(id)),
-    set: (id, info) => map.set(String(id), { symbol: DEFAULT_SYMBOL, ...info }),
+    set: (id, info) => {
+      const entry = { symbol: DEFAULT_SYMBOL, ...info };
+      // 덮어쓰기 전 이력도 남긴다 — 한 요청 안에서 여러 번 쓰는 경로가 있어서
+      // **중간에 무엇을 적었는지**를 봐야 할 때가 있다 (onFilled가 그렇다)
+      rec.storeWrites.push({ id: String(id), info: entry });
+      map.set(String(id), entry);
+    },
     delete: (id) => map.delete(String(id)),
     entries: () => [...map.entries()],
     all: () => Object.fromEntries(map),
@@ -161,9 +175,12 @@ async function mountRoute(routeRel, opts = {}) {
   }
 
   // 라우트는 캐시를 지우고 새로 읽는다 (앞선 테스트가 남긴 것을 쓰지 않게)
-  const routeId = RESOLVE(routeRel);
-  delete require.cache[routeId];
-  const router = require(routeId);
+  let routeId = null, router = express.Router();
+  if (routeRel !== "__none__") {
+    routeId = RESOLVE(routeRel);
+    delete require.cache[routeId];
+    router = require(routeId);
+  }
 
   const app = express();
   app.use(express.json());
@@ -197,10 +214,26 @@ async function mountRoute(routeRel, opts = {}) {
       if (id === incomeId) { require.cache[id].exports = INERT_INCOME; continue; }
       delete require.cache[id];
     }
-    delete require.cache[routeId];
+    if (routeId) delete require.cache[routeId];
   });
 
   return { request, rec, close, store: map, mocks };
 }
 
-module.exports = { mountRoute };
+/**
+ * 라우터가 아니라 **서비스 모듈**을 목과 함께 올린다 (`orderWatcher` 등).
+ * `mountRoute`와 같은 목을 쓰되 express를 끼지 않는다.
+ *
+ * ⚠ 여기서도 `server.js`는 부르지 않는다. WebSocket은 `startUserDataStream`을
+ *   부르지 않는 한 안 열린다 — 테스트는 그걸 부르지 않는다
+ */
+async function loadService(rel, opts = {}) {
+  const h = await mountRoute("__none__", opts);   // 목만 심는다 (라우터는 없음)
+  const id = RESOLVE(rel);
+  delete require.cache[id];
+  const mod = require(id);
+  const close = async () => { delete require.cache[id]; await h.close(); };
+  return { mod, rec: h.rec, store: h.store, close };
+}
+
+module.exports = { mountRoute, loadService };
