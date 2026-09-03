@@ -31,7 +31,9 @@ function makeRecorder() {
     verifies: [],         // orderWatcher.verifyImmediateFill()
     presetCancels: [],    // cancelPresetTPSL()
     kindChecks: [],       // assertCancelKind()
+    udsStarts: 0,         // startUserDataStream()
     placed: [],           // placeTPSL()
+    tpslChecks: [],       // checkExistingTPSL()
     storeWrites: [],      // store.set() 이력 (덮어쓰기 전 값도)
   };
 }
@@ -110,7 +112,14 @@ async function mountRoute(routeRel, opts = {}) {
           || !(Number(o.origQty ?? o.quantity ?? 0) > 0);
         return { orderType: type, orderSide: o.side, posSide: o.positionSide, fullClose: full };
       },
-      checkExistingTPSL: async () => ({ ok: true, hasTp: false, hasSl: false }),
+      // ⚠ 필드 이름은 **대문자 TP/SL**이다 (`hasTP`/`hasSL`) — 진짜와 다르면
+      //   `recoveryService`가 `undefined && undefined`로 읽어 늘 "없다"가 된다
+      checkExistingTPSL: async (posSide, sym) => {
+        rec.tpslChecks.push({ posSide, symbol: sym });
+        return opts.checkExistingTPSL
+          ? await opts.checkExistingTPSL(posSide, sym)
+          : { hasTP: false, hasSL: false, ok: true };
+      },
       syncServerTime: async () => {},
       loadMaintRates: async () => {},
     },
@@ -152,6 +161,7 @@ async function mountRoute(routeRel, opts = {}) {
     ),
     "services/orderWatcher.js": {
       verifyImmediateFill: (...a) => { rec.verifies.push(a); },
+      startUserDataStream: async () => { rec.udsStarts++; },
       start: () => {}, stop: () => {}, watchAccount: async () => {},
       reconcileWithBinance: async () => {}, accountStatus: () => ({}),
       udsStatus: () => ({}),
