@@ -7,6 +7,7 @@ import { PaperBroker } from "../replay/paperBroker.js";
 import { sessionKey, saveSession, loadSession, clearSession, restoreInto, hasProgress, sameRange } from "../replay/session.js";
 import { driveTfFor, tfMs, ticksPerBar } from "../replay/timeframes.js";
 import { useStore } from "../store";
+import { DEFAULT_SYMBOL } from "../constants";
 
 // 리플레이 캔들 피드 — useCandles를 대신한다
 //
@@ -40,7 +41,7 @@ export function useReplay({
   tf,
   startMs,
   endMs,
-  symbol = "BTCUSDT",
+  symbol = DEFAULT_SYMBOL,   // App이 넘긴다 — 기본값은 대비책일 뿐이다
   warmupBars = DEFAULT_WARMUP_BARS,
   startBalance = 10_000,
   onTickRef,

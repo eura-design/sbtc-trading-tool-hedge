@@ -537,7 +537,6 @@ async function runReconcile() {
       ([, o]) => (o.status === "TPSL_PARTIAL" || o.status === "FILLED") && o.tp && o.sl
     );
     if (retryable.length > 0) {
-      {
         for (const [orderId, info] of retryable) {
           // ⚠ **그 주문의 심볼로 판정한다** (2026-09-02). 예전엔 기본 심볼에 포지션이
           //   없으면 `retryable`을 **통째로 지웠다** — BTC를 닫아둔 채 ETH를 들고 있으면
@@ -577,7 +576,6 @@ async function runReconcile() {
             }
           }
         }
-      }
     }
 
     // ── 안전망: 포지션이 있는데 SL이 없으면 알린다 ────────────────────────────
