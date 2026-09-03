@@ -3,9 +3,44 @@ const { binance, roundPrice, roundQty, cancelOrder, assertCancelKind } = require
 const symbolInfo = require("../services/symbolInfo");
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
-const { isLiveLimit, isCloseDir, isFullClose, orderQtyOf } = require("../utils/orderKind");
+const { isLiveLimit, isCloseDir, isFullClose, orderQtyOf, STOP_TYPES } = require("../utils/orderKind");
 const { log, errOf } = require("../store/logStore");
 const router  = express.Router();
+
+// ── "사용자가 손절을 일부러 지웠다" 표시 (2026-09-04) ──────────────────────
+//
+// ⚠ 진입은 손절이 **필수**다 (`middleware/validate`). 그래서 손절 없이 들고 가려면
+//   주문한 뒤 차트에서 `×`로 지우는 것이 유일한 길이다. 그런데 store 기록에는
+//   여전히 `sl: 65000`이 남아 있어서, **재시작 복구가 그 값을 다시 걸어 버린다** —
+//   사용자가 일부러 지운 것을 프로그램이 조용히 되돌리는 셈이다.
+//   (2026-09-04까지는 `fillPrice`가 지워지는 별개의 결함 때문에 우연히 안 걸렸다)
+//
+//   그래서 지운 시각을 적어 두고 **복구와 재시도가 그 기록을 건너뛰게** 한다:
+//     · `utils/recoverMatch.js`  — 재시작 3단계 안전망
+//     · `orderWatcher`의 retryable — 60초 정합
+//
+// ⚠ 표시는 `PUT /api/tpsl`로 손절을 **다시 걸 때 지운다.** 안 지우면 그 포지션은
+//   영영 복구 대상에서 빠진다.
+// ※ 분할 SL을 새로 걸어도 표시는 **남는다** — 분할은 "일부만 덮겠다"는 선택이라,
+//   복구가 전량 손절을 대신 걸어 주는 것이 그 선택과 어긋난다
+// ※ 무방비 배너(3초 감시)는 **그대로 뜬다.** 손절이 없다는 사실 자체는 알려야 한다 —
+//   표시가 막는 것은 "말없이 다시 거는 것"뿐이다
+const ENTRY_STATUS = new Set(["WATCHING", "FILLED", "TPSL_PLACED", "TPSL_PARTIAL", "TPSL_MISSING"]);
+
+function markSlRemoved(symbol, positionSide, removed) {
+  let n = 0;
+  for (const [orderId, info] of store.entries()) {
+    if (store.symbolOf(orderId) !== symbol) continue;
+    if (!ENTRY_STATUS.has(info.status)) continue;
+    if (sideToPosition(info.side) !== positionSide) continue;
+    if (removed ? !!info.slRemovedAt : !info.slRemovedAt) continue;   // 이미 그 상태
+    const next = { ...info };
+    if (removed) next.slRemovedAt = Date.now(); else delete next.slRemovedAt;
+    store.set(String(orderId), next);
+    n++;
+  }
+  return n;
+}
 
 // SPLIT_TP를 store에서 지우기 전 두는 유예 — 등록 직후 낡은 openOrders 스냅샷에
 // 안 잡히는 창을 덮는다 (position.js의 GRACE_PERIOD와 같은 값·같은 이유)
@@ -211,6 +246,11 @@ router.put("/", async (req, res) => {
       }
     }
 
+    // 손절을 다시 걸었으면 "일부러 지웠다" 표시를 거둔다 (markSlRemoved 주석)
+    if (newOrders.sl) {
+      const cleared = markSlRemoved(symbol, positionSide, false);
+      if (cleared) log("SL_REMOVED_FLAG_CLEARED", { symbol, posSide: positionSide, cleared });
+    }
     log("TPSL_UPDATED", { posSide: side, tp: newOrders.tp?.price ?? null,
       sl: newOrders.sl?.price ?? null, noSl: !!noSl });
     res.json({ success: true, tp: newOrders.tp, sl: newOrders.sl, noSl });
@@ -231,6 +271,17 @@ router.delete("/", async (req, res) => {
     const found = await assertCancelKind(orderId, "TPSL", symbol);   // 엉뚱한 주문 취소 방지 (2026-08-23 감사)
     await cancelOrder({ orderId, algoId: orderId, isAlgo, symbol });
     log("ORDER_CANCELED", { kindOf: "TPSL", orderIds: [String(orderId)], count: 1, ...(found ?? {}) });
+    // 지운 것이 **손절**이면 기록에 남긴다 (markSlRemoved 주석)
+    if (found && STOP_TYPES.includes(found.orderType) && found.posSide) {
+      const marked = markSlRemoved(symbol, found.posSide, true);
+      log("SL_REMOVED_BY_USER", { symbol, posSide: found.posSide,
+        orderId: String(orderId), marked });
+    } else if (!found) {
+      // ⚠ 종류를 확인하지 못했다 (조회 실패이거나 주문이 이미 사라졌다).
+      //   손절인지 익절인지 모르면 **표시하지 않는다** — 익절을 지운 것에 표시를
+      //   남기면 그 포지션이 영영 복구 대상에서 빠진다
+      log("SL_REMOVE_UNVERIFIED", { level: "warn", symbol, orderId: String(orderId) });
+    }
     res.json({ success: true });
   } catch (err) {
     const msg = err.response?.data?.msg || err.message;

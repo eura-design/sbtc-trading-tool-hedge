@@ -259,7 +259,14 @@ async function onFilled(orderId, executionData) {
   const fillPrice = parseFloat(
     executionData.avgPrice || executionData.ap || executionData.L || executionData.price || 0
   );
-  store.set(orderId, { ...info, status: "FILLED", fillPrice, filledAt: Date.now() });
+  // ⚠ 아래 세 곳도 이 두 필드를 **반드시 다시 실어야 한다** (2026-09-04에 고쳤다).
+  //   예전엔 `{ ...info, status: ... }`로 옛 info를 다시 펼쳐서 fillPrice·filledAt이
+  //   지워졌다. 재시작 복구(`pickRecoverable`)는 fillPrice가 없는 기록을 낡은 것으로
+  //   보고 **거부**하므로, 정작 복구가 필요한 TPSL_PARTIAL이 대상에서 빠졌다.
+  //   (`routes/order.js`의 시장가 분기는 처음부터 제대로 싣고 있었다 — 여기만 빠졌다)
+  const filledAt = Date.now();
+  const fillMeta = { fillPrice, filledAt };
+  store.set(orderId, { ...info, status: "FILLED", ...fillMeta });
 
   // 거래 로그 기록
   log("ENTRY_FILLED", { orderId, orderSide: info.side, posSide: sideToPosition(info.side),
@@ -277,7 +284,7 @@ async function onFilled(orderId, executionData) {
 
   if (!info.tp || !info.sl) {
     log("TPSL_MISSING_INFO", { level: "error", orderId });
-    store.set(orderId, { ...info, status: "TPSL_MISSING" });
+    store.set(orderId, { ...info, status: "TPSL_MISSING", ...fillMeta });
     push.pushAlert("critical", `⚠ 주문 ${orderId} 체결됨 — TP/SL 가격 없음`);
     push.pushUpdate(["position", "balance"]);
     return;
@@ -290,7 +297,7 @@ async function onFilled(orderId, executionData) {
 
   if (tpsl.failed.length > 0) {
 
-    store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl });
+    store.set(orderId, { ...info, status: "TPSL_PARTIAL", tpsl, ...fillMeta });
     // ⚠ 거부 **사유**를 남길 것 — 예전엔 실패 타입만 남겨서, 나중에 로그를 봐도
     //   바이낸스가 왜 거절했는지 알 수 없었다 (콘솔은 이미 사라진 뒤다)
     log("TPSL_PARTIAL", { level: "error", orderId, orderSide: info.side,
@@ -307,7 +314,7 @@ async function onFilled(orderId, executionData) {
       push.pushAlert("notice", `TP 등록 실패 (orderId=${orderId}) — 수동 설정 필요`);
     }
   } else {
-    store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl });
+    store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl, ...fillMeta });
     clearSlAlerts(orderId);   // 앞서 뜬 실패 배너가 있으면 거둔다
     log("TPSL_PLACED", { orderId, posSide: sideToPosition(info.side), tp: info.tp, sl: info.sl,
       tpType: tpsl.tp?.orderType ?? null, slType: tpsl.sl?.orderType ?? null,
@@ -548,8 +555,12 @@ async function runReconcile() {
     }   // ← 심볼 루프 끝
 
     // ── TPSL_PARTIAL / FILLED(TP/SL 미등록) → 포지션 있으면 재시도 ──────────
+    // ⚠ `slRemovedAt`이 있으면 뺀다 (2026-09-04) — 사용자가 손절을 일부러 지운
+    //   기록이다. 안 빼면 60초 뒤 정합이 **말없이 다시 걸어 버린다**
+    //   (표시를 적고 거두는 곳은 `routes/tpsl.js`의 markSlRemoved 주석)
     const retryable = [...store.entries()].filter(
-      ([, o]) => (o.status === "TPSL_PARTIAL" || o.status === "FILLED") && o.tp && o.sl
+      ([, o]) => (o.status === "TPSL_PARTIAL" || o.status === "FILLED")
+        && o.tp && o.sl && !o.slRemovedAt
     );
     if (retryable.length > 0) {
         for (const [orderId, info] of retryable) {

@@ -124,24 +124,42 @@ async function recoverPendingOrders() {
 
     // ── 3단계: 안전망 — 포지션이 열려 있는데 TP/SL 없으면 자동 복구 시도 ─────
     // 헷지모드: LONG/SHORT 각각 독립적으로 확인
-    // ⚠ 3단계는 아직 **기본 심볼만** 본다. 다른 심볼의 무방비 포지션은 3초짜리
-    //   watchAccount가 경보로 잡는다 (여기는 store 기록으로 TP/SL을 "대신 걸어주는"
-    //   경로라, 기록이 심볼별이 되기 전에는 범위를 넓히면 엉뚱한 값을 걸 수 있다)
-    const SYM = symbolInfo.DEFAULT_SYMBOL;
-    const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol: SYM });
-    const openPositions = posCheck.filter(p => parseFloat(p.positionAmt) !== 0);
+    //
+    // ⚠ **계정 전체를 본다** (2026-09-04). 예전엔 기본 심볼만 봐서, 다른 코인의
+    //   무방비 포지션은 3초짜리 watchAccount의 **경보로만** 알려주고 손절은 안 걸었다.
+    //   범위를 못 넓힌 이유는 "store 기록이 심볼별이 아니라 엉뚱한 값을 걸 수 있다"
+    //   였는데, 그 전제가 사라졌다 — `store.set`이 `symbol`을 채우고(2026-09-02)
+    //   `store.symbolOf`로 읽을 수 있다. 그래서 **심볼별로 후보를 나눠서** 고른다.
+    //
+    // ⚠ `/fapi/v3`를 쓴다 — 심볼을 안 주면 **열린 포지션만** 준다(0.6KB).
+    //   v2는 심볼 없이 부르면 1784행 682KB다. v3에 `leverage`가 없지만 여기서는
+    //   `symbol`·`positionSide`·`positionAmt`·`entryPrice`만 쓴다
+    const posAllRes = await binance("GET", "/fapi/v3/positionRisk", {});
+    const openPositions = (Array.isArray(posAllRes.data) ? posAllRes.data : [])
+      .filter(p => parseFloat(p.positionAmt) !== 0);
     const usedRecoverIds = new Set();
+
+    // 심볼별 후보 목록 — `pickRecoverable`은 import가 없어서 심볼을 못 본다.
+    // 그래서 **여기서 갈라서** 넘긴다 (recoverMatch.js 상단 주석)
+    const entriesBySymbol = new Map();
+    for (const [orderId, info] of store.entries()) {
+      const sym = store.symbolOf(orderId);
+      if (!entriesBySymbol.has(sym)) entriesBySymbol.set(sym, []);
+      entriesBySymbol.get(sym).push([orderId, info]);
+    }
     for (const openPos of openPositions) {
       // positionSide 필드 없으면 positionAmt 부호로 판단
       const openPosSide = openPos.positionSide === "LONG" || openPos.positionSide === "SHORT"
         ? openPos.positionSide
         : parseFloat(openPos.positionAmt) > 0 ? "LONG" : "SHORT";
-      const { hasTP, hasSL } = await checkExistingTPSL(openPosSide, SYM);
+      // ⚠ **그 포지션의 심볼로** 확인한다 (기본 심볼이 아니라)
+      const posSym = openPos.symbol ?? symbolInfo.DEFAULT_SYMBOL;
+      const { hasTP, hasSL } = await checkExistingTPSL(openPosSide, posSym);
       if (!(hasTP && hasSL)) {
         const posEntry = parseFloat(openPos.entryPrice);
         // ⚠ `=====` 배너로 다섯 줄 찍던 것을 이벤트 한 줄로 바꿨다 (2026-08-25).
         //   줄이 나뉘어 있으면 grep으로 한 줄만 뽑았을 때 방향도 수량도 안 딸려온다
-        log("NAKED_POSITION", { level: "error", ctx: "boot", posSide: openPosSide,
+        log("NAKED_POSITION", { level: "error", ctx: "boot", symbol: posSym, posSide: openPosSide,
           qty: Math.abs(parseFloat(openPos.positionAmt)), entryPrice: posEntry,
           hasTP: !!hasTP, hasSL: !!hasSL });
 
@@ -149,16 +167,17 @@ async function recoverPendingOrders() {
         //   **엉뚱한 가격에 손절이 걸린다.** 실제 값으로 검산하려고 뺐다
         //   (tests/recoverMatch.test.js). 여기 규칙을 다시 적지 말 것
         const recoverable = pickRecoverable(
-          [...store.entries()], openPosSide, posEntry, usedRecoverIds);
+          entriesBySymbol.get(posSym) ?? [], openPosSide, posEntry, usedRecoverIds);
         if (recoverable) {
           const [recoverId, recoverInfo] = recoverable;
           usedRecoverIds.add(recoverId);
-          log("NAKED_RECOVERY_MATCH", { posSide: openPosSide, orderId: recoverId,
+          log("NAKED_RECOVERY_MATCH", { symbol: posSym, posSide: openPosSide, orderId: recoverId,
             fillPrice: recoverInfo.fillPrice });
           try {
-            const tpsl = await placeTPSL(recoverInfo);
+            // ⚠ 심볼을 실어 넘긴다 — 기록에 없으면(2026-09-02 이전) 그 포지션의 심볼로
+            const tpsl = await placeTPSL({ ...recoverInfo, symbol: recoverInfo.symbol ?? posSym });
             if (tpsl.failed.length === 0) {
-              log("NAKED_RECOVERED", { posSide: openPosSide, orderId: recoverId });
+              log("NAKED_RECOVERED", { symbol: posSym, posSide: openPosSide, orderId: recoverId });
               store.set(recoverId, { ...recoverInfo, status: "TPSL_PLACED", tpsl });
             } else {
               log("NAKED_RECOVERY_PARTIAL", { level: "error", posSide: openPosSide,
@@ -169,7 +188,7 @@ async function recoverPendingOrders() {
               orderId: recoverId, err: errOf(e) });
           }
         } else {
-          log("NAKED_NO_CANDIDATE", { level: "error", posSide: openPosSide,
+          log("NAKED_NO_CANDIDATE", { level: "error", symbol: posSym, posSide: openPosSide,
             tolerancePct: PRICE_TOLERANCE * 100 });
         }
       }

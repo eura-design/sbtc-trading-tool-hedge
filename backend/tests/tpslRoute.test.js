@@ -228,6 +228,94 @@ test("이미 걸린 주문은 **그 주문의 심볼**로 취소한다 (화면 �
   await h.close();
 });
 
+// ── 손절을 일부러 지웠다는 표시 (2026-09-04) ───────────────────────────────
+//
+// ⚠ 진입은 손절이 **필수**다. 그래서 손절 없이 들고 가려면 주문한 뒤 차트에서
+//   `×`로 지우는 것이 유일한 길이다. 그런데 기록에는 `sl`이 그대로 남아 있어서,
+//   표시가 없으면 **재시작 복구와 60초 정합이 말없이 다시 걸어 버린다**
+// ⚠ 알고 주문은 `algoId`다 (`orderId`가 아니다) — 바이낸스가 그렇게 준다
+const slOrder = { algoId: "SL9", orderType: "STOP_MARKET", side: "SELL",
+                  positionSide: "LONG", closePosition: true };
+const tpOrder = { algoId: "TP9", orderType: "TAKE_PROFIT_MARKET", side: "SELL",
+                  positionSide: "LONG", closePosition: true };
+const entryRec = (over = {}) => ({
+  status: "TPSL_PLACED", side: "BUY", closeSide: "SELL",
+  tp: 80000, sl: 65000, qty: "0.01", symbol: "BTCUSDT",
+  fillPrice: 70000, filledAt: Date.now(), ...over,
+});
+
+test("손절을 지우면 기록에 **지운 시각**이 남는다", async () => {
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed({ algo: [slOrder] }),
+    store: { "E1": entryRec() },
+  });
+  const r = await h.request("DELETE", "/", { orderId: "SL9", isAlgo: true });
+  assert.equal(r.status, 200);
+  assert.ok(h.store.get("E1").slRemovedAt, "표시가 안 남았다 — 복구가 되돌려 버린다");
+  await h.close();
+});
+
+test("**익절**을 지우면 표시하지 않는다 (복구를 막으면 안 된다)", async () => {
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed({ algo: [tpOrder] }),
+    store: { "E1": entryRec() },
+  });
+  await h.request("DELETE", "/", { orderId: "TP9", isAlgo: true });
+  assert.equal(h.store.get("E1").slRemovedAt, undefined,
+    "익절을 지웠는데 손절 표시가 붙었다 — 그 포지션이 영영 복구에서 빠진다");
+  await h.close();
+});
+
+test("종류를 확인 못 했으면 표시하지 않는다", async () => {
+  // ⚠ 손절인지 익절인지 모르면 표시하지 않는다 — 잘못 붙이면 복구가 막힌다
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed(),                       // 목록에 없다 → assertCancelKind가 undefined
+    store: { "E1": entryRec() },
+  });
+  await h.request("DELETE", "/", { orderId: "모름", isAlgo: true });
+  assert.equal(h.store.get("E1").slRemovedAt, undefined);
+  assert.ok(h.rec.logs.some(l => l.event === "SL_REMOVE_UNVERIFIED"), "조용히 넘어갔다");
+  await h.close();
+});
+
+test("표시는 **그 사이드·그 심볼**에만 붙는다", async () => {
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed({ algo: [slOrder] }),          // LONG 손절
+    store: {
+      "LONG_BTC":  entryRec(),                                        // ← 붙어야 한다
+      "SHORT_BTC": entryRec({ side: "SELL", closeSide: "BUY" }),      // 반대 사이드
+      "LONG_DOGE": entryRec({ symbol: "DOGEUSDT" }),                  // 다른 심볼
+    },
+  });
+  await h.request("DELETE", "/", { orderId: "SL9", isAlgo: true });
+  assert.ok(h.store.get("LONG_BTC").slRemovedAt,  "그 사이드에 안 붙었다");
+  assert.equal(h.store.get("SHORT_BTC").slRemovedAt, undefined, "반대 사이드에 붙었다");
+  assert.equal(h.store.get("LONG_DOGE").slRemovedAt, undefined, "다른 심볼에 붙었다");
+  await h.close();
+});
+
+test("손절을 다시 걸면 표시를 **거둔다** (안 거두면 영영 복구에서 빠진다)", async () => {
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed(),
+    store: { "E1": entryRec({ slRemovedAt: Date.now() }) },
+  });
+  const r = await h.request("PUT", "/", { side: "BUY", sl: 64000 });
+  assert.equal(r.status, 200);
+  assert.equal(h.store.get("E1").slRemovedAt, undefined, "표시가 남았다");
+  assert.ok(h.rec.logs.some(l => l.event === "SL_REMOVED_FLAG_CLEARED"));
+  await h.close();
+});
+
+test("익절만 다시 걸면 표시는 **그대로 남는다**", async () => {
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed(),
+    store: { "E1": entryRec({ slRemovedAt: Date.now() }) },
+  });
+  await h.request("PUT", "/", { side: "BUY", tp: 85000 });
+  assert.ok(h.store.get("E1").slRemovedAt, "익절만 걸었는데 손절 표시가 거둬졌다");
+  await h.close();
+});
+
 test("분할 SL 취소는 알고 주문으로 지운다", async () => {
   const h = await mountRoute("routes/tpsl.js", { binance: feed() });
   await h.request("DELETE", "/partial-sl", { orderId: "A9" });

@@ -89,20 +89,26 @@ test("체결 시각을 남긴다 (복구가 이걸로 최근 기록을 고른다
   assert.ok(filled.filledAt ?? filled.info.filledAt >= before, "체결 시각이 없다");
 });
 
-test("⚠ 알려진 결함 — TP/SL을 건 뒤 fillPrice·filledAt이 기록에서 사라진다", async () => {
-  // 나중 `store.set`이 **옛 `info`를 다시 펼쳐서** 앞서 적은 두 필드를 지운다.
-  // `routes/order.js:82`는 같은 상황에서 `fillPrice, filledAt`을 다시 넣는다 —
-  // 두 곳이 갈려 있는 것이 이게 설계가 아니라 누락이라는 증거다.
-  //
-  // 영향: 재시작 복구(`pickRecoverable`)는 **fillPrice가 없으면 낡은 기록으로 보고
-  // 거부한다.** 그래서 SL 등록이 실패한(TPSL_PARTIAL) 포지션이 정작 자동 복구
-  // 대상에서 빠지고 사람에게 넘어간다 — 안전한 방향이지만 안전망이 설계보다 약하다.
-  //
-  // ⚠ 고치면 이 테스트를 **뒤집을 것** (아래 두 줄을 `assert.ok`로).
-  const r = await run();
-  assert.equal(r.saved.status, "TPSL_PLACED");
-  assert.equal(r.saved.fillPrice, undefined, "고쳐졌다면 이 테스트를 뒤집어야 한다");
-  assert.equal(r.saved.filledAt,  undefined, "고쳐졌다면 이 테스트를 뒤집어야 한다");
+test("체결가·체결시각이 **끝까지 남는다** (2026-09-04에 고친 결함)", async () => {
+  // 예전엔 나중 `store.set`이 옛 `info`를 다시 펼쳐서 이 두 필드를 지웠다.
+  // 재시작 복구(`pickRecoverable`)는 fillPrice가 없는 기록을 낡은 것으로 보고
+  // **거부**하므로, 정작 복구가 필요한 TPSL_PARTIAL이 대상에서 빠졌다.
+  // ⚠ 네 상태 모두 남아 있어야 한다 — 하나만 빠뜨리면 그 경로만 조용히 복구 불가다
+  const ok = await run();
+  assert.equal(ok.saved.status, "TPSL_PLACED");
+  assert.equal(ok.saved.fillPrice, 70000);
+  assert.ok(ok.saved.filledAt > 0);
+
+  const partial = await run({
+    placeTPSL: async () => ({ tp: null, sl: null, failed: [{ type: "SL", error: "x" }] }),
+  });
+  assert.equal(partial.saved.status, "TPSL_PARTIAL");
+  assert.equal(partial.saved.fillPrice, 70000, "복구가 가장 필요한 상태에서 사라졌다");
+  assert.ok(partial.saved.filledAt > 0);
+
+  const missing = await run({ info: watching({ sl: null }) });
+  assert.equal(missing.saved.status, "TPSL_MISSING");
+  assert.equal(missing.saved.fillPrice, 70000);
 });
 
 // ── TP/SL 가격이 없을 때 ───────────────────────────────────────────────────

@@ -15,10 +15,19 @@
 // 4. **체결가(`fillPrice`)가 있어야 한다.** 없으면 낡은 기록으로 보고 **거부한다** —
 //    "언제 것인지 모르는 TP/SL"을 지금 포지션에 붙이는 것이 가장 위험하다
 // 5. 그 체결가가 지금 진입가의 **±2% 안**이어야 한다
-// 6. 남은 것 중 **가장 최근**(filledAt → createdAt 순)
+// 6. **사용자가 손절을 일부러 지운 기록은 뺀다** (`slRemovedAt`, 2026-09-04) —
+//    진입은 손절이 필수라, 손절 없이 들고 가려면 걸린 뒤 지우는 것이 유일한 길이다.
+//    그런데 기록에는 `sl`이 그대로 남아 있어서, 이걸 안 빼면 재시작할 때
+//    **사용자가 일부러 지운 손절을 말없이 다시 걸어 버린다.**
+//    표시는 `routes/tpsl.js`가 적고, 손절을 다시 걸 때 거둔다
+// 7. 남은 것 중 **가장 최근**(filledAt → createdAt 순)
 //
 // ⚠ 조건을 느슨하게 하지 말 것. 못 고르면 배너로 사람에게 넘기면 되지만,
 //   잘못 고르면 조용히 틀린 손절이 걸린다.
+//
+// ⚠ **심볼 필터는 여기 없다 — 부르는 쪽이 미리 걸러서 넘긴다.** 이 파일은
+//   import가 없어야 해서(`store.symbolOf`를 못 쓴다) 그렇게 나눴다.
+//   `recoveryService`가 심볼별로 나눈 목록을 넘긴다
 
 const PRICE_TOLERANCE = 0.02;   // ±2%
 
@@ -39,6 +48,7 @@ function pickRecoverable(entries, posSide, posEntry, usedIds = new Set()) {
     .filter(([orderId, o]) => {
       if (used.has(orderId)) return false;
       if (!o?.tp || !o?.sl || o.side !== entrySide) return false;
+      if (o.slRemovedAt) return false;                      // 사용자가 일부러 지웠다
       if (!o.fillPrice) return false;                       // 낡은 기록 — 거부
       return Math.abs(o.fillPrice - posEntry) / posEntry <= PRICE_TOLERANCE;
     })

@@ -85,6 +85,24 @@ test("포지션 진입가가 없으면 아무것도 안 고른다", () => {
   assert.equal(pickRecoverable([rec("a")], "LONG", NaN), null);
 });
 
+test("사용자가 손절을 일부러 지운 기록은 **안 고른다**", () => {
+  // ⚠ 진입은 손절이 필수라, 손절 없이 들고 가려면 걸린 뒤 지우는 것이 유일한 길이다.
+  //   그런데 기록에는 `sl`이 그대로 남아 있다 — 이걸 안 빼면 재시작할 때
+  //   **사용자가 일부러 지운 손절이 말없이 다시 걸린다**
+  assert.equal(pick([rec("a", { slRemovedAt: Date.now() })]), null);
+  // 표시가 거둬지면(손절을 다시 걸면) 원래대로 고른다
+  assert.ok(pick([rec("a", { slRemovedAt: undefined })]), "표시가 없는데 안 골랐다");
+});
+
+test("일부러 지운 기록이 섞여 있으면 **나머지 중에서** 고른다", () => {
+  const r = pick([
+    rec("지움", { slRemovedAt: Date.now(), filledAt: 9_000 }),   // 더 최근이지만 제외
+    rec("정상", { filledAt: 5_000 }),
+  ]);
+  assert.ok(r, "멀쩡한 기록이 있는데 못 골랐다");
+  assert.equal(r[0], "정상");
+});
+
 test("빈 입력", () => {
   assert.equal(pick([]), null);
   assert.equal(pick(null), null);

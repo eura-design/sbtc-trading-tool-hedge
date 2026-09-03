@@ -85,11 +85,30 @@ async function mountRoute(routeRel, opts = {}) {
       },
       preplaceTPSL: async () => ({ tp: null, sl: null, failed: [] }),
       cancelPresetTPSL: async (preset, sym) => { rec.presetCancels.push({ preset, symbol: sym }); },
-      // 취소 대상이 기대한 종류인지 확인하고 못 찾으면 조용히 넘어간다(진짜와 같다).
-      // `opts.assertCancelKind`로 "엉뚱한 종류라 거절"을 흉내낼 수 있다
+      // 취소 대상이 기대한 종류인지 확인한다. **진짜와 같은 방식으로** —
+      // 목이 주는 openOrders·openAlgoOrders에서 그 주문을 찾아 종류를 돌려준다.
+      // ⚠ 무조건 `undefined`를 돌려주면 안 된다. 진짜는 "못 찾았을 때만" 그러는데,
+      //   부르는 쪽이 그 값으로 **손절인지 익절인지**를 가른다
+      //   (`routes/tpsl.js`의 SL 제거 표시가 그렇다)
       assertCancelKind: async (orderId, kind, sym) => {
         rec.kindChecks.push({ orderId: String(orderId), kind, symbol: sym });
-        return opts.assertCancelKind ? opts.assertCancelKind(orderId, kind, sym) : undefined;
+        if (opts.assertCancelKind) return opts.assertCancelKind(orderId, kind, sym);
+        const id = String(orderId);
+        const pull = async (path) => {
+          try {
+            const r = await mockBinance("GET", path, { symbol: sym });
+            const d = r?.data;
+            return Array.isArray(d) ? d : (d?.algoOrders ?? []);
+          } catch { return []; }
+        };
+        const reg = (await pull("/fapi/v1/openOrders")).find(o => String(o.orderId) === id);
+        const alg = (await pull("/fapi/v1/openAlgoOrders")).find(o => String(o.algoId) === id);
+        const o = reg ?? alg;
+        if (!o) return undefined;                       // 진짜와 같다 — 판단하지 않는다
+        const type = reg ? reg.type : alg.orderType;
+        const full = o.closePosition === true || o.closePosition === "true"
+          || !(Number(o.origQty ?? o.quantity ?? 0) > 0);
+        return { orderType: type, orderSide: o.side, posSide: o.positionSide, fullClose: full };
       },
       checkExistingTPSL: async () => ({ ok: true, hasTp: false, hasSl: false }),
       syncServerTime: async () => {},
