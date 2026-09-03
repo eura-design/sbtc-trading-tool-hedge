@@ -24,6 +24,23 @@ let _bannedUntil = 0;   // IP 밴 해제 시각 (ms, 0 = 밴 없음)
 // 밴이 나는데, 그전에는 **밴이 난 뒤에야** 알 수 있었다.
 // ⚠ 매 요청마다 남기면 로그가 이것으로 뒤덮인다 → **한도의 절반을 넘었을 때만**,
 //   그것도 1분에 한 번만 남긴다
+// ── 요청 시간 제한 (2026-09-03 감사에서 추가) ────────────────────────────────
+// 그전에는 **없었다**(axios 기본값 = 무제한). 응답이 안 오면 그 await가 영영 안 끝난다.
+//
+// 무엇이 나빴나:
+//   · `reconcileWithBinance`는 겹침 방지(`reconcileRunning`)가 있어서, 한 번 멈추면
+//     그 플래그가 영영 true로 남아 **60초 정합이 영구 정지**한다
+//   · 주문 라우트가 안 끝나 화면이 매달린다 → 사용자가 다시 누르면 **중복 주문**
+//   · 멈춤 감지(server.js의 FREEZE_DETECTED)는 **이벤트 루프**를 보는 것이라
+//     네트워크 대기는 루프를 막지 않아 영영 안 잡힌다
+//
+// ⚠ 값의 근거: 요청에 `recvWindow: 5000`이 실려 있어 **5초 넘게 걸려 도착한 요청은
+//   거래소가 어차피 거절한다.** 실측 왕복은 80~170ms다. 10초면 정상의 60배다.
+// ⚠ POST가 시간 초과되면 "주문이 나갔는지 모르는" 상태가 된다 — 그건 이 시스템이
+//   이미 다루는 상황이다(`verifyImmediateFill`·`reconcile`이 거래소를 원본으로 보고
+//   따라잡는다). 무한정 기다리다 사용자가 다시 누르는 쪽이 훨씬 나쁘다
+const REQUEST_TIMEOUT_MS = 10_000;
+
 const WEIGHT_LIMIT   = 2400;
 const WEIGHT_WARN_AT = WEIGHT_LIMIT / 2;
 let _lastWeight     = 0;
@@ -51,7 +68,7 @@ function parseBan(e) {
 
 async function syncServerTime() {
   try {
-    const { data } = await axios.get(`${BASE}/fapi/v1/time`);
+    const { data } = await axios.get(`${BASE}/fapi/v1/time`, { timeout: REQUEST_TIMEOUT_MS });
     const prev = _timeOffset;
     _timeOffset = data.serverTime - Date.now();
     // ⚠ 시계 오차는 **트리거가 안 맞을 때 첫 용의자다.** 오차가 recvWindow(5초)에
@@ -85,6 +102,7 @@ async function binance(method, path, params = {}) {
     const res = await axios({
       method,
       url: `${BASE}${path}`,
+      timeout: REQUEST_TIMEOUT_MS,   // ⚠ 지우지 말 것 — 위 주석 참고
       // ⚠ **응답을 우리가 파싱한다** (2026-09-02). axios 기본 `JSON.parse`는 안전 정수를
       //   넘는 주문번호를 뭉갠다 — ETHUSDT는 19자리라 실제로 뒤 세 자리가 날아갔고,
       //   그 번호로는 조회도 취소도 안 된다 (`Order does not exist.` 실측).

@@ -819,7 +819,21 @@ function watchedSymbols(positions) {
   return out;
 }
 
+// ⚠ **겹침을 막는다** (2026-09-03). 3초 간격인데 조회가 그보다 오래 걸리면
+//   다음 회차가 그냥 시작돼 요청이 쌓인다. `reconcileWithBinance`는 이미 이렇게
+//   막고 있었는데 이쪽만 빠져 있었다.
+//   ※ 이 가드는 **요청 시간 제한이 있어야 안전하다** — 없으면 한 번 멈춘 뒤
+//     플래그가 영영 true로 남아 감시가 통째로 죽는다 (binanceClient의 주석 참고)
+let accountWatchRunning = false;
+
 async function watchAccount() {
+  if (accountWatchRunning) return;
+  accountWatchRunning = true;
+  try { await runWatchAccount(); }
+  finally { accountWatchRunning = false; }
+}
+
+async function runWatchAccount() {
   acct.polls++;
   try {
     // ⚠ **v3다.** v2(`/fapi/v2/positionRisk`)는 심볼을 안 주면 **1784행 682KB**를 준다 —

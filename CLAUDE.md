@@ -528,6 +528,11 @@ level은 **`critical`(빨간 배너) / `notice`(금색 토스트)** 둘뿐. leve
 - Binance → 백엔드: User Data Stream WebSocket (`orderWatcher.js`)
 - 백엔드 → 프론트: pushService WebSocket (`ws://localhost:3002`)
 - UDS가 조용하거나 끊기면 폴링(30초) + watchAccount(3초) + reconcile(60초)이 메운다
+- **거래소 호출에는 10초 제한이 걸려 있다** (`binanceClient`의 `REQUEST_TIMEOUT_MS`).
+  ⚠ 지우지 말 것 — 없으면 응답이 안 올 때 그 await가 영영 안 끝나고,
+    `reconcile`은 겹침 방지 플래그가 true로 남아 **정합이 영구 정지**한다.
+    멈춤 감지(`FREEZE_DETECTED`)는 이벤트 루프를 보는 것이라 이걸 못 잡는다
+- `watchAccount`·`reconcile` 둘 다 **겹침을 막는다**. 그 가드는 위 시간 제한이 있어야 안전하다
 - 시세 스트림 경로는 `/market/ws/...`
 
 ---
