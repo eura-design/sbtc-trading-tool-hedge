@@ -172,6 +172,23 @@ test("분할 SL 등록 — 알고 주문 + 수량 지정 + CONTRACT_PRICE", asyn
   await h.close();
 });
 
+test("분할 SL 응답의 가격은 **그 심볼의 호가 단위**로 나온다", async () => {
+  // ⚠ 2026-09-03까지 여기만 `roundPrice(price)`로 심볼이 빠져 있었다 (14곳 중 1곳).
+  //   응답 가격이 BTC 호가(0.1)로 반올림돼 DOGE 0.0832가 `0.1`, 1000PEPE는 `0`이 됐다.
+  //   실제 주문(triggerPrice)은 맞았고 프론트가 이 값을 안 읽어 화면엔 안 드러났지만,
+  //   응답이 거짓말을 하고 있었다
+  const h = await mountRoute("routes/tpsl.js", { binance: feed() });
+  const r = await h.request("POST", "/partial-sl", {
+    side: "LONG", price: 0.0832, qty: "100", symbol: "DOGEUSDT",
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.price, 0.0832, "응답 가격이 기본 심볼 단위로 뭉개졌다");
+  // 실제로 나간 주문도 같은 값이어야 한다 (응답과 주문이 갈리면 안 된다)
+  const [c] = h.rec.calls.filter(c => c.path === "/fapi/v1/algoOrder");
+  assert.equal(Number(c.params.triggerPrice), r.body.price, "응답과 실제 주문이 다르다");
+  await h.close();
+});
+
 test("분할 SL — 즉시 발동할 자리(-2021)는 방향을 알려준다", async () => {
   const h = await mountRoute("routes/tpsl.js", {
     binance: async (method, p) => {

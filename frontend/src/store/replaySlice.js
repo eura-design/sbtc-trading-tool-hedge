@@ -10,11 +10,11 @@
 // 페이퍼 화면을 실거래로 착각하거나(반대도 마찬가지) 하는 사고가 난다.
 // 편의를 위해 마지막으로 고른 **시작 날짜만** 저장한다.
 
-import { setReplayGuard } from "../api/client";
-import { clientLog } from "../api/clientLog";
-import { swapDrawingStorage } from "./uiSlice";
-import { swapTradeSettings } from "./settingsSlice";
-import { lsGet, lsSet } from "../utils/storage";
+import { setReplayGuard } from "../api/client.js";
+import { clientLog } from "../api/clientLog.js";
+import { swapDrawingStorage } from "./uiSlice.js";
+import { swapTradeSettings } from "./settingsSlice.js";
+import { lsGet, lsSet } from "../utils/storage.js";
 
 const START_KEY = "replay_start_ms";
 
@@ -31,6 +31,25 @@ export const SESSION_MAX_MS = 90 * 86_400_000;
 
 /** 시작 시각에 맞는 끝 시각 — 현재를 넘지 않는다 */
 export const sessionEnd = (startMs) => Math.min(Date.now(), startMs + SESSION_MAX_MS);
+
+/**
+ * 그 심볼의 **상장일보다 앞선 시작은 밀어 올린다** (2026-09-03, 순수 함수).
+ *
+ * ⚠ `replay_start_ms`는 **심볼별이 아니라 하나뿐이다.** BTC에서 2021년을 골라 두고
+ *   늦게 상장한 코인으로 옮기면 그 값이 그대로 쓰인다. 그런데 바이낸스는 빈 배열이
+ *   아니라 **가장 이른 캔들**을 돌려준다 — 리플레이 시계는 2021년인데 화면에는
+ *   2023년 캔들이 재생되어 **조용히 어긋난다**
+ *   (실측 2026-09-03: 1000BONK 1040일 · 1000FLOKI 840일 차이).
+ *   거래 가능한 526개 중 **470개(89%)**가 이 상황에 걸렸다.
+ *
+ * ⚠ 상장일을 아직 못 받았으면(`null`) **손대지 않는다** — 모르면서 옮기는 것보다
+ *   그대로 두는 쪽이 맞다. 값은 `useSymbolFilters`가 exchangeInfo에서 받아 준다.
+ *
+ * ※ 날짜 입력칸의 `min` 속성만으로는 못 막는다. 그건 사람이 고를 때만 걸리고,
+ *   **저장된 값을 불러오는 경로**에는 적용되지 않는다 (이 버그가 그 경로였다)
+ */
+export const clampToListing = (startMs, onboardMs) =>
+  (onboardMs && startMs && startMs < onboardMs) ? onboardMs : startMs;
 
 function loadStart() {
   const v = Number(lsGet(START_KEY));
@@ -116,10 +135,14 @@ export const createReplaySlice = (set, get) => ({
   setReplayRange: ({ startMs, endMs }) => {
     const patch = {};
     if (startMs !== undefined) {
-      patch.replayStartMs = startMs;
-      if (startMs) {
-        lsSet(START_KEY, String(startMs));
-        patch.replayEndMs = sessionEnd(startMs);
+      // ⚠ 상장일보다 앞서면 밀어 올린다 (clampToListing 주석). 리플레이에 닿는
+      //   모든 경로가 여기를 지나므로 — 진입(onReplayToggle)·날짜 선택·무작위 —
+      //   **한 곳만 막으면 된다**. 심볼 선택기는 리플레이 중에 잠겨서 도중 변경은 없다
+      const start = clampToListing(startMs, get().symbolFilters?.onboardMs);
+      patch.replayStartMs = start;
+      if (start) {
+        lsSet(START_KEY, String(start));
+        patch.replayEndMs = sessionEnd(start);
       }
     }
     if (endMs !== undefined) patch.replayEndMs = endMs;

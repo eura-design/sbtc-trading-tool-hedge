@@ -317,8 +317,12 @@ router.post("/partial-sl", async (req, res) => {
       price: parseFloat(price), orderId: String(data.algoId),
       orderType: data.orderType ?? "STOP_MARKET", closePosition: false,
       workingType: "CONTRACT_PRICE" });
+    // ⚠ **심볼을 반드시 넘긴다** (2026-09-03). 여기만 빠져 있어서 응답 가격이
+    //   기본 심볼(BTC, 호가 0.1) 단위로 반올림됐다 — DOGE 0.0832가 `0.1`,
+    //   1000PEPE는 `0`이 됐다. 실제 주문(위 triggerPrice)은 맞았고 프론트가
+    //   이 값을 읽지 않아 화면에는 안 드러났지만, 응답이 거짓말을 하고 있었다
     res.json({ success: true, orderId: String(data.algoId),
-      price: parseFloat(roundPrice(price)), qty: parseFloat(qty) });
+      price: parseFloat(roundPrice(price, symbol)), qty: parseFloat(qty) });
   } catch (err) {
     const code = err.response?.data?.code;
     const msg  = err.response?.data?.msg || err.message;
