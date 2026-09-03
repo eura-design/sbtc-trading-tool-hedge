@@ -302,7 +302,65 @@ test("손절을 다시 걸면 표시를 **거둔다** (안 거두면 영영 복�
   const r = await h.request("PUT", "/", { side: "BUY", sl: 64000 });
   assert.equal(r.status, 200);
   assert.equal(h.store.get("E1").slRemovedAt, undefined, "표시가 남았다");
-  assert.ok(h.rec.logs.some(l => l.event === "SL_REMOVED_FLAG_CLEARED"));
+  assert.ok(h.rec.logs.some(l => l.event === "TPSL_MEMO_UPDATED"));
+  await h.close();
+});
+
+// ── 손절선을 옮기면 기록도 따라온다 (2026-09-04) ───────────────────────────
+//
+// ⚠ 예전엔 기록이 **처음 주문할 때 값에서 멈춰 있었다.** 체결 뒤 손절선을 옮기면
+//   거래소·화면만 바뀌고 기록은 옛 값이라, **복구가 옛 가격을 걸었다.**
+test("손절선을 옮기면 기록의 손절 가격도 바뀐다", async () => {
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed(), store: { "E1": entryRec({ sl: 65000 }) },
+  });
+  await h.request("PUT", "/", { side: "BUY", sl: 68000 });
+  assert.equal(h.store.get("E1").sl, 68000, "기록이 옛 값 그대로다 — 복구가 65000을 건다");
+  assert.equal(h.store.get("E1").tp, 80000, "건드리지 않은 익절까지 바뀌었다");
+  await h.close();
+});
+
+test("익절선만 옮기면 손절 기록은 그대로다", async () => {
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed(), store: { "E1": entryRec({ tp: 80000, sl: 65000 }) },
+  });
+  await h.request("PUT", "/", { side: "BUY", tp: 90000 });
+  assert.equal(h.store.get("E1").tp, 90000);
+  assert.equal(h.store.get("E1").sl, 65000, "손절까지 건드렸다");
+  await h.close();
+});
+
+test("등록이 **실패해도** 기록은 갱신되고 표시도 거둬진다", async () => {
+  // ⚠ 기록의 뜻은 "지금 걸려 있는 것"이 아니라 **"있어야 하는 손절"**이다.
+  //   실패했다고 옛 값을 남기면 복구가 사용자가 방금 버린 가격을 되살린다
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: async (method, p) => {
+      if (p === "/fapi/v1/algoOrder") throw new Error("-2021 즉시 발동");
+      return { data: [] };
+    },
+    store: { "E1": entryRec({ sl: 65000, slRemovedAt: Date.now() }) },
+  });
+  const r = await h.request("PUT", "/", { side: "BUY", sl: 70000 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.noSl, true, "실패를 안 알렸다");
+  assert.equal(h.store.get("E1").sl, 70000, "요청한 값이 기록에 안 남았다");
+  assert.equal(h.store.get("E1").slRemovedAt, undefined, "표시가 남아 복구가 계속 꺼져 있다");
+  await h.close();
+});
+
+test("기록 갱신도 **그 사이드·그 심볼**에만 미친다", async () => {
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed(),
+    store: {
+      "LONG_BTC":  entryRec({ sl: 65000 }),
+      "SHORT_BTC": entryRec({ side: "SELL", closeSide: "BUY", sl: 75000 }),
+      "LONG_DOGE": entryRec({ symbol: "DOGEUSDT", sl: 0.07 }),
+    },
+  });
+  await h.request("PUT", "/", { side: "BUY", sl: 68000 });
+  assert.equal(h.store.get("LONG_BTC").sl,  68000);
+  assert.equal(h.store.get("SHORT_BTC").sl, 75000, "반대 사이드가 바뀌었다");
+  assert.equal(h.store.get("LONG_DOGE").sl, 0.07,  "다른 심볼이 바뀌었다");
   await h.close();
 });
 

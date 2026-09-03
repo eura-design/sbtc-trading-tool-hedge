@@ -27,19 +27,55 @@ const router  = express.Router();
 //   표시가 막는 것은 "말없이 다시 거는 것"뿐이다
 const ENTRY_STATUS = new Set(["WATCHING", "FILLED", "TPSL_PLACED", "TPSL_PARTIAL", "TPSL_MISSING"]);
 
-function markSlRemoved(symbol, positionSide, removed) {
+/**
+ * 그 심볼·그 사이드의 **진입 기록**을 고친다. `patch(info)`가 `null`을 돌려주면
+ * 그 기록은 건너뛴다 (바꿀 것이 없다는 뜻).
+ */
+function patchEntryRecords(symbol, positionSide, patch) {
   let n = 0;
   for (const [orderId, info] of store.entries()) {
     if (store.symbolOf(orderId) !== symbol) continue;
     if (!ENTRY_STATUS.has(info.status)) continue;
     if (sideToPosition(info.side) !== positionSide) continue;
-    if (removed ? !!info.slRemovedAt : !info.slRemovedAt) continue;   // 이미 그 상태
-    const next = { ...info };
-    if (removed) next.slRemovedAt = Date.now(); else delete next.slRemovedAt;
+    const next = patch(info);
+    if (!next) continue;
     store.set(String(orderId), next);
     n++;
   }
   return n;
+}
+
+function markSlRemoved(symbol, positionSide, removed) {
+  return patchEntryRecords(symbol, positionSide, (info) => {
+    if (removed ? !!info.slRemovedAt : !info.slRemovedAt) return null;   // 이미 그 상태
+    const next = { ...info };
+    if (removed) next.slRemovedAt = Date.now(); else delete next.slRemovedAt;
+    return next;
+  });
+}
+
+// ── 체결된 포지션의 TP/SL을 옮기면 **기록도 같이 갱신한다** (2026-09-04) ────
+//
+// ⚠ 예전에는 기록의 tp/sl이 **처음 주문할 때 플랜 박스에 적힌 값에서 멈춰 있었다.**
+//   체결 뒤 손절선을 끌어 옮기면 거래소와 화면만 바뀌고 기록은 옛 값 그대로였다.
+//   그런데 **비상 복구(재시작 3단계 · 60초 정합)가 그 기록을 보고 손절을 대신 건다** →
+//   손절을 옮겨 둔 사람에게 **옛 가격이 걸렸다.**
+//   실제로 어긋나는 예: 65,000으로 주문 → 체결 → 68,000으로 옮김 → 복구가 돌면 65,000.
+//
+// ※ **미체결** 상태에서 플랜 박스를 끄는 것은 `PATCH /api/order`가 이미 기록을
+//   갱신한다 — 빠져 있던 것은 **체결 뒤** 경로뿐이다.
+//
+// ⚠ **요청받은 가격을 적는다 — 거래소 등록의 성공 여부와 무관하게.**
+//   기록의 뜻은 "지금 거래소에 걸려 있는 것"이 아니라 **"이 포지션에 있어야 하는
+//   손절"**이다. 그게 복구가 답해야 하는 질문이다. 등록이 실패했을 때 옛 값을
+//   남겨 두면 복구가 **사용자가 방금 버린 가격**을 되살린다.
+function updateEntryTpsl(symbol, positionSide, { tp, sl }) {
+  return patchEntryRecords(symbol, positionSide, (info) => {
+    const nextTp = tp ? Number(tp) : info.tp;
+    const nextSl = sl ? Number(sl) : info.sl;
+    if (nextTp === info.tp && nextSl === info.sl) return null;
+    return { ...info, tp: nextTp, sl: nextSl };
+  });
 }
 
 // SPLIT_TP를 store에서 지우기 전 두는 유예 — 등록 직후 낡은 openOrders 스냅샷에
@@ -225,6 +261,19 @@ router.put("/", async (req, res) => {
       closePosition: "true", workingType: "CONTRACT_PRICE",
     });
 
+  // ⚠ **거래소에 보내기 전에 기록을 갱신한다** (updateEntryTpsl 주석).
+  //   TP 등록이 실패하면 아래 catch로 빠져 500이 되는데, 그때도 "사용자가 원한 값"은
+  //   이미 정해져 있다. 뒤에 두면 그 경로에서만 기록이 옛 값으로 남는다
+  const memoed = updateEntryTpsl(symbol, positionSide, { tp, sl });
+  // 손절을 걸려고 했다는 것 자체가 "손절이 필요하다"는 뜻이다 → "일부러 지움"을 거둔다.
+  // ⚠ **등록 실패해도 거둔다.** 기록이 방금 갱신됐으므로, 복구가 걸 가격은
+  //   사용자가 마지막으로 정한 값이다 (예전엔 옛 값이 걸릴까 봐 남겨 뒀다)
+  const cleared = sl ? markSlRemoved(symbol, positionSide, false) : 0;
+  if (memoed || cleared) {
+    log("TPSL_MEMO_UPDATED", { symbol, posSide: positionSide,
+      tp: tp ?? null, sl: sl ?? null, records: memoed, flagCleared: cleared });
+  }
+
   try {
     // TP가 변경된 경우에만 처리 (H1)
     if (tp) {
@@ -246,11 +295,6 @@ router.put("/", async (req, res) => {
       }
     }
 
-    // 손절을 다시 걸었으면 "일부러 지웠다" 표시를 거둔다 (markSlRemoved 주석)
-    if (newOrders.sl) {
-      const cleared = markSlRemoved(symbol, positionSide, false);
-      if (cleared) log("SL_REMOVED_FLAG_CLEARED", { symbol, posSide: positionSide, cleared });
-    }
     log("TPSL_UPDATED", { posSide: side, tp: newOrders.tp?.price ?? null,
       sl: newOrders.sl?.price ?? null, noSl: !!noSl });
     res.json({ success: true, tp: newOrders.tp, sl: newOrders.sl, noSl });
