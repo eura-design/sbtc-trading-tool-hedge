@@ -523,20 +523,15 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, notifS
               (`useAlertMonitor`). 5분 차트를 보는 중에도 1시간 과매수가 울린다.
               ⚠ 하나도 안 켜면 그 TF의 감시 자체를 열지 않는다 — 끄면 조용해지는 게 아니라
               연결과 계산이 아예 없어진다 */}
+          {/* ⚠ **과매수·과매도가 한 칸이다** (2026-09-04 사용자 요청) — 나누면 14칸이 되는데,
+              알림 문구가 이미 `RSI 과매수 진입`/`RSI 과매도 진입`으로 갈려 울린 뒤에 알 수 있다.
+              ⚠ **비어 있어도 경고를 띄우지 않는다** — 알림을 안 켜는 것은 정상 상태다
+              (구간 배경·Pivot은 다르다: 지표를 켰는데 아무것도 안 보이는 상태라 경고가 맞다) */}
           <div style={{ marginTop: 12 }}>
             <TfGrid
-              label="과매수 알림 타임프레임 (차트 TF와 무관하게 울린다)"
-              list={notifList("rsiOB")} theme={theme}
-              onChange={next => setNotifList("rsiOB", next)}
-              emptyWarn="선택된 타임프레임이 없어 과매수 알림이 어디에서도 울리지 않습니다."
-            />
-          </div>
-          <div style={{ marginTop: 12 }}>
-            <TfGrid
-              label="과매도 알림 타임프레임 (차트 TF와 무관하게 울린다)"
-              list={notifList("rsiOS")} theme={theme}
-              onChange={next => setNotifList("rsiOS", next)}
-              emptyWarn="선택된 타임프레임이 없어 과매도 알림이 어디에서도 울리지 않습니다."
+              label="RSI 알림 타임프레임 (차트 TF와 무관하게 울린다)"
+              list={notifList("rsi")} theme={theme}
+              onChange={next => setNotifList("rsi", next)}
             />
           </div>
         </div>

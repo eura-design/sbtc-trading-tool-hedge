@@ -112,7 +112,7 @@ function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef, sym
       }
 
       // RSI 과매수/과매도 (매 틱, 히스테리시스: 진입 obThr/osThr, 복귀 (obThr-5)/(osThr+5) + 쿨다운)
-      if ((s.rsiOB || s.rsiOS) && st.rsiState && arr.length >= 2) {
+      if (s.rsi && st.rsiState && arr.length >= 2) {
         const rp_        = rsiParamsRef.current;
         const period_    = rp_.period     ?? 14;
         const obThr_     = rp_.overbought ?? 70;
@@ -123,25 +123,23 @@ function startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef, sym
         const now        = Date.now();
         const candleTime = candle.t.getTime();
         if (currRSI !== null) {
-          if (s.rsiOB) {
-            if (!st.inOB && currRSI >= obThr_ && st.lastOBAlertCandleTime !== candleTime && now - st.lastOBAlert > cooldownMs) {
-              st.inOB = true;
-              st.lastOBAlert = now;
-              st.lastOBAlertCandleTime = candleTime;
-              onAlertRef.current(`${TF_LABEL[tf]} RSI 과매수 진입 (${currRSI.toFixed(1)})`);
-            } else if (st.inOB && currRSI < obThr_ - 5) {
-              st.inOB = false;
-            }
+          // ⚠ 과매수·과매도를 **함께** 본다 — 설정이 한 칸이라 켜면 둘 다다 (2026-09-04).
+          //   울린 뒤에 어느 쪽인지는 문구가 알려준다
+          if (!st.inOB && currRSI >= obThr_ && st.lastOBAlertCandleTime !== candleTime && now - st.lastOBAlert > cooldownMs) {
+            st.inOB = true;
+            st.lastOBAlert = now;
+            st.lastOBAlertCandleTime = candleTime;
+            onAlertRef.current(`${TF_LABEL[tf]} RSI 과매수 진입 (${currRSI.toFixed(1)})`);
+          } else if (st.inOB && currRSI < obThr_ - 5) {
+            st.inOB = false;
           }
-          if (s.rsiOS) {
-            if (!st.inOS && currRSI <= osThr_ && st.lastOSAlertCandleTime !== candleTime && now - st.lastOSAlert > cooldownMs) {
-              st.inOS = true;
-              st.lastOSAlert = now;
-              st.lastOSAlertCandleTime = candleTime;
-              onAlertRef.current(`${TF_LABEL[tf]} RSI 과매도 진입 (${currRSI.toFixed(1)})`);
-            } else if (st.inOS && currRSI > osThr_ + 5) {
-              st.inOS = false;
-            }
+          if (!st.inOS && currRSI <= osThr_ && st.lastOSAlertCandleTime !== candleTime && now - st.lastOSAlert > cooldownMs) {
+            st.inOS = true;
+            st.lastOSAlert = now;
+            st.lastOSAlertCandleTime = candleTime;
+            onAlertRef.current(`${TF_LABEL[tf]} RSI 과매도 진입 (${currRSI.toFixed(1)})`);
+          } else if (st.inOS && currRSI > osThr_ + 5) {
+            st.inOS = false;
           }
         }
         st.prevRSI = currRSI;
@@ -187,7 +185,7 @@ export function useAlertMonitor(settings, onAlert, rsiParams = {}, enabled = tru
   //   ref는 그대로 둔다 — 이미 도는 감시가 최신 설정을 읽는 데 쓰인다
   const activeTfs = ALL_TF.filter(tf => {
     const s = settings?.[tf];
-    return !!(s && (s.rsiOB || s.rsiOS || s.close));
+    return !!(s && (s.rsi || s.close));
   });
   const activeKey = activeTfs.join(",");
 
