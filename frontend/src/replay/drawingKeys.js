@@ -72,6 +72,37 @@ export function migrateDrawingsToSymbol(symbol = DEFAULT_SYMBOL) {
   return moved;
 }
 
+// ── 이사가 끝난 옛 키 정리 (2026-09-04 사용자 요청) ────────────────────────
+//
+// 이사(위)는 **복사만** 하고 옛 키를 남겼다. 되돌릴 여지를 두려는 것이었다.
+// 이틀 동안 새 키로 잘 돌아서 이제 지운다 — 같은 도형이 두 벌 남아 있으면
+// 나중에 "어느 쪽이 진짜인가"를 헷갈리게 한다.
+//
+// ⚠ **새 키가 실제로 있는 것만 지운다.** 이사가 어떤 이유로든 그 항목을 못 옮겼다면
+//   옛 키가 유일한 사본이다. 확인 없이 지우면 그 도형이 영영 사라진다.
+// ⚠ 이사를 아직 안 했으면(플래그 없음) **아무것도 지우지 않는다.**
+// ⚠ 지운 뒤에도 백엔드 백업(`backend/backups/`, 60일)에는 옛 키가 그대로 남아 있다 —
+//   되돌리려면 차트 콘솔에서 `__restoreBackup(true, "2026-09-04")`
+const LEGACY_CLEANED_FLAG = "legacyDrawingsCleaned";
+
+export function cleanupLegacyDrawings(symbol = DEFAULT_SYMBOL) {
+  if (!lsGet(MIGRATED_FLAG)) return 0;          // 이사 전 — 손대지 않는다
+  if (lsGet(LEGACY_CLEANED_FLAG)) return 0;     // 이미 정리했다
+  let removed = 0;
+  for (const base of [...DRAWING_KEYS, ...BOX_KEYS]) {
+    for (const replayOn of [false, true]) {
+      const from = (replayOn ? PREFIX : "") + base;          // 옛 키
+      const to   = drawingKey(base, replayOn, symbol);        // 새 키
+      if (lsGet(from) == null) continue;
+      if (lsGet(to) == null) continue;                        // 안 옮겨졌다 — 남긴다
+      lsRemove(from);
+      removed++;
+    }
+  }
+  lsSet(LEGACY_CLEANED_FLAG, String(Date.now()));
+  return removed;
+}
+
 // ⚠ **심볼을 가리지 않고 전부 지운다.** `성적 초기화`는 "연습 흔적을 없앤다"는 뜻이라,
 //   지금 보고 있는 심볼만 지우면 다른 코인에서 연습한 선이 남아 있다가 나중에 튀어나온다
 export function clearReplayDrawings() {

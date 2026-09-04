@@ -151,7 +151,9 @@ hooks/
   useRsiResize / useVolResize / useAccordion
   useRSI / useEMA / useFVG / useOrderBlock / usePivotLevels / useIndicatorParams
   useTrendLines / useFibs / useMeasures / useStructures / useDrawableStore
-  useAlertMonitor / useTrendLineAlert / usePositionCloseAlert / useToast
+  useAlertMonitor / useTrendLineAlert / useToast
+                           ⚠ 포지션 종료 알림은 **백엔드**가 보낸다 (계정 전체를 본다) —
+                             화면에서 판정하면 코인을 바꿀 때 오알림이 난다 (2026-09-04)
   useChochAlert.js         CHoCH 알림 — TF마다 kline WebSocket을 따로 열어 감시
   useNotificationSettings / useShortcutSettings / useKeyboardShortcuts
   useReplay.js             리플레이 캔들 피드 (useCandles와 같은 계약)
@@ -175,7 +177,7 @@ components/
   ChartArea.jsx            차트 영역 조합
   SymbolPicker.jsx         심볼 검색·선택 (목록은 백엔드가 exchangeInfo에서 준다)
   IndicatorMenu / NotificationMenu / ShortcutMenu / ReplayBar
-  Toast / StatusAlert / Slider / Divider / sidebarBtn.js(버튼 규격)
+  Toast / StatusAlert / Slider / sidebarBtn.js(버튼 규격)
   Chart/
     ChartSvg.jsx           SVG 레이어 조합
     BoxOverlay.jsx         플랜 박스
