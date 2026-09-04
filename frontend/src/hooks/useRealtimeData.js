@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { API_BASE } from "../constants";
 import { useStore } from "../store";
+import { playNotifSound } from "./useToast";
 
 const WS_URL = API_BASE.replace(/^http/, "ws");
 
@@ -71,7 +72,19 @@ export function useRealtimeData(onNotice) {
               //   30초 뒤 저절로 사라진다. 손절 경보가 그렇게 되면 알 방법이 없다
               //   (이 저장소의 "모르면 불리하게" 원칙 — replay/paperBroker.js)
               if (msg.level === "notice") noticeRef.current?.(msg.msg);
-              else pushCriticalAlert(msg.msg);
+              else {
+                // ⚠ **빨간 배너도 금색 토스트와 같은 소리를 한 번 낸다** (2026-09-04 사용자 요청).
+                //   그전에는 `pushCriticalAlert`가 배너만 띄우고 소리를 내지 않았다 —
+                //   배너는 저절로 닫히지 않으니 나중에 화면을 보면 알 수 있지만,
+                //   보고 있지 않은 동안에는 **손절이 없다는 것을 알 방법이 없었다**.
+                //   소리는 `useToast.js`의 `playNotifSound` 하나를 토스트와 나눠 쓴다
+                // ⚠ **이미 떠 있는 배너와 문구가 같으면 소리를 내지 않는다.**
+                //   `uiSlice.pushCriticalAlert`가 같은 문구를 두 번 쌓지 않으므로,
+                //   소리도 배너가 실제로 새로 뜰 때만 낸다. 이 검사가 없으면 백엔드가
+                //   같은 경보를 다시 보낼 때 배너는 그대로인데 소리만 또 울린다
+                if (!useStore.getState().criticalAlerts.includes(msg.msg)) playNotifSound();
+                pushCriticalAlert(msg.msg);
+              }
             }
           }
 

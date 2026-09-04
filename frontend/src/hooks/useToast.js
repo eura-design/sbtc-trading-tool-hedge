@@ -10,7 +10,14 @@ function getAudioCtx() {
   return _audioCtx;
 }
 
-function playNotifSound() {
+/**
+ * 알림음 한 번 — 880Hz + 1108Hz 두 음.
+ *
+ * ⚠ **토스트와 상단 빨간 배너가 이 함수 하나를 나눠 쓴다** (2026-09-04 사용자 요청).
+ *   배너 쪽은 `hooks/useRealtimeData.js`가 부른다. 소리를 두 벌로 만들지 말 것 —
+ *   같은 알림음이 자리에 따라 달라지면 듣는 사람이 무엇이 울렸는지 알 수 없다.
+ */
+export function playNotifSound() {
   const ctx = getAudioCtx();
   if (!ctx) return;
   // 사용자 인터랙션 전엔 suspended 상태일 수 있음 — resume 시도
