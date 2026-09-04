@@ -201,8 +201,15 @@ router.post("/", async (req, res) => {
       // 잔여가 최소 수량 미만이면 items가 비어 있다 (사실상 전량 청산 — 재등록할 게 없다)
       // ⚠ 하한은 **심볼의 최소 수량**이다 (2026-09-02). 0.001 고정이면 DOGE(최소 1)에서
       //   잔여 0.5짜리를 "아직 남았다"로 읽어 있지도 않은 실패를 알린다
-      if (newSize >= qMin && items.length === 0 && splitTpOrders.length > 0) {
-        push.pushAlert("notice", "분할 TP가 최소 수량 미만이 되어 재등록되지 않았습니다");
+      // ⚠ **하나라도 빠지면 알린다** (2026-09-04 사용자 요청). 예전엔 `items.length === 0`,
+      //   즉 **전부 빠졌을 때만** 알렸다. 분할 TP는 여러 건이라 5건 중 2건이 없어지는 쪽이
+      //   흔한데 그때는 화면이 조용했다 — 사용자가 알아채려면 차트의 선 개수나 카드의
+      //   건수를 청산 전과 비교해야 했고, 부분 청산 직후에는 어차피 모든 수량이 바뀌어
+      //   그 비교가 어렵다. 문구에 **몇 건 중 몇 건**인지 넣는 이유도 같다
+      if (newSize >= qMin && items.length < splitTpOrders.length) {
+        const lost = splitTpOrders.length - items.length;
+        push.pushAlert("notice",
+          `분할 TP ${splitTpOrders.length}건 중 ${lost}건이 없어졌습니다 — 최소 수량 미만이라 다시 걸지 못했습니다`);
       }
 
       push.pushUpdate(["tpsl"]);
@@ -248,6 +255,19 @@ router.post("/", async (req, res) => {
       const dropped = partialSlOrders.filter(o => !kept.has(o.id));
       if (dropped.length) {
         log("PARTIAL_SL_KEPT", { posSide: side, count: dropped.length });
+        // ⚠ **화면에도 알린다** (2026-09-04 사용자 요청). 그전에는 이 로그 한 줄이
+        //   전부라, 사용자는 분할 SL 카드를 직접 열어보기 전에는 알 수 없었다.
+        //   빠진 건은 옛 수량 그대로 남아 **포지션 대비 비율이 올라간다** — 절반
+        //   청산이면 30%를 덮던 것이 60%를 덮는다. 손절이 없어진 것이 아니라
+        //   과해진 것이라 빨간 배너가 아니라 금색 토스트다
+        // ⚠ **거의 전량 청산일 때는 알리지 않는다.** 잔여가 최소 수량 미만이면 items가
+        //   통째로 비어 dropped에 전부 들어오는데, 그건 포지션이 사실상 끝난 것이고
+        //   남은 주문은 `orderWatcher`의 `STALE_TRIGGER_CANCELED`가 60초 안에 치운다.
+        //   위 분할 TP 알림의 `newSize >= qMin`과 같은 장치다
+        if (originalSize - closeQty >= qMin) {
+          push.pushAlert("notice",
+            `분할 SL ${partialSlOrders.length}건 중 ${dropped.length}건을 줄이지 못했습니다 — 최소 수량 미만이라 청산 전 수량 그대로 남습니다`);
+        }
       }
       if (anyFailed) {
         // ⚠ 여기만 **빨간 배너**다 (위 세 줄은 notice). 분할 SL은 손절이라,

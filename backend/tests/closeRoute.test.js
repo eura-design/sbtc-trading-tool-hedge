@@ -263,3 +263,84 @@ test("응답의 orderId는 **문자열**이다 (19자리가 뭉개지면 안 된
   assert.equal(r.body.orderId, "8389766268995766668", "주문번호가 뭉개졌다");
   await h.close();
 });
+
+// ── 최소 수량에 걸려 빠지는 건 (2026-09-04 사용자 요청) ─────────────────────
+//
+// ⚠ 분할 TP·분할 SL은 **여러 건**이다. 5건 중 2건만 빠지는 쪽이 오히려 흔한데,
+//   예전엔 **전부 빠졌을 때만** 알렸다(TP) 또는 아예 안 알렸다(SL).
+//   사용자가 알아채려면 차트의 선 개수나 카드의 건수를 청산 전과 비교해야 했고,
+//   부분 청산 직후에는 어차피 모든 수량이 바뀌어 그 비교가 어렵다.
+
+test("부분 청산 — 분할 TP가 **일부만** 빠져도 알린다 (몇 건 중 몇 건인지 함께)", async () => {
+  // ⚠ **절반 청산으로는 안 생긴다** — `rescaleSplitTps`가 반올림이라 올림도 하기 때문이다.
+  //   0.0015 × 0.5 = 0.00075 는 0.001로 **올라가서** 최소 수량을 통과한다.
+  //   빠지려면 반올림 결과가 0이 되어야 한다 → 깊게 청산할 때 생긴다.
+  // 0.10 포지션, 분할 TP 3건 = 0.06 / 0.0015 / 0.0015. **90% 청산**(잔여 0.01) →
+  // 0.006 / 0.00015 / 0.00015 → 뒤 두 건은 0으로 내려가 빠진다
+  const h = await mountRoute("routes/close.js", {
+    binance: exchange({
+      open: [limit("T1", "SELL", "LONG", 90000, 0.06),
+             limit("T2", "SELL", "LONG", 88000, 0.0015),
+             limit("T3", "SELL", "LONG", 86000, 0.0015)],
+      pos:  [position("LONG", 0.10)],
+    }),
+  });
+  await h.request("POST", "/", { side: "LONG", quantity: "0.09", partial: true });
+
+  const placed = h.rec.calls.filter(c => c.path === "/fapi/v1/order" && c.params.type === "LIMIT");
+  assert.equal(placed.length, 1, "살아남는 건 하나여야 이 테스트가 뜻이 있다");
+
+  const msg = h.rec.alerts.find(a => /분할 TP 3건 중 2건/.test(a.msg));
+  assert.ok(msg, "일부만 빠졌는데 조용했다");
+  assert.equal(msg.level, "notice", "익절이라 빨간 배너가 아니다");
+  await h.close();
+});
+
+test("부분 청산 — 분할 TP가 하나도 안 빠지면 **알리지 않는다**", async () => {
+  const h = await mountRoute("routes/close.js", {
+    binance: exchange({
+      open: [limit("T1", "SELL", "LONG", 90000, 0.06),
+             limit("T2", "SELL", "LONG", 88000, 0.04)],
+      pos:  [position("LONG", 0.10)],
+    }),
+  });
+  await h.request("POST", "/", { side: "LONG", quantity: "0.05", partial: true });
+  assert.equal(h.rec.alerts.filter(a => /없어졌습니다/.test(a.msg)).length, 0,
+    "멀쩡한 청산에 알림이 떴다 — 이런 게 쌓이면 진짜 알림을 무시하게 된다");
+  await h.close();
+});
+
+test("부분 청산 — 분할 SL이 빠지면 **줄이지 못했다고 알린다**", async () => {
+  // 0.10 포지션, 분할 SL 2건 = 0.0015 / 0.0015. **90% 청산**(잔여 0.01) → 0.00015씩이라
+  // 둘 다 0으로 내려가 빠진다. 빠진 건은 **옛 수량 그대로 남아** 잔여 0.01을 통째로 덮는다
+  const h = await mountRoute("routes/close.js", {
+    binance: exchange({
+      open: [stopMarket("S1", "LONG", 70000, 0.0015),
+             stopMarket("S2", "LONG", 69000, 0.0015)],
+      pos:  [position("LONG", 0.10)],
+    }),
+  });
+  await h.request("POST", "/", { side: "LONG", quantity: "0.09", partial: true });
+
+  const msg = h.rec.alerts.find(a => /분할 SL 2건 중 2건을 줄이지 못했습니다/.test(a.msg));
+  assert.ok(msg, "손절이 과해졌는데 화면에서 알 방법이 없다");
+  assert.equal(msg.level, "notice", "손절이 없어진 게 아니라 과해진 것이라 빨강이 아니다");
+  assert.deepEqual(ids(h.rec).filter(id => id === "S1" || id === "S2"), [],
+    "못 줄인 분할 SL을 지웠다 — 지우면 그만큼 무방비다");
+  await h.close();
+});
+
+test("부분 청산 — **거의 전량 청산**이면 분할 SL이 빠져도 알리지 않는다", async () => {
+  // 0.10 중 0.0995 청산 → 잔여 0.0005 < 최소 수량. 포지션이 사실상 끝났고
+  // 남은 트리거는 orderWatcher가 60초 안에 치운다 — 알릴 일이 아니다
+  const h = await mountRoute("routes/close.js", {
+    binance: exchange({
+      open: [stopMarket("S1", "LONG", 70000, 0.05)],
+      pos:  [position("LONG", 0.10)],
+    }),
+  });
+  await h.request("POST", "/", { side: "LONG", quantity: "0.0995", partial: true });
+  assert.equal(h.rec.alerts.filter(a => /줄이지 못했습니다/.test(a.msg)).length, 0,
+    "끝난 포지션에 알림이 떴다");
+  await h.close();
+});
