@@ -210,6 +210,20 @@ export const createSettingsSlice = (set, get) => ({
     //     바뀌면, 그 심볼에 포지션이 있을 때 청산가가 말없이 움직인다.
     //     대신 표시를 거래소에 맞춘다: 다음 position 응답이 알려 준다 (serverSlice)
     set({ symbol, drawings, leverageSyncPending: true });
+    // ⚠ **포지션을 여기서 즉시 다시 받아온다** (2026-09-04 사용자 요청).
+    //   폴링은 30초마다 돌고(`POLLING.POSITION_MS`), 코인을 바꾸는 것은 계좌가
+    //   바뀌는 것이 아니라 백엔드 푸시(`watchAccount`)도 오지 않는다. 그래서 이 줄이
+    //   없으면 사이드바가 **최대 30초 동안 옛 코인의 포지션 수량**을 보여준다.
+    //   그 사이에 부분 청산을 누르면 수량은 옛 코인 것인데 요청은 새 코인으로 나간다 —
+    //   `api/client.js`가 모든 요청에 **화면 심볼**을 싣기 때문이다.
+    //   ⚠ 리플레이 중에는 `usePoll`이 `_refetchPos`를 no-op으로 등록해 둔다.
+    //     그래서 이 호출이 페이퍼 포지션을 실계좌 값으로 덮지 않는다
+    //   ⚠ TP/SL도 같이 받아온다 — 이쪽 폴링은 **60초**라 더 오래 어긋난다
+    //     (`POLLING.TPSL_MS`). 분할 TP·분할 SL 카드의 버튼은 수량이 아니라
+    //     주문번호로 동작하고 백엔드가 `store.symbolOf(orderId)`로 그 주문의 코인을
+    //     찾으므로 **엉뚱한 코인의 주문이 취소되지는 않는다.** 화면 표시만 문제다
+    get()._refetchPos?.();
+    get()._refetchTpsl?.();
   },
 
   setSymbolFilters: (f) => set({ symbolFilters: f }),
