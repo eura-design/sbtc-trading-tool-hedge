@@ -129,34 +129,77 @@ app.use("/api/backup", require("./routes/backup"));
 //   ⚠ 나중에 휴대폰 같은 다른 기기에서 열고 싶어지면, 여기를 여는 게 아니라
 //     **인증을 먼저** 붙일 것 (SSH 터널이나 리버스 프록시가 더 쉽다)
 const HOST = "127.0.0.1";
-const server = app.listen(PORT, HOST, async () => {
-  push.init(server); // WebSocket push 서버 초기화
-  const hasKey = !!(process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET);
-  logStore.log("SERVER_LISTENING", { port: PORT, host: HOST, url: `http://localhost:${PORT}`, apiKey: hasKey });
 
-  // ⚠ **주문을 내기 전에 받아야 한다** — 호가·수량 단위가 여기서 온다 (services/symbolInfo.js).
-  //   못 받아도 서버는 뜬다: BTCUSDT는 코드에 심어 둔 값으로 지금까지처럼 돌아가고,
-  //   다른 심볼은 주문할 때 던진다. 조용히 BTC 단위로 떨어지는 것보다 낫다.
-  //   API 키와 무관하게 받는다 — 공개 API이고, 화면 심볼 목록도 이걸 쓴다
-  await symbolInfo.load();
-  symbolInfo.start();
-  if (!hasKey) {
-    logStore.log("API_KEY_MISSING", { level: "warn" });
-  } else {
-    await syncServerTime();
-    // 연습 청산가용 유지증거금률 — 서명이 필요해 키가 있을 때만 (실거래에는 안 쓴다)
-    loadMaintRates().catch(() => {});
-    await recoverPendingOrders();
-    // 손익·수수료·펀딩비를 로그에 남긴다 (10분 주기) — 이게 있어야 로그 하나로
-    // 수익 곡선을 그릴 수 있다. API 키가 있을 때만 의미가 있으므로 여기서 시작한다
-    incomeLogger.start();
-    // 하루가 끝나면 그날치를 한 줄로 요약한다 — "지난달 어땠어?"에 30줄만 읽고 답하기 위해
-    dailySummary.start();
+// ── 중복 실행 감지 (2026-09-04 사용자 요청) ────────────────────────────────
+// ⚠ **백엔드가 두 개 동시에 돌면 서로의 주문을 건드린다.**
+//   실측(logs/2026-08-26.jsonl): boot `43d079f9`와 `4349884a`가 08:54~09:22 **28분간**
+//   나란히 `ACCOUNT_STATE`를 남겼고, 둘 다 `API_WEIGHT_HIGH`(50% / 59%)를 찍었다.
+//   같은 겹침이 11일 로그에 13번 있었고, 2026-09-02에는 boot 세 개가 같은 분에 남겼다.
+//   둘이 살아 있으면 ① 60초 `reconcileWithBinance`가 두 벌 돌아 한쪽이 취소한 주문을
+//   다른 쪽이 다시 걸고 ② `pending_orders.json`을 둘이 덮어쓰며 ③ 거래소 가중치가
+//   두 배가 된다.
+//
+// ⚠ **바인딩에 기대지 않는다.** 같은 PC에서 노드 서버 둘을 같은 포트에 붙여 보면
+//   두 번째는 EADDRINUSE로 거절된다(확인함). 그런데 위 실측에서는 **둘 다 정상 시작
+//   기록을 남겼다** — 왜 그랬는지는 아직 모른다. 그래서 먼저 물어본다:
+//   `/api/health`가 응답하면 이미 다른 백엔드가 있는 것이므로 이 프로세스는 멈춘다.
+//   아무도 없으면 연결이 즉시 거부돼 `error`로 떨어진다 (그게 정상 경로다)
+function probeExisting() {
+  return new Promise((resolve) => {
+    const req = require("http").get(
+      { host: HOST, port: PORT, path: "/api/health", timeout: 1500 },
+      (res) => { res.resume(); resolve(res.statusCode === 200); });
+    req.on("error",   () => resolve(false));
+    req.on("timeout", () => { req.destroy(); resolve(false); });
+  });
+}
+
+let server = null;
+(async () => {
+  if (await probeExisting()) {
+    logStore.log("DUPLICATE_INSTANCE", { level: "error", port: PORT, host: HOST });
+    logStore.close("duplicate");
+    process.exit(1);
   }
-  // 백업 — **API 키와 무관하게** 시작한다. 매매 기능이 아니라 "지워져도 되살리기"용이라
-  // 키가 없는 환경(설정 전, 다른 PC)에서도 도형·설정은 지켜져야 한다
-  backupStore.start();
-});
+  server = app.listen(PORT, HOST, async () => {
+    push.init(server); // WebSocket push 서버 초기화
+    const hasKey = !!(process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET);
+    logStore.log("SERVER_LISTENING", { port: PORT, host: HOST, url: `http://localhost:${PORT}`, apiKey: hasKey });
+
+    // ⚠ **주문을 내기 전에 받아야 한다** — 호가·수량 단위가 여기서 온다 (services/symbolInfo.js).
+    //   못 받아도 서버는 뜬다: BTCUSDT는 코드에 심어 둔 값으로 지금까지처럼 돌아가고,
+    //   다른 심볼은 주문할 때 던진다. 조용히 BTC 단위로 떨어지는 것보다 낫다.
+    //   API 키와 무관하게 받는다 — 공개 API이고, 화면 심볼 목록도 이걸 쓴다
+    await symbolInfo.load();
+    symbolInfo.start();
+    if (!hasKey) {
+      logStore.log("API_KEY_MISSING", { level: "warn" });
+    } else {
+      await syncServerTime();
+      // 연습 청산가용 유지증거금률 — 서명이 필요해 키가 있을 때만 (실거래에는 안 쓴다)
+      loadMaintRates().catch(() => {});
+      await recoverPendingOrders();
+      // 손익·수수료·펀딩비를 로그에 남긴다 (10분 주기) — 이게 있어야 로그 하나로
+      // 수익 곡선을 그릴 수 있다. API 키가 있을 때만 의미가 있으므로 여기서 시작한다
+      incomeLogger.start();
+      // 하루가 끝나면 그날치를 한 줄로 요약한다 — "지난달 어땠어?"에 30줄만 읽고 답하기 위해
+      dailySummary.start();
+    }
+    // 백업 — **API 키와 무관하게** 시작한다. 매매 기능이 아니라 "지워져도 되살리기"용이라
+    // 키가 없는 환경(설정 전, 다른 PC)에서도 도형·설정은 지켜져야 한다
+    backupStore.start();
+  });
+
+  // ⚠ 위 probe와 **겹쳐 두는 두 번째 방어선**이다. probe와 listen 사이의 몇 ms에
+  //   다른 백엔드가 뜨는 경우를 맡는다. 이 처리가 없으면 Node가 처리되지 않은 오류로
+  //   죽는데, 그러면 **로그에 이유가 남지 않는다** — 왜 안 떴는지 알 수 없다
+  server.on("error", (e) => {
+    logStore.log("LISTEN_FAILED", { level: "error", port: PORT, host: HOST,
+      err: { code: e.code ?? null, msg: String(e.message || e) } });
+    logStore.close("listenFailed");
+    process.exit(1);
+  });
+})();
 
 // ── 그레이스풀 셧다운 ──────────────────────────────────────────────────────────
 async function shutdown() {
@@ -168,6 +211,9 @@ async function shutdown() {
   backupStore.writeSnapshot();
   backupStore.stop();
   await store.flush();
+  // ⚠ `server`는 listen 전에 종료 신호가 오면 아직 null이다 (중복 실행으로 멈추는
+  //   경로가 그렇다). 그때도 **로그는 닫고 나간다** — 안 그러면 마지막 몇 줄이 사라진다
+  if (!server) { logStore.close(); process.exit(0); return; }
   server.close(() => {
     // ※ 완료 기록은 `logStore.close()`의 SERVER_STOP 한 줄이다 — 여기서 또 찍으면
     //   같은 사실이 두 줄이 된다 (재시작 경계를 셀 때 두 배로 잡힌다)
