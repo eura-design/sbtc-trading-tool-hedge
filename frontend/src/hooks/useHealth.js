@@ -5,10 +5,11 @@ export function useHealth() {
   // ⚠ **두 가지를 따로 본다** (2026-09-04 사용자 요청).
   //   `online`   — 백엔드가 응답하는가
   //   `exchangeDown` — 백엔드는 응답하는데 **바이낸스에 못 닿고 있는가**
-  //   둘을 합치면 안 된다: 실측(logs/2026-08-27.jsonl) 05:11~06:39 **1시간 28분** 동안
-  //   계좌 조회가 183회 실패하고 성공이 0회였는데, 백엔드 자체는 멀쩡해서
-  //   `/api/health`가 `ok:true`를 돌려줬다 — 점이 계속 초록이었다.
-  //   그동안 `watchAccount`가 계좌를 못 봤으므로 **무방비 포지션이 생겨도 경보가 못 뜬다**
+  //   둘을 합치면 안 된다: 실측(logs/2026-08-27.jsonl) 05:11~06:39에 거래소 조회가
+  //   **175건 전부 DNS 실패**로 끝났는데, 백엔드 자체는 멀쩡해서 `/api/health`가
+  //   `ok:true`를 돌려줬다 — 점이 계속 초록이었다.
+  //   바이낸스에 못 닿는 동안은 `watchAccount`가 계좌를 볼 수 없고, 그러면
+  //   **무방비 포지션이 생겨도 경보를 띄울 수 없다**
   const [health, setHealth] = useState({ online: true, exchangeDown: false });
 
   useEffect(() => {

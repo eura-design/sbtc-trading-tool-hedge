@@ -754,10 +754,14 @@ let accountWatchTimer  = null;
 let lastAccountSig     = null;
 let lastSides          = null;   // Map<symbol, { long, short }> — 직전 관측. 포지션 사라짐 감지용
 // ⚠ `lastOkAt`/`failStreak`은 **화면의 상태 점이 읽는다** (2026-09-04 사용자 요청).
-//   백엔드는 살아 있는데 바이낸스에만 못 닿는 상태를 그전에는 화면이 몰랐다 —
-//   실측(logs/2026-08-27.jsonl): 05:11~06:39 **1시간 28분** 동안 조회가 183회 실패하고
-//   성공이 0회였는데, `/api/health`는 `ok:true`라 점이 계속 초록이었다.
-//   그동안 계좌 감시가 멈춰 있었으므로 **무방비 포지션이 생겨도 경보가 못 뜬다**
+//   백엔드는 살아 있는데 바이낸스에만 못 닿는 상태를 그전에는 화면이 몰랐다.
+//   실측(logs/2026-08-27.jsonl) 05:11~06:39: 60초 주기인 `reconcile`과 `splitTpSweep`의
+//   거래소 조회가 **175건 전부 `getaddrinfo ENOTFOUND fapi.binance.com`**으로 끝났는데,
+//   `/api/health`는 `ok:true`라 점이 계속 초록이었다.
+//   (11일 로그의 조회 실패 185건 중 176건이 같은 오류다)
+//
+// ⚠ **그 구간에 3초 감시가 어땠는지는 로그로 알 수 없었다** — 아래 ACCOUNT_WATCH_ALIVE
+//   주석 참고. `failStreak`은 그때 있었어도 못 세는 값이었고, 지금부터 세기 시작한다
 const acct = { polls: 0, changes: 0, lastChangeAt: null, lastOkAt: null, failStreak: 0 };
 
 // ⚠ **심볼이 들어간다** (2026-09-02). 안 넣으면 ETH에서 사라진 주문과 BTC에 생긴
@@ -849,8 +853,26 @@ async function watchAccount() {
   finally { accountWatchRunning = false; }
 }
 
+// ── 감시가 살아 있다는 기록 (2026-09-04) ──────────────────────────────────
+// ⚠ **아무 일이 없으면 아무 기록이 없었다.** `ACCOUNT_STATE`는 계좌가 바뀔 때만 남고,
+//   실패는 `ACCOUNT_WATCH_FAILED`로 남는다. 둘 다 0건인 구간은 **조용히 잘 돌았다**인지
+//   **아예 안 돌았다**인지 로그로 가릴 수 없다.
+//   실측 2026-08-27 05:11~06:39이 그 경우다: 60초 뒷정리는 DNS 실패를 175건 남겼는데
+//   3초 감시는 성공도 실패도 한 줄을 안 남겨, 나중에 되짚을 때 판정이 불가능했다.
+//   10분에 한 줄이면 하루 144줄로 그 구간이 채워진다 — 줄이 없으면 안 돈 것이다.
+// ⚠ **try보다 앞에서 남긴다** — 거래소에 못 닿는 회차에도 나와야 뜻이 있다
+const ALIVE_LOG_MS = 10 * 60 * 1000;
+let lastAliveAt = 0;
+
 async function runWatchAccount() {
   acct.polls++;
+  const nowMs = Date.now();
+  if (nowMs - lastAliveAt >= ALIVE_LOG_MS) {
+    lastAliveAt = nowMs;
+    log("ACCOUNT_WATCH_ALIVE", { polls: acct.polls, changes: acct.changes,
+      failStreak: acct.failStreak,
+      lastOkAgoMs: acct.lastOkAt ? nowMs - acct.lastOkAt : null });
+  }
   try {
     // ⚠ **v3다.** v2(`/fapi/v2/positionRisk`)는 심볼을 안 주면 **1784행 682KB**를 준다 —
     //   3초마다면 하루 19GB다. v3는 **열린 포지션만** 주고(0.6KB) 가중치는 똑같이 5다.
