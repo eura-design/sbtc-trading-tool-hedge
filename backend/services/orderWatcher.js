@@ -935,6 +935,15 @@ async function runWatchAccount() {
     if (goneBySymbol.length) {
       for (const g of goneBySymbol) {
         log("POSITION_GONE", { symbol: g.symbol, posSide: g.gone, action: "reconcile 즉시 실행" });
+        // ⚠ **화면에도 알린다** (2026-09-04). 이 판정은 **계정 전체**를 보므로,
+        //   사용자가 다른 코인 차트를 보고 있어도, 바이낸스 앱에서 닫았어도 뜬다.
+        //   그 전에는 프론트의 `usePositionCloseAlert`가 **지금 보고 있는 심볼**의
+        //   포지션만 비교했다. 그래서 코인을 바꾸는 순간 "직전 코인에는 있었고 새 코인에는
+        //   없다"를 종료로 읽어 **닫힌 적 없는데 토스트가 떴다** (사용자 신고).
+        //   여기는 실제 포지션 스냅샷 두 개를 비교하므로 그 오판이 없다.
+        // ⚠ notice = 금색 토스트다 (pushService 참고). 손절이 빠진 것이 아니라
+        //   "끝났다"는 알림이라 빨간 배너가 아니다
+        push.pushAlert("notice", `${g.symbol} ${g.gone} 포지션 종료`);
       }
       reconcileWithBinance().catch(e => log("RECONCILE_FAILED", { level: "warn", ctx: "positionGone", err: errOf(e) }));
       // 손익을 **바로** 로그에 남긴다 — 안 그러면 10분 주기까지 기다린다.

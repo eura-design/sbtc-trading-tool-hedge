@@ -110,20 +110,17 @@ export const createReplaySlice = (set, get) => ({
           //   (serverSlice의 초기값과 글자 그대로 같은 값 — 이미 모든 화면이 다루는 상태다).
           //
           //   syncPaper가 연습 계좌를 실계좌와 **같은 슬롯**에 써 넣으므로, 안 지우면
-          //   실계좌 응답이 도착할 때까지 페이퍼 값이 남는다. 그 사이에
-          //   usePositionCloseAlert이 "페이퍼 → 실계좌" 교체를 청산으로 오인해
-          //   `롱/숏 포지션 종료` 토스트를 띄웠다.
-          //   연습에서 매매를 안 해도 떴다 — 리플레이 진입 전 실계좌에 포지션이 있으면
-          //   그게 기준선으로 얼어붙고, 나갈 때 **빈 페이퍼 스냅샷**과 비교되기 때문.
+          //   실계좌 응답이 도착할 때까지 **연습 계좌의 포지션·잔고가 실계좌인 척**
+          //   화면에 남는다. 사이드바 숫자와 차트 진입선이 전부 그 값을 그린다.
           //
           //   ⚠ 반드시 replayOn과 **같은 set 호출**에 둘 것. 나눠 쓰면 그 사이에
-          //     "replayOn=false인데 position은 아직 페이퍼"인 렌더가 한 번 생겨
-          //     정확히 같은 오알림이 다시 난다.
-          //   ※ 실거래 알림 동작은 그대로다. 리플레이 중에도 usePositionCloseAlert의
-          //     기준선(prevLong/prevShort)은 그대로 얼어 있으므로, 연습하는 사이에
-          //     실제로 청산된 포지션은 실계좌 값이 도착하는 순간 정상적으로 알림이 뜬다.
+          //     "replayOn=false인데 position은 아직 페이퍼"인 렌더가 한 번 생긴다.
           //   ※ 비우기만 하면 된다 — 직후에 usePosition/useBalance/useTpsl의 enabled가
           //     바뀌며 usePoll이 재실행돼 곧바로 실계좌를 다시 읽는다.
+          //   ※ 2026-09-04 이전에는 여기에 "안 지우면 포지션 종료 토스트가 오작동한다"는
+          //     이유도 적혀 있었다. 그 판정을 하던 `usePositionCloseAlert`은 지워졌고
+          //     지금은 백엔드(orderWatcher)가 계정 전체를 보고 알린다 — 화면 상태와
+          //     무관하므로 이 오작동은 원인째 사라졌다.
           position: null,
           balance:  null,
           tpsl: { long: { tp: null, sl: null, splitTps: [] }, short: { tp: null, sl: null, splitTps: [] } },

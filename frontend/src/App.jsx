@@ -26,7 +26,6 @@ import { useRealtimeData }           from "./hooks/useRealtimeData";
 import { useToast }                  from "./hooks/useToast";
 import { useTrendLineAlert }         from "./hooks/useTrendLineAlert";
 import { useChochAlert }             from "./hooks/useChochAlert";
-import { usePositionCloseAlert }     from "./hooks/usePositionCloseAlert";
 import { useNotificationSettings }   from "./hooks/useNotificationSettings";
 import { useAlertMonitor }           from "./hooks/useAlertMonitor";
 import { useIndicatorParams }        from "./hooks/useIndicatorParams";
@@ -326,9 +325,17 @@ export default function App() {
     // 레벨은 도형마다 다르므로 훅 안에서 fibLevelsOf(fb)로 읽는다 ([F1])
     fibTool.fibs, fibTool.setFibAlertOff,
   );
-  // 실계좌 포지션 종료 알림 — 리플레이 중에는 억누른다. 페이퍼 화면 위로 실거래
-  // 알림이 뜨면 어느 쪽 포지션이 닫힌 건지 구분이 안 된다
-  usePositionCloseAlert(replayOn ? null : position, addToast);
+  // ⚠ 실계좌 포지션 종료 알림은 **백엔드가 보낸다** (2026-09-04).
+  //   그전에는 여기서 `usePositionCloseAlert(position, addToast)`가 판정했는데,
+  //   그건 **지금 보고 있는 심볼의 포지션**만 볼 수 있다. 그래서 코인을 바꾸는 순간
+  //   "직전 코인에는 있었고 새 코인에는 없다"를 종료로 읽어 **닫힌 적도 없는데
+  //   토스트가 떴다** (사용자 신고). 게다가 다른 코인의 포지션이 닫히는 것은
+  //   아예 알 수 없었다.
+  //   지금은 `orderWatcher`가 3초마다 **계정 전체** 스냅샷을 비교해서
+  //   `notice` 알림으로 보낸다 — 다른 코인 차트를 보고 있어도, 바이낸스 앱에서
+  //   닫았어도 뜬다. 여기에 다시 만들지 말 것 (같은 알림이 두 번 뜬다).
+  // ⚠ 리플레이(연습) 중에는 백엔드 알림이 오지 않는다 — 페이퍼 포지션은
+  //   거래소에 없기 때문이다. 그게 맞는 동작이다
 
   // CHoCH 발생 알림 — 자동 ZZ + 수동 구조. 둘 다 기본 OFF,
   // 자동 ZZ는 indicatorParams.zz.alert_choch / 수동 구조는 구조별 alertChoch로 켠다.

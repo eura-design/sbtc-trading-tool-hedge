@@ -177,17 +177,31 @@ export function useAlertMonitor(settings, onAlert, rsiParams = {}, enabled = tru
   rsiParamsRef.current = rsiParams;
   const stateRef     = useRef({});
 
+  // ⚠ **알림이 하나도 안 켜진 TF는 감시하지 않는다** (2026-09-04).
+  //   그전에는 설정과 무관하게 7개 TF를 전부 열었다. 알림을 다 꺼 둔 사용자도
+  //   코인을 바꿀 때마다 **REST 7번 + WebSocket 7개**를 다시 연결했다 —
+  //   울릴 일이 없는 감시에 드는 비용이다 (실측 2026-09-04: 300봉 7개 = 55KB · 204ms,
+  //   여기에 연결 7개를 끊고 다시 여는 비용과 RSI 계산 7벌이 더해진다).
+  // ⚠ `settings`는 아래에서 **문자열로 굳혀** 의존성에 넣는다. ref로만 두면
+  //   알림을 새로 켰을 때 그 TF의 감시가 시작되지 않는다 (ref 변경은 렌더를 안 부른다).
+  //   ref는 그대로 둔다 — 이미 도는 감시가 최신 설정을 읽는 데 쓰인다
+  const activeTfs = ALL_TF.filter(tf => {
+    const s = settings?.[tf];
+    return !!(s && (s.rsiOB || s.rsiOS || s.close));
+  });
+  const activeKey = activeTfs.join(",");
+
   useEffect(() => {
-    if (!enabled) return;
-    const cleanups = ALL_TF.map(tf =>
+    if (!enabled || !activeTfs.length) return;
+    const cleanups = activeTfs.map(tf =>
       startTFMonitor(tf, stateRef, settingsRef, rsiParamsRef, onAlertRef, symbol)
     );
     return () => {
       cleanups.forEach(fn => fn());
       stateRef.current = {};
     };
-  }, [enabled, symbol]); // settings는 ref로 항상 최신값 참조.
-     // 심볼이 바뀌면 7개 스트림을 전부 다시 연다 - 기준선도 같이 초기화돼야 한다
+  }, [enabled, symbol, activeKey]); // settings 값 자체는 ref로 최신을 읽는다.
+     // 심볼이 바뀌면 스트림을 전부 다시 연다 - 기준선도 같이 초기화돼야 한다
      // (BTC의 RSI 상태로 ETH를 판정하면 첫 틱에 바로 오알림이 뜬다)
 
   // rsiParams.period 변경 시 rsiState를 새 기간으로 재빌드 (틱 RSI 연속성 유지)
