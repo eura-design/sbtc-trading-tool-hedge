@@ -1,6 +1,6 @@
-import { idxToTimestamp, getCandleMs } from "../utils/coordUtils";
-import { fitYDomain } from "./scales";
-import { snapToStructurePoint } from "./hitDetection";
+import { idxToTimestamp, getCandleMs } from "../utils/coordUtils.js";
+import { fitYDomain } from "./scales.js";
+import { snapToStructurePoint } from "./hitDetection.js";
 
 // 두 가격(p1, p2)을 마우스 드래그 vector에 따라 같이 이동시킨다.
 // 선형 모드: delta(가격 차) 가산 / 로그 모드: ratio(가격 비율) 곱
