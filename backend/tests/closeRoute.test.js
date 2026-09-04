@@ -152,7 +152,7 @@ test("부분 청산 — 포지션 크기를 못 읽으면 **분할 TP를 손대�
   const r = await h.request("POST", "/", { side: "LONG", quantity: "0.05", partial: true });
   assert.equal(r.status, 200);
   assert.deepEqual(ids(h.rec), [], "근거도 없이 분할 TP를 지웠다");
-  assert.ok(h.rec.alerts.some(a => a.level === "notice" && /분할 TP/.test(a.msg)),
+  assert.ok(h.rec.alerts.some(a => a.level === "notice" && /LONG 포지션 크기를 읽지 못해/.test(a.msg)),
     "조용히 넘어갔다 — 화면에서 알 방법이 없다");
   await h.close();
 });
@@ -290,7 +290,7 @@ test("부분 청산 — 분할 TP가 **일부만** 빠져도 알린다 (몇 건 
   const placed = h.rec.calls.filter(c => c.path === "/fapi/v1/order" && c.params.type === "LIMIT");
   assert.equal(placed.length, 1, "살아남는 건 하나여야 이 테스트가 뜻이 있다");
 
-  const msg = h.rec.alerts.find(a => /분할 TP 3건 중 2건/.test(a.msg));
+  const msg = h.rec.alerts.find(a => /LONG 분할 TP 3건 중 2건/.test(a.msg));
   assert.ok(msg, "일부만 빠졌는데 조용했다");
   assert.equal(msg.level, "notice", "익절이라 빨간 배너가 아니다");
   await h.close();
@@ -322,7 +322,7 @@ test("부분 청산 — 분할 SL이 빠지면 **줄이지 못했다고 알린�
   });
   await h.request("POST", "/", { side: "LONG", quantity: "0.09", partial: true });
 
-  const msg = h.rec.alerts.find(a => /분할 SL 2건 중 2건을 줄이지 못했습니다/.test(a.msg));
+  const msg = h.rec.alerts.find(a => /LONG 분할 SL 2건 중 2건을 줄이지 못했습니다/.test(a.msg));
   assert.ok(msg, "손절이 과해졌는데 화면에서 알 방법이 없다");
   assert.equal(msg.level, "notice", "손절이 없어진 게 아니라 과해진 것이라 빨강이 아니다");
   assert.deepEqual(ids(h.rec).filter(id => id === "S1" || id === "S2"), [],

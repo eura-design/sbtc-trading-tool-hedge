@@ -285,7 +285,11 @@ async function onFilled(orderId, executionData) {
   if (!info.tp || !info.sl) {
     log("TPSL_MISSING_INFO", { level: "error", orderId });
     store.set(orderId, { ...info, status: "TPSL_MISSING", ...fillMeta });
-    push.pushAlert("critical", `⚠ 주문 ${orderId} 체결됨 — TP/SL 가격 없음`);
+    // ⚠ **어느 코인의 어느 방향인지 적는다** (2026-09-04 사용자 요청). 체결은 코인을
+    //   바꾼 뒤에 올 수 있어 화면과 다를 수 있다. 그리고 `TP/SL 가격 없음`은 뜻이
+    //   어려웠다 — 지금 상태는 **손절이 없는 포지션**인데 그게 안 드러났다.
+    //   주문번호는 화면에서 뺀다: 19자리라 읽을 수 없고, 로그에 이미 남는다
+    push.pushAlert("critical", `⚠ ${store.symbolOf(orderId)} ${sideToPosition(info.side)} 주문이 체결됐는데 걸어둘 TP/SL 가격이 없습니다 — 직접 걸어 주세요`);
     push.pushUpdate(["position", "balance"]);
     return;
   }
@@ -311,7 +315,9 @@ async function onFilled(orderId, executionData) {
     if (tpFailed) {
       // notice = 금색 토스트 — SL은 걸렸고 익절만 빠진 상태다 (pushService 참고).
       // 바로 위 SL 실패는 critical이라 빨간 배너로 남는다
-      push.pushAlert("notice", `TP 등록 실패 (orderId=${orderId}) — 수동 설정 필요`);
+      // ⚠ 코인·방향을 적고 주문번호는 뺀다 (2026-09-04 사용자 요청) — 위 TPSL_MISSING과 같은 이유.
+      //   `수동 설정 필요`는 무엇을 어디서 하라는 건지 없었다
+      push.pushAlert("notice", `${store.symbolOf(orderId)} ${sideToPosition(info.side)} 익절 등록 실패 — TP/SL 카드에서 직접 걸어 주세요`);
     }
   } else {
     store.set(orderId, { ...info, status: "TPSL_PLACED", tpsl, ...fillMeta });

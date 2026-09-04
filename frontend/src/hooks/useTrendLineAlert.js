@@ -103,6 +103,9 @@ export function useTrendLineAlert(
       const ev = checkNear(price, linePrice, gkey, nearRef);
       if (ev === "enter") {
         pendingRef.current.add(gkey);
+        // ⚠ **기준은 현재가다** — 문구에도 "현재가 위/아래"라고 적는다 (2026-09-04 사용자 요청).
+        //   `(위)`만 쓰면 "선이 위에 있다"로도 읽혀 뜻이 반대로 전해진다.
+        //   채널·원·피보나치 세 곳도 같은 규칙이다
         const side = price >= linePrice ? "위" : "아래";
         // ⚠ **닫는 방법과 무관하게 하는 일이 하나다** (2026-08-25 사용자 지정):
         //   `확인`을 누르든 20초가 지나 저절로 닫히든 → **그 도형의 알림을 끈다.**
@@ -116,7 +119,7 @@ export function useTrendLineAlert(
         //     20초마다 끝없이 울린다. 0.3% 밖으로 나갔다 돌아와야 다시 울리는 게 맞다
         //   ※ 남은 표시는 위 정리 블록이 치운다(알림이 꺼진 도형은 감시 대상이 아니다).
         //     그래서 나중에 🔔을 다시 켜도 표시가 남아 막지 않는다
-        onAlert(`추세선 근접 (${side})  ${fmt(price)}`, () => setLineAlertOff(line.id));
+        onAlert(`추세선 근접 (현재가 ${side})  ${fmt(price)}`, () => setLineAlertOff(line.id));
       }
     }
 
@@ -135,7 +138,7 @@ export function useTrendLineAlert(
         if (ev === "enter") {
           pendingRef.current.add(gkey);
           const side = price >= linePrice ? "위" : "아래";
-          onAlert(`채널선 근접 (${side})  ${fmt(price)}`, () => setChannelAlertOff(ch.id));
+          onAlert(`채널선 근접 (현재가 ${side})  ${fmt(price)}`, () => setChannelAlertOff(ch.id));
           break;
         }
       }
@@ -150,7 +153,7 @@ export function useTrendLineAlert(
       if (ev === "enter") {
         pendingRef.current.add(gkey);
         const side = price >= ci.cx_p ? "위" : "아래";
-        onAlert(`원 근접 (${side})  ${fmt(price)}`, () => setCircleAlertOff(ci.id));
+        onAlert(`원 근접 (현재가 ${side})  ${fmt(price)}`, () => setCircleAlertOff(ci.id));
       }
     }
     // ── 피보나치 (레벨 가로선 각각) ───────────────────────────────────────────
@@ -167,7 +170,7 @@ export function useTrendLineAlert(
         if (ev !== "enter") continue;
         pendingRef.current.add(gkey);
         const side = price >= target ? "위" : "아래";
-        onAlert(`피보나치 ${fmtFibRatio(r)} 근접 (${side})  ${fmt(price)}`, () => setFibAlertOff(fb.id));
+        onAlert(`피보나치 ${fmtFibRatio(r)} 근접 (현재가 ${side})  ${fmt(price)}`, () => setFibAlertOff(fb.id));
         break;
       }
     }

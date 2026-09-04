@@ -107,7 +107,10 @@ router.post("/", async (req, res) => {
     } else if (splitTpOrders.length > 0) {
       log("SPLIT_TP_UNTOUCHED", { level: "warn", posSide: side, orders: splitTpOrders.length, });
       // notice = 금색 토스트 (pushService 참고) — 익절 쪽이라 손절은 그대로 살아 있다
-      push.pushAlert("notice", "포지션 크기를 읽지 못해 분할 TP를 조정하지 못했습니다 — 분할 TP 카드에서 수량을 확인하세요");
+      // ⚠ **롱·숏을 적는다** (2026-09-04 사용자 요청). 둘 다 들고 있으면 어느 쪽 얘기인지
+      //   알 수 없었다. 코인 이름은 안 붙인다 — 청산 요청은 화면 심볼로 들어오므로
+      //   언제나 지금 보고 있는 코인이다 (`api/client.js`)
+      push.pushAlert("notice", `${side} 포지션 크기를 읽지 못해 분할 TP를 조정하지 못했습니다 — 분할 TP 카드에서 수량을 확인하세요`);
       splitTpOrders = [];   // 취소한 적이 없으므로 재등록·롤백 대상에서도 뺀다
     }
   }
@@ -172,7 +175,7 @@ router.post("/", async (req, res) => {
     //      초과분만 깎는다
     if (partial && splitTpOrders.length > 0 && originalSize > 0) {
       const { newSize, items } = rescaleSplitTps(splitTpOrders, originalSize, closeQty, qStep, qMin);
-      let anyFailed = false;
+      let failed = 0;
       for (const { order: o, qty, pct } of items) {
         try {
           const { data: newOrder } = await binance("POST", "/fapi/v1/order", {
@@ -193,11 +196,14 @@ router.post("/", async (req, res) => {
           });
           log("SPLIT_TP_REPLACED", { posSide: side, price: o.price, qty });
         } catch (e) {
-          anyFailed = true;
+          failed++;
           log("SPLIT_TP_REPLACE_FAILED", { level: "warn", posSide: side, price: o.price, qty, err: errOf(e) });
         }
       }
-      if (anyFailed) push.pushAlert("notice", "분할 TP 재등록 일부 실패 — 분할 TP 카드에서 수동 확인 필요");
+      // ⚠ **몇 건 중 몇 건인지 적는다** (2026-09-04 사용자 요청). `일부 실패`만으로는
+      //   카드를 열어보기 전에는 규모를 알 수 없었다. `재등록`은 서버 쪽 말이라 뺐다
+      if (failed) push.pushAlert("notice",
+        `${side} 분할 TP ${items.length}건 중 ${failed}건을 다시 걸지 못했습니다 — 분할 TP 카드에서 확인하세요`);
       // 잔여가 최소 수량 미만이면 items가 비어 있다 (사실상 전량 청산 — 재등록할 게 없다)
       // ⚠ 하한은 **심볼의 최소 수량**이다 (2026-09-02). 0.001 고정이면 DOGE(최소 1)에서
       //   잔여 0.5짜리를 "아직 남았다"로 읽어 있지도 않은 실패를 알린다
@@ -209,7 +215,7 @@ router.post("/", async (req, res) => {
       if (newSize >= qMin && items.length < splitTpOrders.length) {
         const lost = splitTpOrders.length - items.length;
         push.pushAlert("notice",
-          `분할 TP ${splitTpOrders.length}건 중 ${lost}건이 없어졌습니다 — 최소 수량 미만이라 다시 걸지 못했습니다`);
+          `${side} 분할 TP ${splitTpOrders.length}건 중 ${lost}건이 없어졌습니다 — 최소 수량 미만이라 다시 걸지 못했습니다`);
       }
 
       push.pushUpdate(["tpsl"]);
@@ -231,7 +237,7 @@ router.post("/", async (req, res) => {
     //   그만큼 무방비다 (분할 TP는 지워도 손해가 없어 규칙이 다르다)
     if (partial && partialSlOrders.length > 0 && originalSize > 0) {
       const { items } = rescaleSplitTps(partialSlOrders, originalSize, closeQty, qStep, qMin);
-      let anyFailed = false;
+      let failed = 0;
       for (const { order: o, qty } of items) {
         try {
           await binance("POST", "/fapi/v1/algoOrder", {
@@ -241,12 +247,12 @@ router.post("/", async (req, res) => {
             quantity: roundQty(qty, symbol), workingType: "CONTRACT_PRICE",
           });
           await cancelOrder({ orderId: o.id, algoId: o.id, isAlgo: o.isAlgo, symbol })
-            .catch(e => { anyFailed = true;
+            .catch(e => { failed++;
               log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.id, kindOf: "PARTIAL_SL",
                 ctx: "rescaleOld", err: errOf(e) }); });
           log("PARTIAL_SL_RESCALED", { posSide: side, price: o.price, fromQty: o.origQty, toQty: qty });
         } catch (e) {
-          anyFailed = true;
+          failed++;
           log("PARTIAL_SL_RESCALE_FAILED", { level: "warn", posSide: side, price: o.price, qty,
             kept: true, err: errOf(e) });
         }
@@ -266,13 +272,16 @@ router.post("/", async (req, res) => {
         //   위 분할 TP 알림의 `newSize >= qMin`과 같은 장치다
         if (originalSize - closeQty >= qMin) {
           push.pushAlert("notice",
-            `분할 SL ${partialSlOrders.length}건 중 ${dropped.length}건을 줄이지 못했습니다 — 최소 수량 미만이라 청산 전 수량 그대로 남습니다`);
+            `${side} 분할 SL ${partialSlOrders.length}건 중 ${dropped.length}건을 줄이지 못했습니다 — 최소 수량 미만이라 청산 전 수량 그대로 남습니다`);
         }
       }
-      if (anyFailed) {
+      if (failed) {
         // ⚠ 여기만 **빨간 배너**다 (위 세 줄은 notice). 분할 SL은 손절이라,
         //   수량이 어긋나면 포지션의 일부가 손절 없이 남는다 — notice로 내리지 말 것
-        push.pushAlert("critical", "분할 SL 재조정 일부 실패 — 분할 SL 카드에서 수량을 확인하세요");
+        // ⚠ 몇 건인지와 **그래서 어떻게 되는지**를 적는다 (2026-09-04 사용자 요청).
+        //   `재조정 일부 실패`는 서버 쪽 말이라 무슨 일이 벌어졌는지 안 보였다
+        push.pushAlert("critical",
+          `${side} 분할 SL ${items.length}건 중 ${failed}건을 바꾸지 못했습니다 — 손절 수량이 예정보다 많을 수 있습니다`);
       }
       push.pushUpdate(["tpsl"]);
     }

@@ -118,7 +118,8 @@ test("TP/SL 가격이 없으면 **멈추고 빨간 배너를 띄운다** (지어
     assert.equal(r.saved.status, "TPSL_MISSING", JSON.stringify(missing));
     assert.equal(r.rec.placed.length, 0, "가격도 없이 주문을 걸었다");
     assert.equal(r.alerts("critical").length, 1, "빨간 배너가 없다");
-    assert.match(r.alerts("critical")[0].msg, /TP\/SL 가격 없음/);
+    // 문구에 **코인·방향**이 들어간다 (2026-09-04) — 체결은 코인을 바꾼 뒤에 올 수 있다
+    assert.match(r.alerts("critical")[0].msg, /BTCUSDT LONG 주문이 체결됐는데 걸어둘/);
     assert.ok(r.evt("TPSL_MISSING_INFO").length, "기록을 안 남겼다");
   }
 });
@@ -165,7 +166,7 @@ test("TP만 실패하면 **금색 토스트** — 손절은 걸려 있다", asyn
   assert.equal(r.saved.status, "TPSL_PARTIAL");
   assert.equal(r.alerts("critical").length, 0, "익절만 빠졌는데 빨간 배너가 떴다");
   assert.equal(r.alerts("notice").length, 1, "알리긴 해야 한다");
-  assert.match(r.alerts("notice")[0].msg, /TP 등록 실패/);
+  assert.match(r.alerts("notice")[0].msg, /BTCUSDT LONG 익절 등록 실패/);
 });
 
 test("둘 다 실패하면 빨간 배너와 토스트가 함께 뜬다", async () => {

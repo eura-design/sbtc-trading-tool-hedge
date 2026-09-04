@@ -85,7 +85,7 @@ function evalZz(tf, st, ctx) {
     st.zz = { gen, seq };            // [1] 첫 관측 / [2] 재계산 — 조용히 기준선만
   } else if (seq !== null && seq > prev.seq) {
     st.zz = { gen, seq };
-    ctx.onAlertRef.current(`${st.symbol} ${TF_LABEL[tf]} ZZ CHoCH ${dirLabel(last.dir)}  ${fmt(last.price)}`);
+    ctx.onAlertRef.current(`${st.symbol} ${TF_LABEL[tf]} 자동 구조 CHoCH ${dirLabel(last.dir)}  ${fmt(last.price)}`);
   }
 }
 
@@ -127,7 +127,7 @@ function evalStruct(tf, st, ctx) {
     // 켜져 있으면 그 구조가 호박색 점선으로 보이므로, 기본이 ON이면 모든 구조가
     // 알림 스타일이 되어 색이 정보를 못 준다 (Structures.jsx [R10])
     if (!canAlert(e.st)) continue;
-    ctx.onAlertRef.current(`${st.symbol} ${TF_LABEL[tf]} 구조 CHoCH ${dirLabel(e.dir)}  ${fmt(e.price)}`);
+    ctx.onAlertRef.current(`${st.symbol} ${TF_LABEL[tf]} 수동 구조 CHoCH ${dirLabel(e.dir)}  ${fmt(e.price)}`);
   }
 }
 
