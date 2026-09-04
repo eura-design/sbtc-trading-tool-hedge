@@ -2,7 +2,14 @@ import { useState, useEffect } from "react";
 import { API_BASE } from "../constants";
 
 export function useHealth() {
-  const [online, setOnline] = useState(true);
+  // ⚠ **두 가지를 따로 본다** (2026-09-04 사용자 요청).
+  //   `online`   — 백엔드가 응답하는가
+  //   `exchangeDown` — 백엔드는 응답하는데 **바이낸스에 못 닿고 있는가**
+  //   둘을 합치면 안 된다: 실측(logs/2026-08-27.jsonl) 05:11~06:39 **1시간 28분** 동안
+  //   계좌 조회가 183회 실패하고 성공이 0회였는데, 백엔드 자체는 멀쩡해서
+  //   `/api/health`가 `ok:true`를 돌려줬다 — 점이 계속 초록이었다.
+  //   그동안 `watchAccount`가 계좌를 못 봤으므로 **무방비 포지션이 생겨도 경보가 못 뜬다**
+  const [health, setHealth] = useState({ online: true, exchangeDown: false });
 
   useEffect(() => {
     // ⚠ **반드시 시간 제한을 건다** (2026-08-23). 없으면 **얼어붙은 백엔드를 못 잡는다** —
@@ -16,9 +23,21 @@ export function useHealth() {
       const t  = setTimeout(() => ac.abort(), TIMEOUT_MS);
       try {
         const res = await fetch(`${API_BASE}/api/health`, { signal: ac.signal });
-        setOnline(res.ok);
+        const j   = await res.json().catch(() => null);
+        // ⚠ 실패 **연속 3회**(약 9초)부터 본다 — `watchAccount`는 3초마다 돌고,
+        //   한 번 튀는 것은 흔하다. 그때마다 점 색을 바꾸면 읽는 사람이 무시하게 된다
+        // ⚠ API 키가 없으면 `watchAccount`가 아예 돌지 않는다 — 그때는 판정하지 않는다
+        //   (`failStreak`이 0인 채로 남아 어차피 false지만, 뜻을 코드에 적어 둔다)
+        const a = j?.account;
+        setHealth({
+          online: res.ok,
+          exchangeDown: !!(j?.hasKey && a && a.polls > 0 && (a.failStreak ?? 0) >= 3),
+        });
       } catch {
-        setOnline(false);   // 응답 없음(얼어붙음) / 연결 거부(꺼짐) 둘 다 여기로
+        // 응답 없음(얼어붙음) / 연결 거부(꺼짐) 둘 다 여기로.
+        // ⚠ 이때 `exchangeDown`은 **false로 되돌린다** — 백엔드에 못 닿는 마당에
+        //   거래소 상태는 알 수 없다. 빨간 점이 이미 그 사실을 말하고 있다
+        setHealth({ online: false, exchangeDown: false });
       } finally {
         clearTimeout(t);
       }
@@ -29,5 +48,5 @@ export function useHealth() {
     return () => clearInterval(id);
   }, []);
 
-  return online;
+  return health;
 }

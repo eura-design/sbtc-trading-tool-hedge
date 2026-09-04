@@ -42,7 +42,7 @@ function amountSize(parts) {
   return (SIZES.find(px => chars * CHAR_W * px <= avail) ?? SIZES[SIZES.length - 1]) + "px";
 }
 
-export function BalanceCard({ balance, position, lastPrice, error, online }) {
+export function BalanceCard({ balance, position, lastPrice, error, online, exchangeDown }) {
   const { theme } = useTheme();
   // 음수는 `-$1,234` — 부호가 `$` 앞이다 (PositionCard 주석 참고)
   const fmt = p => `${p < 0 ? "-" : ""}$${d3.format(",.0f")(Math.abs(p))}`;
@@ -59,12 +59,24 @@ export function BalanceCard({ balance, position, lastPrice, error, online }) {
   //     쌓인 요청을 실제로 막는 건 backend/server.js의 멈춤 감지다
   //   ⚠ 16×16 칸 안에 넣는다 — 없앤 `⟳` 버튼과 **같은 자리·같은 폭**이라
   //     다른 카드의 아이콘들과 오른쪽 끝이 맞는다 (점만 두면 몇 px 안쪽으로 들어간다)
+  //   ⚠ **색이 세 가지다** (2026-09-04 사용자 요청).
+  //     초록 = 정상 / 빨강 = 백엔드가 응답하지 않음 / 주황 = 백엔드는 응답하는데
+  //     **바이낸스에 못 닿는 중**이다. 셋째를 빨강에 합치지 말 것 — 대처가 다르다:
+  //     빨강은 `server.js`를 다시 켜는 것이고, 주황은 인터넷이 돌아오기를 기다리는 것이다.
+  //     주황인 동안 `watchAccount`가 계좌를 못 보므로 **무방비 경보도 못 뜬다**
+  //     (실측 2026-08-27 05:11~06:39, 1시간 28분).
+  //   ⚠ 박동(`.health-dot`의 `off`)은 빨강에만 붙인다 — 주황까지 깜빡이면
+  //     둘을 눈으로 못 가른다
+  const dotColor = !online ? "#f6465d" : exchangeDown ? "#f0b90b" : "#0ecb81";
+  const dotTitle = !online ? "백엔드 응답 없음 — 재시작이 필요합니다"
+                 : exchangeDown ? "바이낸스에 닿지 못하는 중 — 계좌 감시가 멈춰 있습니다"
+                 : "백엔드 정상";
   const healthDot = online === undefined ? null : (
     <span style={{ width:"16px", height:"16px", display:"flex", flex:"none",
       alignItems:"center", justifyContent:"center", alignSelf:"center" }}
-      title={online ? "백엔드 정상" : "백엔드 응답 없음 — 재시작이 필요합니다"}>
+      title={dotTitle}>
       <span className={`health-dot${online ? "" : " off"}`}
-        style={{ color: online ? "#0ecb81" : "#f6465d" }} />
+        style={{ color: dotColor }} />
     </span>
   );
 

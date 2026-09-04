@@ -27,7 +27,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   onScaleIn, onCancelScaleIn, onCancelSplitTp,
   onCancelPartialSl, onDrawModeToggle }) {
   const { theme } = useTheme();
-  const online = useHealth();
+  const { online, exchangeDown } = useHealth();
 
   const {
     balance, balError,
@@ -181,7 +181,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
       {/* 잔고 헤더 — 스크롤 고정 */}
       <div style={{ padding:"12px 16px", borderBottom:`1px solid ${theme.border}`, flexShrink:0 }}>
         <BalanceCard balance={balance} position={position} lastPrice={effectiveLastPrice}
-                     error={balError} online={online} />
+                     error={balError} online={online} exchangeDown={exchangeDown} />
       </div>
 
       {/* 시장 정보 — 펀딩비 + 공포탐욕지수 */}

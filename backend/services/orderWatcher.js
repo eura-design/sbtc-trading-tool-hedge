@@ -753,7 +753,12 @@ const ACCOUNT_WATCH_MS = 3000;
 let accountWatchTimer  = null;
 let lastAccountSig     = null;
 let lastSides          = null;   // Map<symbol, { long, short }> — 직전 관측. 포지션 사라짐 감지용
-const acct = { polls: 0, changes: 0, lastChangeAt: null };
+// ⚠ `lastOkAt`/`failStreak`은 **화면의 상태 점이 읽는다** (2026-09-04 사용자 요청).
+//   백엔드는 살아 있는데 바이낸스에만 못 닿는 상태를 그전에는 화면이 몰랐다 —
+//   실측(logs/2026-08-27.jsonl): 05:11~06:39 **1시간 28분** 동안 조회가 183회 실패하고
+//   성공이 0회였는데, `/api/health`는 `ok:true`라 점이 계속 초록이었다.
+//   그동안 계좌 감시가 멈춰 있었으므로 **무방비 포지션이 생겨도 경보가 못 뜬다**
+const acct = { polls: 0, changes: 0, lastChangeAt: null, lastOkAt: null, failStreak: 0 };
 
 // ⚠ **심볼이 들어간다** (2026-09-02). 안 넣으면 ETH에서 사라진 주문과 BTC에 생긴
 //   주문이 상쇄돼 "변화 없음"으로 읽힐 수 있다
@@ -853,7 +858,7 @@ async function runWatchAccount() {
     //     심볼을 지정해 v2로 받는다 — 그쪽은 한 행이라 가볍다.
     //     `notional/initialMargin`으로 역산하지 말 것: 실측에서 실제 5인데 3.55가 나왔다
     const posAll = await binance("GET", "/fapi/v3/positionRisk", {}).catch(() => null);
-    if (!posAll) { log("ACCOUNT_WATCH_FAILED", { level: "warn", what: "positionRisk" }); return; }
+    if (!posAll) { acct.failStreak++; log("ACCOUNT_WATCH_FAILED", { level: "warn", what: "positionRisk" }); return; }
     const allPositions = Array.isArray(posAll.data) ? posAll.data : [];
 
     const symbols = [...watchedSymbols(allPositions)];
@@ -870,7 +875,11 @@ async function runWatchAccount() {
     }));
     // ⚠ 하나라도 실패하면 **이번 회차를 통째로 건너뛴다** — 빈 값을 "사라졌다"로
     //   오해하면 통신이 튈 때마다 가짜 변화가 잡히고, 무방비 판정까지 흔들린다
-    if (perSymbol.some(x => x === null)) return;
+    if (perSymbol.some(x => x === null)) { acct.failStreak++; return; }
+
+    // 여기까지 왔으면 **이번 회차는 계좌 전체를 다 본 것이다.** 아래 판정들이 쓰는
+    // 재료가 전부 갖춰진 지점이라, 성공 표시도 여기서 한다
+    acct.lastOkAt = Date.now(); acct.failStreak = 0;
 
     // ⚠ 무방비 판정은 **지문 비교보다 먼저, 심볼마다** 부른다. 변화가 없는 회차에도
     //   봐야 "연속 2회"가 성립하고, 첫 관측에서도 판정은 해야 한다 —
@@ -954,6 +963,7 @@ async function runWatchAccount() {
     }
     lastSides = sides;
   } catch (e) {
+    acct.failStreak++;
     log("ACCOUNT_WATCH_FAILED", { level: "warn", err: errOf(e) });
   }
 }
