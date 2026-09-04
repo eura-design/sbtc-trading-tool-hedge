@@ -466,7 +466,22 @@ function VolColorPanel({ colorMode, setParam, theme }) {
   );
 }
 
-function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
+function SettingsPanel({ indKey, params, setParam, resetIndicator, theme, notifSettings, onNotifToggle }) {
+  // ⚠ **RSI 알림 설정이 여기로 왔다** (2026-09-04 사용자 요청). 종 모양 메뉴에 있던 것을
+  //   RSI 지표 설정 안으로 옮겼다 — RSI 기간·기준선을 정하는 자리와 같은 곳에서 켜는 것이
+  //   찾기 쉽다. CHoCH 알림이 이미 지표 메뉴에 있는 것과 같은 배치다.
+  // ⚠ **저장은 옮기지 않았다.** 값은 그대로 `notifSettings`(localStorage) 한 곳에 있고,
+  //   `useAlertMonitor`도 그대로 그것을 읽는다. 보여 주는 자리만 옮긴 것이다 —
+  //   같은 설정을 두 곳에 나누지 않기 위해서다 (CLAUDE.md "데이터가 사는 곳")
+  const ALERT_TFS    = INTERVALS.map(i => i.value);
+  const notifList    = (key) => ALERT_TFS.filter(tf => notifSettings?.[tf]?.[key]);
+  // TfGrid는 목록을 통째로 돌려주는데 `onNotifToggle`은 한 칸씩 뒤집는다 — 달라진 칸만 부른다.
+  // (toggle이 함수형 setState라 연속 호출이 안전하다)
+  const setNotifList = (key, next) => {
+    for (const tf of ALERT_TFS) {
+      if (next.includes(tf) !== !!notifSettings?.[tf]?.[key]) onNotifToggle(tf, key);
+    }
+  };
   const metas   = PARAMS_META[indKey] || [];
   const isZZ    = indKey === "zz";
   const isRSI   = indKey === "rsi";
@@ -494,7 +509,7 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
           RSI 패널(선)은 이 목록과 무관하게 전 TF에서 보인다 — App.jsx의 showRsi(패널) /
           showRsiZones(배경)로 나뉘어 있다. 라벨에 "구간 배경"을 꼭 적을 것:
           그냥 "표시 타임프레임"이면 RSI 전체가 사라지는 줄 안다.
-          알림(NotificationMenu의 TF별 RSI 과매수/과매도)도 이것과 무관하게 계속 울린다 */}
+          아래 알림 타임프레임과도 무관하다 — 배경을 끈 TF의 알림도 계속 울린다 */}
       {isRSI && (
         <div style={{ marginBottom: 10 }}>
           <TfGrid
@@ -504,6 +519,26 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
             onChange={next => setParam("rsi", "tfs", next)}
             emptyWarn="선택된 타임프레임이 없어 구간 배경이 어디에도 표시되지 않습니다. (RSI 패널·알림은 계속 동작)"
           />
+          {/* ⚠ **차트에 띄운 TF와 무관하게 울린다** — TF마다 kline WebSocket을 따로 연다
+              (`useAlertMonitor`). 5분 차트를 보는 중에도 1시간 과매수가 울린다.
+              ⚠ 하나도 안 켜면 그 TF의 감시 자체를 열지 않는다 — 끄면 조용해지는 게 아니라
+              연결과 계산이 아예 없어진다 */}
+          <div style={{ marginTop: 12 }}>
+            <TfGrid
+              label="과매수 알림 타임프레임 (차트 TF와 무관하게 울린다)"
+              list={notifList("rsiOB")} theme={theme}
+              onChange={next => setNotifList("rsiOB", next)}
+              emptyWarn="선택된 타임프레임이 없어 과매수 알림이 어디에서도 울리지 않습니다."
+            />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <TfGrid
+              label="과매도 알림 타임프레임 (차트 TF와 무관하게 울린다)"
+              list={notifList("rsiOS")} theme={theme}
+              onChange={next => setNotifList("rsiOS", next)}
+              emptyWarn="선택된 타임프레임이 없어 과매도 알림이 어디에서도 울리지 않습니다."
+            />
+          </div>
         </div>
       )}
       {/* Pivot: TF 선택은 "표시 필터"가 아니라 **계산 대상**이다 — 여기서 고른 TF의
@@ -596,7 +631,7 @@ function SettingsPanel({ indKey, params, setParam, resetIndicator, theme }) {
   );
 }
 
-export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaList, resetIndicator }) {
+export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaList, resetIndicator, notifSettings, onNotifToggle }) {
   const { theme } = useTheme();
   const [open,        setOpen]        = useState(false);
   const [openSetting, setOpenSetting] = useState(null); // 열린 설정 패널 key
@@ -720,6 +755,8 @@ export function IndicatorMenu({ indicators, onToggle, params, setParam, setEmaLi
                         setParam={setParam}
                         resetIndicator={resetIndicator}
                         theme={theme}
+                        notifSettings={notifSettings}
+                        onNotifToggle={onNotifToggle}
                       />
                 )}
               </div>

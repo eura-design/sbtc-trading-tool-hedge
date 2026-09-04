@@ -2,9 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import { useTheme } from "../ThemeContext";
 
 const TFS  = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
+// ⚠ **RSI 과매수·과매도는 여기 없다** (2026-09-04 사용자 요청). 지표 메뉴의 RSI 설정
+//   안으로 옮겼다 — 기간·기준선을 정하는 자리에서 같이 켜는 것이 찾기 쉽다.
+//   ⚠ **값이 사는 곳은 그대로다** — `notifSettings`(localStorage) 하나이고
+//     `useAlertMonitor`도 그대로 읽는다. 보여 주는 자리만 옮겼다.
+//     여기에 다시 만들면 같은 설정을 켜는 곳이 두 곳이 된다
 const ROWS = [
-  { key: "rsiOB",     label: "RSI 과매수" },
-  { key: "rsiOS",     label: "RSI 과매도" },
   { key: "close",     label: "봉 마감" },
 ];
 

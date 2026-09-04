@@ -14,6 +14,18 @@ const router  = express.Router();
 // 다른 close/scale-in 요청이 겹쳐서 잔여 수량 계산이 꼬이는 race 방지
 const closeInProgress = new Set();
 
+// 주문이 실패한 **이유**를 알림 한 줄에 담는다 (2026-09-04 사용자 요청).
+// ⚠ 최소 수량 알림은 이유가 늘 같지만("최소 수량 미만"), 이쪽은 그때그때 다르다 —
+//   거래소가 거절한 것과 아예 닿지 못한 것은 사용자가 할 일이 다르다:
+//   앞은 카드에서 값을 고쳐 다시 걸어야 하고, 뒤는 통신이 돌아오면 저절로 될 수 있다.
+// ⚠ `errOf`는 거래소 거절에만 `code`를 채운다(통신 실패는 null) — 그걸로 둘을 가른다.
+//   원문은 길 수 있어 40자에서 자른다. 전문은 로그에 그대로 남는다
+const failReason = (err) => {
+  if (!err?.code) return "거래소에 닿지 못했습니다";
+  const msg = String(err.msg ?? "").slice(0, 40);
+  return msg ? `거래소가 거절했습니다: ${msg}` : "거래소가 거절했습니다";
+};
+
 // POST /api/close
 // body: { side: "LONG"|"SHORT", quantity: string, partial?: boolean }
 // 1) 전량 청산: TP/SL 취소 후 시장가 청산
@@ -175,7 +187,7 @@ router.post("/", async (req, res) => {
     //      초과분만 깎는다
     if (partial && splitTpOrders.length > 0 && originalSize > 0) {
       const { newSize, items } = rescaleSplitTps(splitTpOrders, originalSize, closeQty, qStep, qMin);
-      let failed = 0;
+      let failed = 0, firstErr = null;
       for (const { order: o, qty, pct } of items) {
         try {
           const { data: newOrder } = await binance("POST", "/fapi/v1/order", {
@@ -197,13 +209,14 @@ router.post("/", async (req, res) => {
           log("SPLIT_TP_REPLACED", { posSide: side, price: o.price, qty });
         } catch (e) {
           failed++;
+          firstErr = firstErr ?? errOf(e);
           log("SPLIT_TP_REPLACE_FAILED", { level: "warn", posSide: side, price: o.price, qty, err: errOf(e) });
         }
       }
       // ⚠ **몇 건 중 몇 건인지 적는다** (2026-09-04 사용자 요청). `일부 실패`만으로는
       //   카드를 열어보기 전에는 규모를 알 수 없었다. `재등록`은 서버 쪽 말이라 뺐다
       if (failed) push.pushAlert("notice",
-        `${side} 분할 TP ${items.length}건 중 ${failed}건을 다시 걸지 못했습니다 — 분할 TP 카드에서 확인하세요`);
+        `${side} 분할 TP ${items.length}건 중 ${failed}건을 다시 걸지 못했습니다 — ${failReason(firstErr)}`);
       // 잔여가 최소 수량 미만이면 items가 비어 있다 (사실상 전량 청산 — 재등록할 게 없다)
       // ⚠ 하한은 **심볼의 최소 수량**이다 (2026-09-02). 0.001 고정이면 DOGE(최소 1)에서
       //   잔여 0.5짜리를 "아직 남았다"로 읽어 있지도 않은 실패를 알린다
@@ -237,7 +250,7 @@ router.post("/", async (req, res) => {
     //   그만큼 무방비다 (분할 TP는 지워도 손해가 없어 규칙이 다르다)
     if (partial && partialSlOrders.length > 0 && originalSize > 0) {
       const { items } = rescaleSplitTps(partialSlOrders, originalSize, closeQty, qStep, qMin);
-      let failed = 0;
+      let failed = 0, firstErr = null;
       for (const { order: o, qty } of items) {
         try {
           await binance("POST", "/fapi/v1/algoOrder", {
@@ -247,12 +260,13 @@ router.post("/", async (req, res) => {
             quantity: roundQty(qty, symbol), workingType: "CONTRACT_PRICE",
           });
           await cancelOrder({ orderId: o.id, algoId: o.id, isAlgo: o.isAlgo, symbol })
-            .catch(e => { failed++;
+            .catch(e => { failed++; firstErr = firstErr ?? errOf(e);
               log("ORDER_CANCEL_FAILED", { level: "warn", orderId: o.id, kindOf: "PARTIAL_SL",
                 ctx: "rescaleOld", err: errOf(e) }); });
           log("PARTIAL_SL_RESCALED", { posSide: side, price: o.price, fromQty: o.origQty, toQty: qty });
         } catch (e) {
           failed++;
+          firstErr = firstErr ?? errOf(e);
           log("PARTIAL_SL_RESCALE_FAILED", { level: "warn", posSide: side, price: o.price, qty,
             kept: true, err: errOf(e) });
         }
@@ -281,7 +295,7 @@ router.post("/", async (req, res) => {
         // ⚠ 몇 건인지와 **그래서 어떻게 되는지**를 적는다 (2026-09-04 사용자 요청).
         //   `재조정 일부 실패`는 서버 쪽 말이라 무슨 일이 벌어졌는지 안 보였다
         push.pushAlert("critical",
-          `${side} 분할 SL ${items.length}건 중 ${failed}건을 바꾸지 못했습니다 — 손절 수량이 예정보다 많을 수 있습니다`);
+          `${side} 분할 SL ${items.length}건 중 ${failed}건을 바꾸지 못했습니다 — ${failReason(firstErr)}. 손절 수량이 예정보다 많을 수 있습니다`);
       }
       push.pushUpdate(["tpsl"]);
     }

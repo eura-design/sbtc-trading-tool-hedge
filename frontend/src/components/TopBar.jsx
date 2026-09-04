@@ -53,6 +53,7 @@ export function TopBar({ symbol, symbols, onSymbolChange, interval_, onIntervalC
 
       {/* Chart tools */}
       <IndicatorMenu
+        notifSettings={notifSettings} onNotifToggle={onNotifToggle}
         indicators={indicators} onToggle={onIndicatorToggle}
         params={indicatorParams} setParam={setIndicatorParam}
         setEmaList={setEmaList} resetIndicator={resetIndicator}
