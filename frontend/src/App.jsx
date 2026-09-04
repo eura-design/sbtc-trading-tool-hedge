@@ -297,16 +297,23 @@ export default function App() {
   //   납작하게 그려졌다 (useChartRenderer의 resetDomain 주석 참고).
   //   candleLoading은 "언제 부를지"를 정할 뿐 "부를지 말지"의 근거가 아니다 —
   //   TF 전환·WS 재로드로도 오르내리므로 그때마다 리셋하면 사용자의 팬/줌이 날아간다.
+  //
+  // ⚠ **심볼도 이 키에 들어간다** (2026-09-04). 안 넣었더니 코인을 바꿔도 축이
+  //   **직전 코인의 가격 범위 그대로** 남았다. BTC(68,000~85,000)를 보다 DOGE로
+  //   옮기면 0.08짜리 캔들이 화면 한참 밖 아래에 그려져 **빈 차트로 보였다.**
+  //   휠을 돌리면 확대·축소가 축을 다시 계산해서 그제야 나타났다 (사용자 신고).
+  //   TF 전환은 `onIntervalChange`가 `resetDomain({ defer: true })`로 이미
+  //   처리하고 있었다 — 심볼 전환만 빠져 있었다.
   const domainKeyRef = useRef(null);
   useEffect(() => {
     if (candleLoading) return;           // 로딩이 끝나면 이 이펙트가 다시 들어온다
-    const key = `${replayOn ? 1 : 0}|${replayStartMs ?? ""}`;
+    const key = `${symbol}|${replayOn ? 1 : 0}|${replayStartMs ?? ""}`;
     if (domainKeyRef.current === key) return;
     const first = domainKeyRef.current === null;
     domainKeyRef.current = key;
     if (first) return;                   // 최초 로드 — 이미 캔들 기준으로 잡혀 있다
     chartActionsRef.current?.resetDomain();
-  }, [replayOn, replayStartMs, candleLoading]);
+  }, [symbol, replayOn, replayStartMs, candleLoading]);
 
   // 콘솔에서 `__legDebug()` — 레그 hover의 거래량 비교(↑↓%)가 안 뜨는 이유를 레그별로 출력.
   // 진행 중 레그는 candlesRef(진행 중 봉 최신값)로 판정해야 화면과 값이 같다.
