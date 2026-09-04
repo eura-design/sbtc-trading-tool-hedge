@@ -496,7 +496,7 @@ Auto Structure Zigzag / Custom Structure Zigzag
 
 | 어디 | 무엇 | 백업 |
 |---|---|---|
-| 브라우저 localStorage | 도형·플랜 박스(**심볼별**)·리스크/레버리지·지표 설정·알림·단축키·테마·연습 세션 | ○ |
+| 브라우저 localStorage | 도형·플랜 박스(**심볼별**)·리스크/레버리지·지표 설정·알림·단축키·테마·연습 세션·**즐겨찾기 심볼** | ○ |
 | 브라우저 IndexedDB | 리플레이 캔들 캐시 | × (다시 받으면 그만) |
 | 백엔드 파일 | `pending_orders.json` / `기타/tracker_data.json` | tracker만 ○ |
 | 백엔드 로그 | `logs/` 30일 + `daily_summary.jsonl` 무기한 | × |

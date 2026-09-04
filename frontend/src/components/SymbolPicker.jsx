@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useTheme } from "../ThemeContext";
+import { lsGetJSON, lsSetJSON } from "../utils/storage";
 
 // 심볼 선택기 — 상단바 왼쪽 (2026-09-02)
 //
@@ -8,8 +9,8 @@ import { useTheme } from "../ThemeContext";
 // 손댈 곳이 없다는 게 이 방식의 요점이다.
 //
 // ⚠ 500개를 그냥 뿌리지 않는다. 타이핑으로 좁히고, 아무것도 안 쳤을 때는
-//   **거래량이 아니라 이름순 상위 몇 개**만 보여준다 — 거래량은 이 목록에 없고,
-//   그것만 받으려고 요청을 하나 더 늘릴 만큼 중요하지 않다.
+//   **즐겨찾기 → 이름순 상위 몇 개** 순서로 보여준다 — 거래량순이 아니다.
+//   거래량은 이 목록에 없고, 그것만 받으려고 요청을 하나 더 늘릴 만큼 중요하지 않다.
 // ⚠ 목록을 못 받았으면(`symbols`가 비었으면) **버튼이 죽는다.** 규칙을 모르는 채로
 //   심볼을 바꾸면 수량 계산이 BTC 단위로 돌아가 화면 숫자가 조용히 틀린다
 //   (`useSymbolFilters`의 `ready` 주석과 같은 이유).
@@ -19,10 +20,27 @@ import { useTheme } from "../ThemeContext";
 
 const MAX_ROWS = 60;
 
+// ── 즐겨찾기 (2026-09-04 사용자 요청) ──────────────────────────────────────
+//
+// 526개 중 실제로 오가는 것은 몇 개뿐이라, 매번 검색해서 찾는 대신 위에 고정한다.
+//
+// ⚠ 저장은 **브라우저**다 (`localStorage`). 백엔드가 꺼져 있어도 목록이 보여야 하고,
+//   계좌와 무관한 화면 설정이기 때문이다 (CLAUDE.md "데이터가 사는 곳").
+//   백업은 브라우저 저장소를 통째로 뜨므로 이 값도 자동으로 딸려 간다.
+// ⚠ **심볼 문자열만 담는다.** 수량 단위 같은 규칙을 같이 저장하면 낡은 값이 남는다 —
+//   규칙의 원본은 언제나 바이낸스 `exchangeInfo`다
+const FAV_KEY = "favoriteSymbols";
+
+const loadFavs = () => {
+  const v = lsGetJSON(FAV_KEY, []);
+  return Array.isArray(v) ? v.filter(x => typeof x === "string") : [];
+};
+
 export function SymbolPicker({ symbol, symbols, onChange, disabled, disabledReason }) {
   const { theme } = useTheme();
   const [open, setOpen] = useState(false);
   const [q, setQ]       = useState("");
+  const [favs, setFavs] = useState(loadFavs);
   const boxRef   = useRef(null);
   const inputRef = useRef(null);
 
@@ -40,16 +58,42 @@ export function SymbolPicker({ symbol, symbols, onChange, disabled, disabledReas
     };
   }, [open]);
 
-  const list = useMemo(() => {
+  const favSet = useMemo(() => new Set(favs), [favs]);
+
+  // 아무것도 안 쳤을 때만 즐겨찾기를 **맨 위로** 모은다.
+  //
+  // ⚠ **검색 중에는 즐겨찾기를 위로 올리지 않는다.** 올리면 "친 글자로 시작하는 것이
+  //   위"라는 규칙이 깨진다 — 1000ETHFI를 즐겨찾기에 넣어 두면 `ETH`를 쳤을 때
+  //   ETHUSDT보다 먼저 나오고, Enter가 엉뚱한 코인을 고른다.
+  //   검색은 "내가 지금 찾는 것"이고 즐겨찾기는 "안 찾을 때 빨리 가는 길"이라 목적이 다르다
+  // ⚠ 즐겨찾기는 `MAX_ROWS`에 잘리지 않는다 — 고정해 둔 것이 목록에 밀려 사라지면
+  //   고정한 의미가 없다. 나머지가 남은 자리를 채운다
+  const { favRows, restRows } = useMemo(() => {
     const needle = q.trim().toUpperCase();
-    const pool = needle ? symbols.filter(s => s.symbol.includes(needle)) : symbols;
-    // 친 글자로 **시작하는** 것을 위로 (ETH를 치면 ETHUSDT가 1000ETHFIUSDT보다 먼저)
-    const ranked = needle
-      ? [...pool].sort((a, b) => (b.symbol.startsWith(needle) - a.symbol.startsWith(needle))
-                              || a.symbol.localeCompare(b.symbol))
-      : pool;
-    return ranked.slice(0, MAX_ROWS);
-  }, [symbols, q]);
+    if (needle) {
+      const ranked = symbols
+        .filter(s => s.symbol.includes(needle))
+        .sort((a, b) => (b.symbol.startsWith(needle) - a.symbol.startsWith(needle))
+                     || a.symbol.localeCompare(b.symbol));
+      return { favRows: [], restRows: ranked.slice(0, MAX_ROWS) };
+    }
+    const fav  = symbols.filter(s => favSet.has(s.symbol));
+    const rest = symbols.filter(s => !favSet.has(s.symbol));
+    return { favRows: fav, restRows: rest.slice(0, Math.max(0, MAX_ROWS - fav.length)) };
+  }, [symbols, q, favSet]);
+
+  const list = useMemo(() => [...favRows, ...restRows], [favRows, restRows]);
+
+  // ⚠ 별을 누르는 것은 **고르는 것이 아니다** — 이벤트를 여기서 멈춘다.
+  //   안 그러면 즐겨찾기에 넣는 순간 그 코인으로 화면이 바뀐다
+  const toggleFav = (e, sym) => {
+    e.stopPropagation();
+    setFavs(prev => {
+      const next = prev.includes(sym) ? prev.filter(x => x !== sym) : [...prev, sym];
+      lsSetJSON(FAV_KEY, next);
+      return next;
+    });
+  };
 
   const base = symbols.find(s => s.symbol === symbol)?.baseAsset
     ?? symbol.replace(/USDT$/, "");
@@ -96,23 +140,38 @@ export function SymbolPicker({ symbol, symbols, onChange, disabled, disabledReas
             }}
           />
           <div style={{ maxHeight: 260, overflowY: "auto" }}>
-            {list.map(s => {
-              const on = s.symbol === symbol;
+            {list.map((s, i) => {
+              const on  = s.symbol === symbol;
+              const fav = favSet.has(s.symbol);
+              // 즐겨찾기와 나머지 사이에 줄 하나 — 어디까지가 고정인지 보이게
+              const divider = i === favRows.length && favRows.length > 0 && restRows.length > 0;
               return (
                 <div
                   key={s.symbol}
                   onClick={() => pick(s.symbol)}
                   style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    display: "flex", alignItems: "center", gap: 6,
                     padding: "5px 8px", cursor: "pointer", fontSize: 12,
                     color: on ? "#f0b90b" : theme.textPrimary,
                     fontWeight: on ? 700 : 400,
                     background: on ? theme.border : "transparent",
+                    borderTop: divider ? `1px solid ${theme.borderSec}` : "none",
                   }}
                   onMouseEnter={e => { if (!on) e.currentTarget.style.background = theme.borderSec; }}
                   onMouseLeave={e => { if (!on) e.currentTarget.style.background = "transparent"; }}
                 >
-                  <span>{s.baseAsset}<span style={{ color: theme.textMuted }}>/USDT</span></span>
+                  <span
+                    onClick={e => toggleFav(e, s.symbol)}
+                    title={fav ? "즐겨찾기에서 빼기" : "즐겨찾기에 넣기"}
+                    style={{
+                      fontSize: 12, lineHeight: 1, width: 12, textAlign: "center",
+                      color: fav ? "#f0b90b" : theme.textMuted,
+                      opacity: fav ? 1 : 0.45,
+                    }}
+                  >{fav ? "★" : "☆"}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    {s.baseAsset}<span style={{ color: theme.textMuted }}>/USDT</span>
+                  </span>
                   {/* 수량 단위를 같이 보여준다 — 코인마다 다르고(DOGE는 1),
                       고르기 전에 알아야 "왜 0.001을 못 넣지"가 안 생긴다 */}
                   <span style={{ fontSize: 10, color: theme.textMuted }}>{s.stepSize}</span>
