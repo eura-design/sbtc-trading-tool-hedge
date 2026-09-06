@@ -200,9 +200,14 @@ components/
     ScaleInCard / SplitTPCard / SplitSLCard / cardControls.jsx
 
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
+  ⚠ 아래는 **일부다** — 전체 목록은 폴더를 볼 것 (프론트 22 · 백엔드 18개)
   splitLevels / calc / equity / price / decimals / coordUtils / rsi   돈이 걸린 순수 함수
   shiftYDomain.test.js     화면 이동·휠의 세로 범위 계산 (로그는 곱셈이다)
   logScale.test.js         로그 눈금의 바닥값 — 1달러 미만 코인이 화면에서 사라지지 않는가
+  qtyMirror.test.js        화면 수량과 **거래소로 나가는 수량**이 같은 규칙인가
+                           (`backend/utils/round.js`를 직접 불러 맞대어 본다)
+  sideMirror.test.js       방향 매핑이 백엔드와 갈리지 않는가 — 갈리면 화면은 롱인데
+                           거래소에는 숏이 나간다. 진입/청산 방향을 섞는 실수도 여기서 막는다
   paperFills.test.js       페이퍼 체결 규칙 — **"모르면 불리하게"**가 지켜지는지
   deriveStructure.test.js  수동 구조 CHoCH 판정
   chochMirror.test.js      **자동 ZZ와 수동 구조가 같은 답을 내는지** (규칙이 두 벌이다)
