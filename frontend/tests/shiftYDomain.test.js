@@ -118,3 +118,33 @@ test("배율이 0이거나 값이 깨졌으면 그대로 돌려준다", () => {
   assert.deepEqual(zoomYDomain([100, 200], -1, 0.5, false), [100, 200]);
   assert.ok(Number.isNaN(zoomYDomain([NaN, 200], 1.25, 0.5, false)[0]));
 });
+
+// ── 안전망: 무한대를 만들지 않는다 (2026-09-06) ────────────────────────────
+//
+// ⚠ 세로 범위에 무한대가 한 번 들어가면 축·캔들·도형이 통째로 안 그려지고, 그 뒤로는
+//   확대해도 되돌아오지 않는다(무한대는 계산해도 무한대다). 실측으로 그렇게 만들 수 있었다.
+// ※ 지금 화면에서는 도달하지 않는다 — 가로 축 한계가 먼저 걸려 연속 축소가 6번에서
+//   끊긴다. 그래도 함수 자체가 무한대를 내놓지 않아야 다른 곳에서 불러도 안전하다.
+
+test("로그에서 **50번 연속 축소**해도 무한대가 되지 않는다", () => {
+  let y = [0.18, 0.22];
+  for (let i = 0; i < 50; i++) y = zoomYDomain(y, 1.25, 0.5, true);
+  assert.ok(Number.isFinite(y[0]) && Number.isFinite(y[1]),
+    `무한대가 됐다: ${y[0]} ~ ${y[1]} — 이 상태가 되면 차트가 통째로 안 그려진다`);
+  assert.ok(y[1] > y[0], "범위가 뒤집혔다");
+});
+
+test("막힌 뒤에도 **계속 쓸 수 있다** (확대가 먹힌다)", () => {
+  let y = [0.18, 0.22];
+  for (let i = 0; i < 50; i++) y = zoomYDomain(y, 1.25, 0.5, true);
+  const before = y[1] - y[0];
+  for (let i = 0; i < 5; i++) y = zoomYDomain(y, 0.8, 0.5, true);
+  assert.ok(Number.isFinite(y[1]) && (y[1] - y[0]) < before, "확대가 안 먹힌다");
+});
+
+test("끌기도 같은 안전망을 쓴다", () => {
+  // 범위가 이미 엄청나게 큰 상태에서 끌어도 무한대를 만들지 않는다
+  const huge = [1e-300, 1e300];
+  const out = shiftYDomain(huge, 250, 500, false);
+  assert.ok(Number.isFinite(out[0]) && Number.isFinite(out[1]), `무한대가 됐다: ${out}`);
+});

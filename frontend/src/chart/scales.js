@@ -70,6 +70,18 @@ export function tsToIdx(t, candles) {
 //   (가장 잘게 쪼개지는 호가 단위도 1e-8이다)
 const LOG_MIN = 1e-12;
 
+// 세로 범위 계산의 안전망 — 결과가 **무한대나 NaN이면 바꾸지 않는다** (2026-09-06)
+//
+// ⚠ 왜: 세로 범위에 무한대가 한 번 들어가면 축·캔들·도형이 통째로 안 그려지고,
+//   그 뒤로는 확대해도 되돌아오지 않는다 (무한대는 계산해도 무한대다).
+//   실측: `zoomYDomain`을 로그 눈금에서 **50번 연속** 축소로 부르면 그렇게 된다.
+// ※ 지금 화면에서는 도달하지 않는다 — 가로 축이 "가진 캔들 전부"에서 멈추므로
+//   연속 축소가 6번에서 끊긴다(실측). 이 줄은 **평소에 한 번도 실행되지 않는 안전망**이고,
+//   나중에 다른 곳에서 이 함수를 부를 때를 위한 것이다.
+// ※ 막았을 때의 화면: 그 호출만 무시되어 **더 이상 축소되지 않고 멈춘다**
+const finiteOr = (out, fallback) =>
+  (Number.isFinite(out[0]) && Number.isFinite(out[1])) ? out : fallback;
+
 // 로그 스케일에서도 선형과 동일한 시각적 여백을 만드는 Y 도메인 패딩
 // 선형: [lo - range*p, hi + range*p]
 // 로그: lo/(hi/lo)^p, hi*(hi/lo)^p
@@ -134,13 +146,13 @@ export function shiftYDomain(yDom, dyPx, IH, isLog = false) {
   const r = dyPx / IH;
   if (!isLog) {
     const d = (hi - lo) * r;
-    return [lo + d, hi + d];
+    return finiteOr([lo + d, hi + d], yDom);
   }
   // 로그: 범위 전체에 같은 배율을 곱한다 (비율이 유지된다)
   const safeLo = Math.max(lo, LOG_MIN);
   const safeHi = Math.max(hi, safeLo * 1.000001);
   const f = Math.pow(safeHi / safeLo, r);
-  return [safeLo * f, safeHi * f];
+  return finiteOr([safeLo * f, safeHi * f], yDom);
 }
 
 // 세로 범위를 **커서 자리를 기준으로 같은 배율만큼** 넓히거나 좁힌다 (2026-09-06 사용자 요청)
@@ -159,14 +171,14 @@ export function zoomYDomain(yDom, factor, ratioFromTop, isLog = false) {
   const r = Math.min(1, Math.max(0, ratioFromTop));   // 커서가 캔들 영역 밖이면 가장자리로 본다
   if (!isLog) {
     const p = hi - (hi - lo) * r;                      // 커서가 가리키는 가격
-    return [p - (p - lo) * factor, p + (hi - p) * factor];
+    return finiteOr([p - (p - lo) * factor, p + (hi - p) * factor], yDom);
   }
   // 로그: 배율 공간(log)에서 같은 계산을 한다 — `shiftYDomain`이 곱셈을 쓰는 것과 같은 이유
   const safeLo = Math.max(lo, LOG_MIN);
   const safeHi = Math.max(hi, safeLo * 1.000001);
   const L = Math.log(safeLo), H = Math.log(safeHi);
   const P = H - (H - L) * r;
-  return [Math.exp(P - (P - L) * factor), Math.exp(P + (H - P) * factor)];
+  return finiteOr([Math.exp(P - (P - L) * factor), Math.exp(P + (H - P) * factor)], yDom);
 }
 
 export function getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog = false) {
