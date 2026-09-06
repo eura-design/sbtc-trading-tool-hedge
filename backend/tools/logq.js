@@ -92,8 +92,25 @@ function match(o, a, from) {
   return true;
 }
 
+// 화면에 찍는 시각은 **이 컴퓨터의 시간(한국시간)**이다 (2026-09-06 사용자 요청).
+//
+// ⚠ 왜 바꿨나: 로그 **파일 이름과 `--day`, 하루 요약은 원래부터 로컬 날짜**다
+//   (`logStore.localDate` — 파일이 로컬 자정에 바뀐다). 그런데 여기만 UTC로 찍어서
+//   **한 도구 안에 두 기준이 섞여 있었다.** 실제로 헤맸다: 화면에 `09-03 23:51`로
+//   보이는 사건이 `--day 2026-09-03`에는 없었다 — 그 사건의 로컬 시각은 09-04 08:51이라
+//   09-04 파일에 들어 있었다.
+// ⚠ **파일에 저장되는 값은 그대로 UTC다** (`ts`는 숫자, `iso`는 UTC 문자열).
+//   원본은 시간대에 휘둘리면 안 된다 — 보여줄 때만 옮긴다.
+// ⚠ 일일 손실 한도의 "오늘"은 **UTC 하루**라 이것과 다르다 (바이낸스가 UTC 0시에
+//   리셋한다 = 한국시간 오전 9시). 로그의 하루와 한도의 하루를 같은 것으로 읽지 말 것
+function fmtTs(ms) {
+  const d = new Date(ms), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+       + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 function fmt(o) {
-  const t = new Date(o.ts).toISOString().replace("T", " ").slice(0, 19);
+  const t = fmtTs(o.ts);
   if (o.kind === "console") return `${t} ${o.level.padEnd(5)} [${o.tag || "-"}] ${o.msg}`;
   const extra = Object.entries(o)
     .filter(([k]) => !["ts", "iso", "boot", "kind", "level", "event", "symbol"].includes(k))
@@ -187,7 +204,10 @@ async function main() {
 ⚠ 중복 ${dupIncome}건을 빼고 합쳤습니다 (커서 유실 흔적)`);
   } else {
     for (const o of hits) console.log(a.json ? JSON.stringify(o) : fmt(o));
-    console.log(`\n(${hits.length}건 표시 / ${scanned}줄 훑음${broken ? ` / 깨진 줄 ${broken}` : ""})`);
+    // ⚠ 시각 기준을 **여기 한 줄로 알린다** — 줄마다 붙이면 시끄럽고,
+    //   안 적으면 UTC로 읽는 사람이 9시간을 착각한다 (예전에 실제로 그랬다)
+    console.log(`\n(${hits.length}건 표시 / ${scanned}줄 훑음${broken ? ` / 깨진 줄 ${broken}` : ""}`
+      + ` / 시각은 이 컴퓨터 시간)`);
   }
 }
 
