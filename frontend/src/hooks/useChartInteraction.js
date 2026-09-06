@@ -1,6 +1,6 @@
 import { useCallback, useRef, useEffect } from "react";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
-import { getScales, fitYDomain, tsToIdx } from "../chart/scales";
+import { getScales, fitYDomain, zoomYDomain, tsToIdx } from "../chart/scales";
 import { idxToTimestamp } from "../utils/coordUtils";
 import { DRAG_HANDLERS } from "../chart/dragStateMachine";
 import { findHitLine } from "../utils/hitTest";
@@ -28,6 +28,7 @@ export function useChartInteraction({
   candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, showLegPct, onLineDoubleClick,
   scalesRef,
   xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,
+  moveModeRef,                   // 화면 이동 모드 `A` (useChartRenderer가 들고 있다)
   drawings, setDrawing, setCurrent, drawMode, setDrawMode, locked,
   lineMode, lineStart, lines, selectedLineId,
   setLineStart, setLinePreview, setSelectedLineId,
@@ -91,6 +92,10 @@ export function useChartInteraction({
   const moveRafRef        = useRef(null);
   const lastMousePosRef   = useRef(null);
 
+  // ⚠ `"crosshair"`·`"grab"`은 **진짜 커서를 숨긴다**(`none`). 차트 안에서는 크로스헤어를
+  //   우리가 직접 그리기 때문이다 (ChartSvg.jsx의 `cursor:none`).
+  //   ※ 브라우저 십자 커서를 쓰려 하지 말 것 — 우리가 그리는 크로스헤어와 모양이 달라
+  //     축을 넘나들 때 커서가 두 개인 것처럼 보인다 (2026-09-06에 한 번 그렇게 했다가 되돌렸다)
   const setCursor = useCallback((c) => {
     if (cursorRef.current === c) return;
     cursorRef.current = c;
@@ -135,7 +140,16 @@ export function useChartInteraction({
       if (newI1 - newI0 > candles.length * MAX_VIEW_RATIO) return;  // 축소 하한 — 전 구간
 
       xDomainRef.current = [newI0, newI1];
-      yDomainRef.current = fitYDomain(candles, xDomainRef.current, isLog);
+      // ⚠ **이동 모드에서는 세로도 가로와 같은 배율로 움직인다** (2026-09-06 사용자 신고).
+      //   여기서 다시 맞추면 옮겨 둔 화면이 휠 한 번에 돌아가고, 그렇다고 세로를 그대로
+      //   두면 가로만 넓어져 **캔들이 세로로 길어 보인다**. 사진을 확대·축소하듯
+      //   같은 배율로 함께 움직여야 가로세로 비율이 지켜진다
+      if (!moveModeRef?.current) {
+        yDomainRef.current = fitYDomain(candles, xDomainRef.current, isLog);
+      } else {
+        const yDom = yDomainRef.current ?? fitYDomain(candles, xDomainRef.current, isLog);
+        yDomainRef.current = zoomYDomain(yDom, factor, pos.y / IH, isLog);
+      }
       if (overlaysRef) overlaysRef.current._panning = true;
       redrawChart(true);   // 팬과 같은 이유 — 여기도 rAF 콜백 안이다
       clearTimeout(wheelSyncTimerRef.current);
@@ -195,6 +209,12 @@ export function useChartInteraction({
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return;
     const pos  = { x: clientX - rect.left - M.left, y: clientY - rect.top - M.top };
+
+    // ⚠ **가격 축 위에서는 크로스헤어도 커서도 보여주지 않는다** (2026-09-06 사용자 확정).
+    //   2026-09-06에 두 가지를 시도했다가 **둘 다 되돌렸다**: 브라우저 십자 커서
+    //   (우리가 그리는 것과 모양이 달라 커서가 두 개로 보였다), 그리고 축까지
+    //   크로스헤어를 이어 그리기. 지금이 원래 동작이고, 사용자가 이대로가 낫다고 정했다.
+    //   → 축(`pos.x > IW`)에 대한 특례를 다시 만들지 말 것
 
     const effectiveVolH = volH ?? 0;
     const effectiveRsiH = rsiH ?? 0;
@@ -386,6 +406,7 @@ export function useChartInteraction({
 
       const setters = {
         setDrawing, setCurrent, setDragTpsl, setCursor, xDomainRef, yDomainRef,
+        moveModeRef,
         redrawCanvas, redrawChart, setDragScaleIn, moveScaleIn, setDragSplitTp, moveSplitTp,
         setDragPartialSl, movePartialSl,
         isLog, updateChannelEndpoint, setChannelPosition, updateChannelBothOffsets,

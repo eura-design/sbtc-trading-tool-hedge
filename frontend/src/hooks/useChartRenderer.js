@@ -11,6 +11,30 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
   const isInitialLoadRef   = useRef(true);
   const [renderTick, setRenderTick] = useState(0);
 
+  // ── 화면 이동 모드 `A` (2026-09-06 사용자 요청) ────────────────────────────
+  //
+  // 지금까지 세로 축은 **늘 자동**이었다 — 좌우로 끌거나 휠을 돌릴 때마다 보이는 봉의
+  // 고·저에 다시 맞췄다. 그래서 1시간봉에서 캔들 위/아래의 빈 영역을 보고 싶어도 볼 수
+  // 없었고, 4시간·일봉으로 바꿔서 보는 수밖에 없었다 (사용자 신고).
+  //
+  //   · `A`가 **꺼져 있으면** 지금까지와 똑같다 (드래그는 좌우만, 세로는 매번 다시 맞춤)
+  //   · `A`를 **켜면** 드래그가 상하좌우 이동이 되고, 세로를 다시 맞추지 않는다.
+  //     세로 범위의 폭(로그면 배율)이 그대로라 **캔들 모양이 눌리거나 늘어나지 않는다**
+  //   · `A`를 **끄면** 그 자리에서 다시 맞춰 원래 동작으로 돌아온다
+  //
+  // ⚠ **트레이딩뷰와 뜻이 반대다** (거기선 A 켜짐 = 자동 맞춤). 사용자가 고른 방식이다 —
+  //   "내가 켰을 때만 움직인다"가 규칙 하나로 끝나기 때문이다. 끌다가 저절로 꺼지는
+  //   방식은 손떨림으로도 꺼져서, 왜 세로가 안 맞는지 화면에 드러나지 않는다
+  //
+  // ⚠ **저장하지 않는다.** 새로고침하면 늘 꺼진 상태(= 기존 동작)로 시작한다.
+  //   모드가 켜진 채로 되살아나면 "어제 왜 이렇게 해뒀지"를 알 수 없다
+  //
+  // ⚠ **ref와 state를 둘 다 둔다.** 드래그·휠은 rAF 콜백 안이라 state를 읽으면 낡은
+  //   값을 본다(ref가 필요하다). 반면 버튼 색은 다시 그려져야 하므로 state가 필요하다.
+  //   둘이 어긋나지 않게 **바꾸는 곳은 `setMoveMode` 하나뿐이다**
+  const moveModeRef = useRef(false);
+  const [moveMode, setMoveModeState] = useState(false);
+
   // sync=true면 **캔버스와 같은 프레임 안에서** SVG 오버레이까지 커밋한다.
   //
   // ⚠ 캔버스는 동기, React는 비동기라 그냥 두면 **SVG가 한 프레임 이상 늦는다.**
@@ -90,6 +114,11 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     if (!c?.length) return false;
     xDomainRef.current = initialXDomain(c);
     yDomainRef.current = fitYDomain(c, xDomainRef.current, isLog);
+    // ⚠ 뷰포트를 처음부터 다시 잡는 것은 **이동 모드를 끈다는 뜻**이다 (2026-09-06).
+    //   TF·코인을 바꿀 때 여기를 지난다 — 옛 가격대에 세로를 고정한 채로 코인을 바꾸면
+    //   (BTC 70,000 → DOGE 0.2) 캔들이 통째로 화면 밖이 된다
+    moveModeRef.current = false;
+    setMoveModeState(false);
     isInitialLoadRef.current   = false;
     prevCandleCountRef.current = c.length;
     return true;
@@ -122,7 +151,11 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
   useEffect(() => { redrawChart(); }, [IW, IH]);    // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {                                  // eslint-disable-line react-hooks/exhaustive-deps
     const c = candlesRef.current;
-    if (c.length && xDomainRef.current) yDomainRef.current = fitYDomain(c, xDomainRef.current, isLog);
+    // ⚠ 이동 모드가 아닐 때만 다시 맞춘다 — 옮겨 둔 세로 범위는 로그를 켜도 그대로 둔다.
+    //   범위는 **가격**이라 선형·로그 어느 쪽에서도 뜻이 같다 (모양만 달라진다)
+    if (!moveModeRef.current && c.length && xDomainRef.current) {
+      yDomainRef.current = fitYDomain(c, xDomainRef.current, isLog);
+    }
     redrawChart();
   }, [isLog]);
   useEffect(() => { redrawChart(); }, [isDark]);    // eslint-disable-line react-hooks/exhaustive-deps
@@ -145,9 +178,31 @@ export function useChartRenderer({ candles, candlesRef, interval_, isDark, IW, I
     xDomainRef.current         = null;
     yDomainRef.current         = null;
     scalesRef.current          = null;
+    moveModeRef.current        = false;     // 다시 잡는다 = 이동 모드를 끈다
+    setMoveModeState(false);
     if (opts?.defer) { redrawChart(); return; }
     if (applyInitialDomain()) redrawChart();
   }, [applyInitialDomain, redrawChart]);
 
-  return { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawVolumeTick, redrawRSI, resetDomain, renderTick };
+  // `A` 버튼 — 이동 모드를 켜고 끈다.
+  //
+  // ⚠ **끌 때 세로를 다시 맞춘다** = 옮겨 놓은 것이 원래대로 돌아온다. 이게 사용자가
+  //   말한 "A를 끄면 기존처럼"이다.
+  // ⚠ **가로(x)는 건드리지 않는다.** 보고 있던 구간은 그대로 두고 세로만 맞춘다 —
+  //   `resetDomain`은 가로까지 처음으로 되돌리는 것이라 뜻이 다르다
+  const toggleMoveMode = useCallback(() => {
+    const next = !moveModeRef.current;
+    moveModeRef.current = next;
+    setMoveModeState(next);
+    if (!next) {
+      const c = candlesRef.current;
+      if (c?.length && xDomainRef.current) {
+        yDomainRef.current = fitYDomain(c, xDomainRef.current, isLog);
+      }
+    }
+    redrawChart();
+  }, [isLog, candlesRef, redrawChart]);
+
+  return { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawVolumeTick, redrawRSI, resetDomain, renderTick,
+    moveMode, moveModeRef, toggleMoveMode };
 }

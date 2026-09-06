@@ -4,6 +4,7 @@ import { useStore }          from "../store";
 import { useShallow }        from "zustand/react/shallow";
 import { useChartSize }      from "../hooks/useChartSize";
 import { useRsiResize }      from "../hooks/useRsiResize";
+import { useCountdownPos }   from "../hooks/useCountdownPos";
 import { useVolResize }      from "../hooks/useVolResize";
 import { useCrosshair }      from "../hooks/useCrosshair";
 import { useChartRenderer }  from "../hooks/useChartRenderer";
@@ -41,7 +42,7 @@ function fmtCountdown(ms) {
 
 export function ChartArea({
   // 캔들 데이터
-  candles, candlesRef, candleLoading, onTickRef, interval_, isDark, isLog,
+  candles, candlesRef, candleLoading, onTickRef, interval_, isDark, isLog, onLogToggle,
   // 오버레이 데이터
   rsiData, emaData, fvgData, obData, pivotLevels,
   // 지표 표시 여부
@@ -229,6 +230,24 @@ export function ChartArea({
     - (showRsi ? RSI_GAP : 0) - effectiveRsiH
     - (showVol ? VOL_GAP : 0) - effectiveVolH;
 
+  // 가격 축 버튼(A·L) 규격 — **한 곳에서 만든다.** 둘이 나란히 붙어 있어서
+  // 크기·색이 조금만 갈려도 바로 눈에 띈다
+  const axisBtnStyle = (on) => ({
+    width: "30px", height: "20px",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: 0, borderRadius: "3px", cursor: "pointer",
+    fontSize: "12px", fontFamily: "inherit", fontWeight: "600", lineHeight: 1,
+    background: on ? "#f0b90b" : (isDark ? "#0d1117cc" : "#ffffffcc"),
+    border: `1px solid ${on ? "#f0b90b" : (isDark ? "#ffffff33" : "#00000033")}`,
+    color: on ? "#000" : (isDark ? "#94a3b8" : "#64748b"),
+    transition: "all 0.15s",
+  });
+
+  // 카운트다운 자리 — 옮긴 적이 없으면 지금까지 쓰던 고정 위치 그대로다.
+  // 컨테이너 크기를 넘겨 두면 창을 줄여도 화면 밖으로 나가지 않는다
+  const { boxRef: cdBoxRef, pos: cdPos, onMouseDown: onCountdownMouseDown,
+    dragging: cdDragging } = useCountdownPos({ x: M.left + 8, y: M.top + 8 }, containerW, containerH);
+
   const svgRef       = useRef(null);
   const canvasRef    = useRef(null);
   const volCanvasRef = useRef(null);
@@ -245,7 +264,8 @@ export function ChartArea({
   };
 
   // ── 캔버스 렌더러 ──────────────────────────────────────────────────────────
-  const { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawVolumeTick, redrawRSI, renderTick, resetDomain } =
+  const { xDomainRef, yDomainRef, scalesRef, redrawCanvas, redrawChart, redrawVolume, redrawVolumeTick, redrawRSI, renderTick, resetDomain,
+    moveMode, moveModeRef, toggleMoveMode } =
     useChartRenderer({ candles, candlesRef, interval_, isDark, IW, IH, canvasRef, volCanvasRef, rsiCanvasRef, isLog, overlaysRef });
 
   // onTickRef에 redrawCanvas 연결 — 하단에서 updateCrosshairOnTick와 함께 체이닝하여 설정됨
@@ -290,7 +310,7 @@ export function ChartArea({
       zzShowVol: indicatorParams.zz?.show_legvol !== false,
       scalesRef,
       onLineDoubleClick: (id, type, x, y) => setOpacityPopup({ id, type, x, y }),
-      xDomainRef, yDomainRef, svgRef, redrawCanvas, redrawChart,
+      xDomainRef, yDomainRef, moveModeRef, svgRef, redrawCanvas, redrawChart,
       drawings, setDrawing, setCurrent, drawMode, setDrawMode, locked,
       lineMode, lineStart, lines, selectedLineId,
       setLineStart, setLinePreview, setSelectedLineId,
@@ -411,17 +431,63 @@ export function ChartArea({
         structDraft={showStruct ? structDraft : null}
         structPreview={showStruct ? structPreview : null}
       />
-      {countdown.text && (
+      {/* ── 가격 축 아래의 `A`·`L` 버튼 ──────────────────────────────────────
+          `A` = 화면 이동 모드 (켜면 차트를 상하좌우로 끌 수 있다. 끄면 세로를 다시
+                캔들에 맞춰 지금까지의 동작으로 돌아온다)
+          `L` = 로그 눈금 (`chart_isLog`). 예전엔 상단바에 `Log`로 있었다 —
+                축을 보면서 누르는 것이라 축 옆이 맞다 (2026-09-06 사용자 요청)
+
+          ⚠ **시간 축의 오른쪽 끝**에 가로로 둔다 — 오른쪽 변이 캔들 영역의 오른쪽 끝
+            (`M.left + IW`)에 딱 맞고, **가격 축 칸으로는 넘어가지 않는다** (2026-09-06 사용자 요청).
+            자리를 두 번 옮겼다: ① 가격 축 안쪽에 세로로 → **가격 숫자와 겹쳤다**
+            ② 가격 축 칸 아래 → 거기까지 가는 동안 **크로스헤어도 커서도 안 보였다**
+            (SVG가 `cursor:none`이라 그렇다 — ChartSvg.jsx).
+            지금 자리는 캔들 영역 바로 아래라, 차트 안에서 크로스헤어를 보며 내려오면 된다.
+          ⚠ 꺼져 있어도 배경을 깐다 — 시간 눈금 글자가 버튼 자리에 겹칠 수 있는데,
+            투명하면 글자가 버튼을 뚫고 비친다.
+          ⚠ 캔버스가 아니라 **DOM 버튼**이다. 축은 캔버스에 그려지지만 거기에 클릭을
+            받을 방법이 없다 (히트 판정을 손으로 만들어야 한다). 카운트다운과 같은 방식이다.
+          ⚠ **트레이딩뷰와 `A`의 뜻이 반대다** (거기선 A 켜짐 = 자동 맞춤). 사용자가 고른
+            방식이라 되돌리지 말 것 — "내가 켰을 때만 움직인다"가 규칙 하나로 끝난다 */}
+      {IW > 0 && IH > 0 && (
         <div style={{
-          position: "absolute", top: M.top + 8, left: M.left + 8,
-          pointerEvents: "none", zIndex: 10,
-          fontSize: "20px", fontWeight: "700", color: cdColor,
-          fontVariantNumeric: "tabular-nums", letterSpacing: "0.08em",
-          background: "#000000cc", padding: "5px 14px", borderRadius: "5px",
-          border: `1px solid ${cdColor}66`,
-          transition: "color 1s, border-color 1s",
-          textShadow: `0 0 10px ${cdColor}`,
+          // 오른쪽 끝을 캔들 영역 오른쪽 변에 맞춘다 (버튼 30 + 간격 4 + 버튼 30 = 64)
+          position: "absolute", left: M.left + IW - 64, top: M.top + IH + 7,
+          zIndex: 10, display: "flex", gap: "4px",
         }}>
+          <button
+            onClick={toggleMoveMode}
+            title={moveMode ? "화면 이동 모드 — 켜짐 (끄면 세로가 다시 캔들에 맞춰진다)"
+                            : "화면 이동 모드 — 켜면 차트를 상하좌우로 끌 수 있다 (비율은 그대로)"}
+            style={axisBtnStyle(moveMode)}>A</button>
+          <button
+            onClick={onLogToggle}
+            title={isLog ? "로그 눈금 끄기"
+                         : "로그 눈금 — 가격 차이가 아니라 등락률을 같은 간격으로 그린다"}
+            style={axisBtnStyle(isLog)}>L</button>
+        </div>
+      )}
+      {countdown.text && (
+        // ⚠ **끌어서 옮길 수 있다** (2026-09-06 사용자 요청). 자리는 브라우저에
+        //   기억한다 (`useCountdownPos` — 왜 거기인지는 그 파일 맨 위에 적었다).
+        //   ⚠ `pointerEvents`를 다시 `none`으로 돌리지 말 것 — 그러면 못 잡는다.
+        //     대신 상자가 차트 클릭을 가리는 넓이는 글자만큼으로 좁게 둔다
+        <div
+          ref={cdBoxRef}
+          onMouseDown={onCountdownMouseDown}
+          title="끌어서 옮길 수 있습니다"
+          style={{
+            position: "absolute", top: cdPos.y, left: cdPos.x,
+            zIndex: 10,
+            cursor: cdDragging ? "grabbing" : "grab",
+            userSelect: "none",          // 끌 때 글자가 선택되지 않게
+            fontSize: "20px", fontWeight: "700", color: cdColor,
+            fontVariantNumeric: "tabular-nums", letterSpacing: "0.08em",
+            background: "#000000cc", padding: "5px 14px", borderRadius: "5px",
+            border: `1px solid ${cdColor}66`,
+            transition: "color 1s, border-color 1s",
+            textShadow: `0 0 10px ${cdColor}`,
+          }}>
           {countdown.text}
         </div>
       )}

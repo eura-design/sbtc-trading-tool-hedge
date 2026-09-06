@@ -56,12 +56,26 @@ export function tsToIdx(t, candles) {
   return lo;
 }
 
+// 로그 눈금이 계산할 수 없는 값(0 이하)을 막는 **바닥**. 네 곳이 이 하나를 나눠 쓴다
+// (`padYDomain` · `getScales` · `shiftYDomain` · `zoomYDomain`).
+//
+// ⚠ **이 값을 1로 되돌리지 말 것** (2026-09-06에 고쳤다). 예전 값이 `1`(=1달러)이었다.
+//   BTC(70,000)·ETH(3,000)는 바닥 근처에 갈 일이 없어 아무 문제가 없었지만,
+//   **1달러 미만 코인은 가격 전체가 바닥보다 아래**라 세로 범위가 통째로 1달러 근처로
+//   끌려 올라갔다. 실측(2026-09-06): DOGE 0.2에서 로그를 켜면 화면이 보여주는 범위가
+//   `0.99994 ~ 1.00106`이 되고, 최고가는 화면 500px 중 **715,068px 자리**에 찍혔다 —
+//   차트가 통째로 비어 보인다. XRP(0.5)도 같았다.
+// ⚠ 상대값(예: 최고가의 1만분의 1)으로 두지 말 것 — 10만 배 움직인 코인을 긴 구간으로
+//   보면 **정상 범위를 잘라먹는다**. 실제 가격보다 한참 아래인 절대값이 안전하다
+//   (가장 잘게 쪼개지는 호가 단위도 1e-8이다)
+const LOG_MIN = 1e-12;
+
 // 로그 스케일에서도 선형과 동일한 시각적 여백을 만드는 Y 도메인 패딩
 // 선형: [lo - range*p, hi + range*p]
 // 로그: lo/(hi/lo)^p, hi*(hi/lo)^p
 export function padYDomain(lo, hi, padFrac, isLog) {
   if (!isLog) return [lo - (hi - lo) * padFrac, hi + (hi - lo) * padFrac];
-  const safeLo = Math.max(lo, 1);
+  const safeLo = Math.max(lo, LOG_MIN);
   const safeHi = Math.max(hi, safeLo * 1.001);
   const logPad = Math.pow(safeHi / safeLo, padFrac);
   return [safeLo / logPad, safeHi * logPad];
@@ -105,11 +119,65 @@ export function fitYDomain(candles, xDom, isLog = false) {
   return padYDomain(lo, hi, Y_PAD, isLog);
 }
 
+// 세로 범위를 **픽셀만큼 밀어준다** — 차트를 위아래로 끌 때 쓴다 (2026-09-06 사용자 요청)
+//
+// ⚠ **로그 눈금에서는 더하기가 아니라 곱하기다.** 로그 축은 같은 간격이 같은 **비율**이라,
+//   선형에서 쓰던 "가격 = 픽셀 × 단가"를 그대로 쓰면 위로 갈수록 어긋난다.
+//   (`padYDomain`이 여백을 만들 때 같은 이유로 곱셈을 쓴다 — 그 식과 짝이 맞아야 한다)
+// ⚠ 부호: `dy`는 **화면 아래로 끈 거리**다. 캔들을 아래로 끌면 위쪽의 **더 높은 가격**이
+//   드러나야 하므로 범위가 위로 올라간다.
+// ⚠ 이 함수는 무엇도 제한하지 않는다 — 캔들이 화면 밖으로 나가도 그대로 민다.
+//   되돌리는 길은 `A` 버튼 하나다 (트레이딩뷰와 같다)
+export function shiftYDomain(yDom, dyPx, IH, isLog = false) {
+  const [lo, hi] = yDom;
+  if (!(IH > 0) || !Number.isFinite(lo) || !Number.isFinite(hi) || !dyPx) return [lo, hi];
+  const r = dyPx / IH;
+  if (!isLog) {
+    const d = (hi - lo) * r;
+    return [lo + d, hi + d];
+  }
+  // 로그: 범위 전체에 같은 배율을 곱한다 (비율이 유지된다)
+  const safeLo = Math.max(lo, LOG_MIN);
+  const safeHi = Math.max(hi, safeLo * 1.000001);
+  const f = Math.pow(safeHi / safeLo, r);
+  return [safeLo * f, safeHi * f];
+}
+
+// 세로 범위를 **커서 자리를 기준으로 같은 배율만큼** 넓히거나 좁힌다 (2026-09-06 사용자 요청)
+//
+// ⚠ 왜 필요한가: 화면 이동 모드(`A`)에서 휠로 축소했더니 **캔들이 세로로 길어 보였다**.
+//   가로만 넓히고 세로를 그대로 두면 그림이 옆으로 눌린다 — 사용자가 원한 것은
+//   "사진을 축소하듯" 가로세로가 **같은 비율로** 줄어드는 것이다.
+// ⚠ 기준점은 커서다. 가로가 커서 아래의 봉을 붙잡고 확대하므로, 세로도 커서가 가리키는
+//   가격을 붙잡아야 그 지점이 제자리에 남는다.
+//
+// @param ratioFromTop 커서가 캔들 영역의 위에서 몇 번째 비율에 있나 (0 = 맨 위, 1 = 맨 아래)
+// @param factor       가로에 쓴 것과 **같은 값** (1보다 크면 축소, 작으면 확대)
+export function zoomYDomain(yDom, factor, ratioFromTop, isLog = false) {
+  const [lo, hi] = yDom;
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(factor > 0)) return [lo, hi];
+  const r = Math.min(1, Math.max(0, ratioFromTop));   // 커서가 캔들 영역 밖이면 가장자리로 본다
+  if (!isLog) {
+    const p = hi - (hi - lo) * r;                      // 커서가 가리키는 가격
+    return [p - (p - lo) * factor, p + (hi - p) * factor];
+  }
+  // 로그: 배율 공간(log)에서 같은 계산을 한다 — `shiftYDomain`이 곱셈을 쓰는 것과 같은 이유
+  const safeLo = Math.max(lo, LOG_MIN);
+  const safeHi = Math.max(hi, safeLo * 1.000001);
+  const L = Math.log(safeLo), H = Math.log(safeHi);
+  const P = H - (H - L) * r;
+  return [Math.exp(P - (P - L) * factor), Math.exp(P + (H - P) * factor)];
+}
+
 export function getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog = false) {
   if (!candles.length || IW <= 0 || IH <= 0) return null;
   const xDom = xDomainRef.current ?? initialXDomain(candles);
   const yDom = yDomainRef.current ?? fitYDomain(candles, xDom, isLog);
-  const logYDom = isLog ? [Math.max(yDom[0], 1), yDom[1]] : yDom;
+  // ⚠ 로그 축은 0 이하를 못 그린다 — 위아래 **둘 다** 막는다. 세로 범위는 사람이 끌어
+  //   옮길 수 있어서(화면 이동 모드) 선형에서 0 아래로 내려간 채 로그를 켤 수 있다
+  const logYDom = isLog
+    ? [Math.max(yDom[0], LOG_MIN), Math.max(yDom[1], LOG_MIN * 1.001)]
+    : yDom;
   return {
     xScale: d3.scaleLinear().domain(xDom).range([0, IW]),
     yScale: (isLog ? d3.scaleLog() : d3.scaleLinear()).domain(logYDom).range([IH, 0]),

@@ -1,5 +1,5 @@
 import { idxToTimestamp, getCandleMs } from "../utils/coordUtils.js";
-import { fitYDomain } from "./scales.js";
+import { fitYDomain, shiftYDomain } from "./scales.js";
 import { snapToStructurePoint } from "./hitDetection.js";
 
 // 두 가격(p1, p2)을 마우스 드래그 vector에 따라 같이 이동시킨다.
@@ -56,7 +56,7 @@ const PICK_CLICK_PX = 6;
 
 export const DRAG_HANDLERS = {
   pan: {
-    onMove({ pos, drag, candles, IW, setters }) {
+    onMove({ pos, drag, candles, IW, IH, setters }) {
       const { xDomainRef, yDomainRef, redrawCanvas, setCursor } = setters;
       const [i0, i1] = drag.xDom0;
       const span     = i1 - i0;
@@ -65,7 +65,22 @@ export const DRAG_HANDLERS = {
       const newI0    = i0 - di;
       const newI1    = i1 - di;
       xDomainRef.current = [newI0, newI1];
-      yDomainRef.current = fitYDomain(candles, xDomainRef.current, setters.isLog);
+
+      // ── 세로 이동 — **`A`(이동 모드)가 켜져 있을 때만** (2026-09-06 사용자 요청) ──
+      //
+      // 꺼져 있으면 지금까지와 똑같다: 세로는 보이는 봉에 매번 다시 맞춘다.
+      // ⚠ 켜져 있을 때는 세로 범위의 **폭을 그대로 밀기만 한다**(`shiftYDomain`).
+      //   그래서 캔들의 가로세로 비율이 변하지 않는다 — 옮기는 것이지 늘이는 것이 아니다.
+      // ⚠ 끌기 시작한 지점과 그때의 세로 범위는 **첫 onMove에서** 잡는다.
+      //   (팬이 시작되는 자리가 둘이라 — 빈 곳 클릭과 자동 지그재그 클릭 — 여기 한 곳에
+      //    두는 편이 갈리지 않는다)
+      if (setters.moveModeRef?.current) {
+        drag.startY ??= pos.y;
+        drag.yDom0  ??= [...(yDomainRef.current ?? fitYDomain(candles, drag.xDom0, setters.isLog))];
+        yDomainRef.current = shiftYDomain(drag.yDom0, pos.y - drag.startY, IH, setters.isLog);
+      } else {
+        yDomainRef.current = fitYDomain(candles, xDomainRef.current, setters.isLog);
+      }
       if (setters.overlaysRef) setters.overlaysRef.current._panning = true;
       // redrawChart = redrawCanvas + redrawVolume + redrawRSI + forceUpdate
       // forceUpdate → scales 재계산 → 선/원/채널/구조 등 SVG 오버레이도 즉시 따라옴

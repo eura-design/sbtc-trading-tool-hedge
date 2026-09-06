@@ -8,7 +8,7 @@ import { ShortcutMenu }      from "./ShortcutMenu";
 import { SymbolPicker }      from "./SymbolPicker";
 
 
-export function TopBar({ symbol, symbols, onSymbolChange, interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, measureMode, onMeasureModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle, isLog, onLogToggle, indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
+export function TopBar({ symbol, symbols, onSymbolChange, interval_, onIntervalChange, lineMode, onLineModeToggle, channelMode, onChannelModeToggle, circleMode, onCircleModeToggle, fibMode, onFibModeToggle, measureMode, onMeasureModeToggle, structMode, onStructModeToggle, structEnabled, isDark, onThemeToggle, last, candleLoading, indicators, onIndicatorToggle, notifSettings, onNotifToggle,  indicatorParams, setIndicatorParam, setEmaList, resetIndicator, shortcuts, onShortcutUpdate, onShortcutReset, replayOn, onReplayToggle }) {
   const { theme } = useTheme();
   const liveClose = useStore(s => s.liveClose);
   // ⚠ 자릿수는 호가 단위가 정한다 — `,.0f` 고정이면 DOGE(0.2)의 현재가가 `$0`이 된다
@@ -134,15 +134,8 @@ export function TopBar({ symbol, symbols, onSymbolChange, interval_, onIntervalC
         transition:"all 0.15s",
       }}>구조</button>
 
-      <button onClick={onLogToggle} style={{
-        height:"22px", padding:"0 7px", borderRadius:"3px",
-        cursor:"pointer", flexShrink:0,
-        fontSize:"12px", fontFamily:"inherit", fontWeight:"400",
-        background: isLog ? "#f0b90b" : "transparent",
-        border:`1px solid ${isLog ? "#f0b90b" : theme.textFaint}`,
-        color: isLog ? "#000" : theme.textMuted,
-        transition:"all 0.15s",
-      }}>Log</button>
+      {/* ⚠ `Log` 버튼은 2026-09-06에 **가격 축으로 옮겼다** (사용자 요청, 트레이딩뷰와 같은 자리).
+          여기로 되돌리지 말 것 — 축 위의 `L` 버튼이 그 일을 한다 (ChartArea) */}
 
       <ShortcutMenu shortcuts={shortcuts} onUpdate={onShortcutUpdate} onReset={onShortcutReset} />
 

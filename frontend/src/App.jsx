@@ -595,9 +595,6 @@ export default function App() {
           indicatorParams={indicatorParams} setIndicatorParam={setIndicatorParam}
           setEmaList={setEmaList} resetIndicator={resetIndicator}
           notifSettings={notifSettings} onNotifToggle={notifToggle}
-          isLog={isLog} onLogToggle={() => setIsLog(v => {
-            const next = !v; lsSet("chart_isLog", next); return next;
-          })}
           shortcuts={shortcuts} onShortcutUpdate={updateShortcut} onShortcutReset={resetShortcuts}
           replayOn={replayOn} onReplayToggle={onReplayToggle}
         />
@@ -639,6 +636,8 @@ export default function App() {
         <ChartArea
           candles={candles} candlesRef={candlesRef} candleLoading={candleLoading}
           onTickRef={onTickRef} interval_={interval_} isDark={isDark} isLog={isLog}
+          // 로그 눈금 토글 — 버튼은 **가격 축 위**에 있다 (2026-09-06, 트레이딩뷰와 같은 자리)
+          onLogToggle={() => setIsLog(v => { const next = !v; lsSet("chart_isLog", next); return next; })}
           rsiData={rsiData} emaData={emaData} fvgData={fvgData} obData={obData}
           pivotLevels={pivotLevels}
           showRsi={showRsi} showRsiZones={showRsiZones} showPivot={showPivot} showOB={showOB} showFVG={showFVG}
