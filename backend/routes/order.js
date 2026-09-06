@@ -4,10 +4,9 @@ const store   = require("../store/pendingOrders");
 const { validateOrder } = require("../middleware/validate");
 const { checkDailyLoss } = require("./dailyloss");
 const { sideToPosition } = require("../utils/side");
-const { verifyImmediateFill } = require("../services/orderWatcher");
+const { verifyImmediateFill, raiseSlMissing } = require("../services/orderWatcher");
 const push     = require("../services/pushService");
 const symbolInfo = require("../services/symbolInfo");
-const slAlerts   = require("../utils/slAlerts");
 const { log, errOf } = require("../store/logStore");
 
 const router  = express.Router();
@@ -84,7 +83,10 @@ router.post("/", validateOrder, async (req, res) => {
           failed: tpsl.failed.map(f => f.type),
           errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })), tp, sl });
         if (tpsl.failed.some(f => f.type === "SL")) {
-          push.pushAlert("critical", slAlerts.marketFilled(orderId));
+          // ⚠ **`orderWatcher`를 거쳐 띄운다** (2026-09-06) — 빨간 줄은 코인·방향마다
+          //   하나이고, 그 래치를 `orderWatcher`가 들고 있다. 여기서 직접 띄우면
+          //   포지션이 닫히거나 SL이 걸려도 아무도 거두지 못해 화면에 남는다
+          raiseSlMissing(symbol, positionSide);
         }
       } else {
         log("TPSL_PLACED", { orderId, posSide: positionSide, tp, sl,

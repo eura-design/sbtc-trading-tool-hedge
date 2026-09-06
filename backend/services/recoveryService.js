@@ -11,7 +11,32 @@ async function recoverPendingOrders() {
 
   try {
     // ── 1단계: 미체결 지정가 주문 복구 ──────────────────────────────────────
-    const { data: openOrds } = await binance("GET", "/fapi/v1/openOrders", { symbol: symbolInfo.DEFAULT_SYMBOL });
+    //
+    // ⚠ **기본 심볼만 보지 않는다** (2026-09-06). 예전엔 여기서 BTCUSDT만 조회해서,
+    //   우리 기록(`pending_orders.json`)에 없는 다른 코인의 미체결 지정가는 재시작 뒤
+    //   store에 등록되지 않았다. 그러면 그게 체결돼도 `onFilled`가 첫 줄
+    //   (`if (!info) return`)에서 그냥 돌아가 **체결되는 순간의 알림이 없다.**
+    //   (손절 없는 포지션 자체는 3초짜리 `watchAccount`가 몇 초 안에 경보로 잡는다)
+    //
+    // ⚠ **심볼을 주고 부른다.** 안 주면 가중치가 1이 아니라 40이다
+    //   (`orderWatcher`의 `watchedSymbols` 주석). 부팅 때 한 번이라 심볼 수만큼이면 된다
+    // ⚠ **한 심볼이 실패해도 나머지는 계속한다.** 여기서 던지면 아래 2·3단계
+    //   (체결 감지 · 무방비 안전망)가 통째로 건너뛴다 — 바깥 catch가 다 받아먹는다
+    const bootSymbols = new Set([symbolInfo.DEFAULT_SYMBOL]);
+    for (const [orderId] of store.entries()) bootSymbols.add(store.symbolOf(orderId));
+
+    const openOrds = [];
+    for (const sym of bootSymbols) {
+      try {
+        const { data } = await binance("GET", "/fapi/v1/openOrders", { symbol: sym });
+        if (Array.isArray(data)) openOrds.push(...data);
+      } catch (e) {
+        // 조회에 실패한 심볼은 **손대지 않는다** — 빈 값을 "주문 없음"으로 읽으면 안 된다.
+        // 그 심볼의 기록은 2단계가 주문번호로 하나씩 다시 물어본다
+        log("QUERY_FAILED", { level: "warn", what: "openOrders", ctx: "recovery",
+          symbol: sym, err: errOf(e) });
+      }
+    }
     const limitOrders = openOrds.filter(o =>
       o.type === "LIMIT" && (o.status === "NEW" || o.status === "PARTIALLY_FILLED")
     );
@@ -24,7 +49,7 @@ async function recoverPendingOrders() {
 
       // SCALE_IN, SPLIT_TP은 진입 주문이 아님 → 기존 상태 그대로 유지
       if (saved?.status === "SCALE_IN" || saved?.status === "SPLIT_TP") {
-        kept.push({ orderId: String(o.orderId), kindOf: saved.status });
+        kept.push({ orderId: String(o.orderId), symbol: o.symbol, kindOf: saved.status });
         continue;
       }
 
@@ -34,6 +59,11 @@ async function recoverPendingOrders() {
       if (isClosingLimit) {
         store.set(String(o.orderId), {
           status: "SPLIT_TP",
+          // ⚠ **거래소가 알려준 심볼을 그대로 싣는다** (2026-09-06). `store.set`은
+          //   심볼이 없으면 기본 심볼로 채우므로(pendingOrders.js), 안 실으면
+          //   여기서 처음 보는 ETH 주문이 **BTCUSDT 기록**이 된다 — 그러면 취소·조회가
+          //   전부 엉뚱한 심볼로 나간다
+          symbol: o.symbol,
           price:  parseFloat(o.price),
           qty:    parseFloat(o.origQty),
           side:   o.side,
@@ -42,7 +72,7 @@ async function recoverPendingOrders() {
           pct:    saved?.pct ?? null,
           createdAt: saved?.createdAt ?? Date.now(),
         });
-        log("RECOVERY_ORDER_RESTORED", { orderId: o.orderId, kindOf: "SPLIT_TP",
+        log("RECOVERY_ORDER_RESTORED", { orderId: o.orderId, symbol: o.symbol, kindOf: "SPLIT_TP",
           price: o.price, qty: o.origQty });
         continue;
       }
@@ -51,16 +81,18 @@ async function recoverPendingOrders() {
       const closeSide = side === "BUY" ? "SELL" : "BUY";
       const orderInfo = {
         side, closeSide,
+        // ⚠ 위 SPLIT_TP 분기와 같은 이유로 심볼을 싣는다 (2026-09-06)
+        symbol: o.symbol,
         tp: saved?.tp ?? null, sl: saved?.sl ?? null,
         qty: o.origQty, status: "WATCHING", recovered: true,
         drawing: saved?.drawing ?? null,
       };
       store.set(o.orderId, orderInfo);
       if (saved?.tp && saved?.sl) {
-        log("RECOVERY_ORDER_RESTORED", { orderId: o.orderId, kindOf: "ENTRY",
+        log("RECOVERY_ORDER_RESTORED", { orderId: o.orderId, symbol: o.symbol, kindOf: "ENTRY",
           price: o.price, qty: o.origQty, tp: saved.tp, sl: saved.sl });
       } else {
-        log("RECOVERY_ORDER_NO_TPSL", { level: "warn", orderId: o.orderId,
+        log("RECOVERY_ORDER_NO_TPSL", { level: "warn", orderId: o.orderId, symbol: o.symbol,
           orderSide: o.side, qty: o.origQty, price: o.price });
       }
     }

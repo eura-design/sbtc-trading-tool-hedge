@@ -193,3 +193,53 @@ test("PATCH — 있는 주문이면 사전 TP/SL을 다시 건다", async () => 
   assert.equal(h.store.get("555").sl, 64000);
   await h.close();
 });
+
+// ── 시장가 진입에서 SL 등록이 실패했을 때 (2026-09-06) ─────────────────────
+//
+// ⚠ 이 배너는 **거둘 사람이 있어야** 한다. 예전엔 띄우기만 하고 아무도 안 거둬서,
+//   사용자가 그 포지션을 손으로 닫아도 화면에는 `SL 등록 실패`가 남았다.
+//   그래서 라우트는 직접 띄우지 않고 `orderWatcher.raiseSlMissing`을 부른다 —
+//   배너의 래치를 `orderWatcher`가 들고 있어야 `resolveNaked`가 거둘 수 있다.
+const slAlerts = require("../utils/slAlerts");
+
+test("시장가 SL 실패는 **빨간 배너**를 띄우되, orderWatcher를 거친다", async () => {
+  const h = await mountRoute("routes/order.js", {
+    binance: okOrder(),
+    placeTPSL: async () => ({ tp: { orderId: "TP1" }, sl: null,
+                              failed: [{ type: "SL", error: "-2021" }] }),
+  });
+  const r = await h.request("POST", "/", body({ orderType: "MARKET" }));
+  assert.equal(r.status, 200);
+
+  const red = h.rec.alerts.filter(a => a.level === "critical");
+  assert.equal(red.length, 1, "손절이 안 걸렸는데 빨간 배너가 없다");
+  assert.equal(red[0].msg, slAlerts.naked("BTCUSDT", "LONG"));
+
+  assert.equal(h.rec.slRaises.length, 1, "orderWatcher를 안 거쳤다 — 아무도 못 거둔다");
+  assert.equal(h.rec.slRaises[0].symbol,  "BTCUSDT");
+  assert.equal(h.rec.slRaises[0].posSide, "LONG");
+  await h.close();
+});
+
+test("숏 시장가면 **SHORT**로 적어 둔다 (롱 배너를 거두면 안 된다)", async () => {
+  const h = await mountRoute("routes/order.js", {
+    binance: okOrder(),
+    placeTPSL: async () => ({ tp: null, sl: null,
+                              failed: [{ type: "SL", error: "-2021" }] }),
+  });
+  await h.request("POST", "/", body({ orderType: "MARKET", side: "SELL", tp: 60000, sl: 75000 }));
+  assert.equal(h.rec.slRaises[0].posSide, "SHORT");
+  await h.close();
+});
+
+test("TP만 실패하면 빨간 배너도, 적어 두는 것도 없다 (손절은 걸렸다)", async () => {
+  const h = await mountRoute("routes/order.js", {
+    binance: okOrder(),
+    placeTPSL: async () => ({ tp: null, sl: { orderId: "SL1" },
+                              failed: [{ type: "TP", error: "-2021" }] }),
+  });
+  await h.request("POST", "/", body({ orderType: "MARKET" }));
+  assert.equal(h.rec.alerts.filter(a => a.level === "critical").length, 0);
+  assert.equal(h.rec.slRaises.length, 0);
+  await h.close();
+});

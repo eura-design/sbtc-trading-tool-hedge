@@ -118,8 +118,10 @@ test("TP/SL 가격이 없으면 **멈추고 빨간 배너를 띄운다** (지어
     assert.equal(r.saved.status, "TPSL_MISSING", JSON.stringify(missing));
     assert.equal(r.rec.placed.length, 0, "가격도 없이 주문을 걸었다");
     assert.equal(r.alerts("critical").length, 1, "빨간 배너가 없다");
-    // 문구에 **코인·방향**이 들어간다 (2026-09-04) — 체결은 코인을 바꾼 뒤에 올 수 있다
-    assert.match(r.alerts("critical")[0].msg, /BTCUSDT LONG 주문이 체결됐는데 걸어둘/);
+    // 문구에 **코인·방향**이 들어간다 (2026-09-04) — 체결은 코인을 바꾼 뒤에 올 수 있다.
+    // 2026-09-06부터 "걸어둘 가격이 없다"도 화면에는 **손절이 없다**로 말한다 —
+    // 사용자가 할 일이 다른 실패와 같기 때문이다 (왜 못 걸었는지는 로그가 답한다)
+    assert.match(r.alerts("critical")[0].msg, /BTCUSDT LONG 포지션에 손절\(SL\)이 없습니다/);
     assert.ok(r.evt("TPSL_MISSING_INFO").length, "기록을 안 남겼다");
   }
 });
@@ -136,12 +138,45 @@ test("성공하면 TPSL_PLACED로 바뀌고 경보가 없다", async () => {
   assert.ok(r.rec.updates.flat().includes("tpsl"), "프론트에 TP/SL 갱신을 안 알렸다");
 });
 
-test("성공하면 앞서 뜬 SL 실패 배너를 **거둔다**", async () => {
-  // ⚠ 안 거두면 화면은 계속 `SL 등록 실패`라고 거짓말한다 (2026-09-03 감사)
-  const r = await run();
-  const cleared = r.rec.alerts.filter(a => a.level === "clear");
-  assert.ok(cleared.length >= 1, "실패 배너를 거두지 않았다");
-  assert.ok(cleared.some(a => /111/.test(a.msg)), "그 주문의 배너를 안 거뒀다");
+test("성공하면 앞서 뜬 빨간 줄을 **띄운 글자 그대로** 거둔다", async () => {
+  // ⚠ 안 거두면 화면은 계속 `손절이 없습니다`라고 거짓말한다 (2026-09-03 감사)
+  // ⚠ **먼저 띄우고** 확인한다 — 거두는 것은 래치에 남은 문구를 되돌려주는 일이라,
+  //   안 띄운 배너는 거둘 것도 없다 (그때 헛되이 `alert-clear`를 쏘면, 포지션이
+  //   없는 3초 감시가 매 회차 빈 신호를 보내게 된다)
+  const h = await loadService("services/orderWatcher.js", { store: { "111": watching() } });
+  const raised = h.mod.raiseSlMissing("BTCUSDT", "LONG");
+  assert.equal(raised, true, "빨간 줄을 안 띄웠다");
+  const shown = h.rec.alerts.at(-1).msg;
+
+  await h.mod.onFilled("111", { avgPrice: "70000" });
+  const cleared = h.rec.alerts.filter(a => a.level === "clear").map(a => a.msg);
+  assert.ok(cleared.includes(shown),
+    `띄운 글자와 거둔 글자가 다르다 — 배너가 영영 안 닫힌다
+띄움: ${shown}
+거둠: ${cleared.join(" | ")}`);
+  await h.close();
+});
+
+test("같은 빨간 줄은 **두 번 띄우지 않는다** (소리도 한 번만 난다)", async () => {
+  const h = await loadService("services/orderWatcher.js", { store: {} });
+  assert.equal(h.mod.raiseSlMissing("BTCUSDT", "LONG"), true);
+  assert.equal(h.mod.raiseSlMissing("BTCUSDT", "LONG"), false, "같은 줄을 또 띄웠다");
+  assert.equal(h.rec.alerts.filter(a => a.level === "critical").length, 1);
+  await h.close();
+});
+
+test("코인·방향이 다르면 **다른 줄**이다 (한쪽을 거둘 때 다른 쪽이 사라지면 안 된다)", async () => {
+  const h = await loadService("services/orderWatcher.js", { store: {} });
+  h.mod.raiseSlMissing("BTCUSDT", "LONG");
+  h.mod.raiseSlMissing("BTCUSDT", "SHORT");
+  h.mod.raiseSlMissing("DOGEUSDT", "LONG");
+  assert.equal(h.rec.alerts.filter(a => a.level === "critical").length, 3);
+
+  h.mod.resolveNaked("BTCUSDT", "LONG", "closed");
+  const cleared = h.rec.alerts.filter(a => a.level === "clear");
+  assert.equal(cleared.length, 1, "한 줄만 거뒀어야 한다");
+  assert.match(cleared[0].msg, /BTCUSDT LONG/);
+  await h.close();
 });
 
 // ── 실패했을 때: 손절과 익절을 다르게 다룬다 ───────────────────────────────
@@ -205,4 +240,34 @@ test("숏 체결도 같은 길을 지난다 (주문 방향 → 포지션 방향)
   const [e] = r.evt("ENTRY_FILLED");
   assert.equal(e.posSide, "SHORT", "SELL을 SHORT로 안 읽었다");
   assert.equal(e.orderSide, "SELL");
+});
+
+// ── 배너를 거두려면 글자가 같아야 한다 (2026-09-06) ────────────────────────
+//
+// ⚠ 프론트는 **문구를 키로** 배너를 지운다(pushService.pushAlertClear 주석).
+//   그래서 띄우는 쪽과 거두는 쪽이 각자 문자열을 만들면 한 글자만 달라도 안 닫힌다.
+//   손절이 모자라다고 알리는 자리가 여섯 곳이라, 문구는 `utils/slAlerts.js` 하나가
+//   만든다 — 이 테스트들이 그게 갈리지 않는지 지킨다.
+const slAlerts = require("../utils/slAlerts");
+
+test("TP/SL 가격이 없을 때의 빨간 줄은 slAlerts가 만든 글자와 **정확히 같다**", async () => {
+  const r = await run({ info: watching({ tp: null, sl: null }) });
+  assert.equal(r.alerts("critical")[0].msg,
+    slAlerts.naked("BTCUSDT", "LONG"),
+    "띄우는 쪽과 거두는 쪽의 글자가 갈렸다 — 배너가 영영 안 닫힌다");
+});
+
+test("SL 등록에 실패했을 때도 **같은 글자**를 쓴다 (빨간 줄은 방향마다 하나다)", async () => {
+  // ⚠ 2026-09-06 이전에는 실패 경로마다 문구가 달라서, 손절이 정말 없으면
+  //   실패 문구와 무방비 문구가 **동시에** 떠 빨간 줄이 두 개였다
+  const r = await run({
+    placeTPSL: async () => ({ tp: { orderId: "TP1" }, sl: null,
+                              failed: [{ type: "SL", error: "-2021" }] }),
+  });
+  assert.equal(r.alerts("critical")[0].msg, slAlerts.naked("BTCUSDT", "LONG"));
+});
+
+test("숏도 그 방향의 문구를 쓴다 (롱 배너를 거두면 안 된다)", async () => {
+  const r = await run({ info: watching({ side: "SELL", closeSide: "BUY", tp: null, sl: null }) });
+  assert.equal(r.alerts("critical")[0].msg, slAlerts.naked("BTCUSDT", "SHORT"));
 });

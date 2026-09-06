@@ -11,6 +11,9 @@ const express = require("express");
 
 const RESOLVE = (rel) => require.resolve(path.join(__dirname, "..", "..", rel));
 
+// 목이 아니라 **진짜**를 쓰되, 목을 붙잡고 있어서 mount마다 다시 읽어야 하는 모듈
+const RELOAD_WITH_MOCKS = ["store/entryRecords.js"];
+
 // ⚠ **incomeLogger 목만 프로세스 내내 남긴다.** `close.js`가 청산 2.5초 뒤
 //   `setTimeout`에서 지연 require를 하는데, 그때는 테스트가 이미 끝나 목을 걷어낸
 //   뒤다 → 진짜 모듈이 올라와 **실제 서명을 시도한다**. 걷어내지 않는 것이 정답이다.
@@ -32,6 +35,7 @@ function makeRecorder() {
     presetCancels: [],    // cancelPresetTPSL()
     kindChecks: [],       // assertCancelKind()
     udsStarts: 0,         // startUserDataStream()
+    slRaises: [],         // raiseSlMissing() — 라우트가 띄운 "손절 없음" 빨간 줄
     placed: [],           // placeTPSL()
     tpslChecks: [],       // checkExistingTPSL()
     storeWrites: [],      // store.set() 이력 (덮어쓰기 전 값도)
@@ -162,6 +166,17 @@ async function mountRoute(routeRel, opts = {}) {
     "services/orderWatcher.js": {
       verifyImmediateFill: (...a) => { rec.verifies.push(a); },
       startUserDataStream: async () => { rec.udsStarts++; },
+      // ⚠ 라우트는 **이 통로로만** 빨간 줄을 띄운다 (2026-09-06).
+      //   여기 없으면 `undefined`를 부르게 되어 그 경로가 테스트에서만 터진다.
+      //   진짜는 문구까지 만들어 띄우므로 목도 그렇게 한다 — 안 그러면
+      //   "빨간 줄이 떴나"를 보는 테스트가 라우트의 경보를 못 본다
+      raiseSlMissing: (symbol, posSide) => {
+        rec.slRaises.push({ symbol, posSide });
+        rec.alerts.push({ level: "critical",
+          msg: require("../../utils/slAlerts").naked(symbol, posSide) });
+        return true;
+      },
+      resolveNaked: (symbol, posSide, reason) => { rec.slRaises.push({ symbol, posSide, reason }); },
       start: () => {}, stop: () => {}, watchAccount: async () => {},
       reconcileWithBinance: async () => {}, accountStatus: () => ({}),
       udsStatus: () => ({}),
@@ -201,6 +216,15 @@ async function mountRoute(routeRel, opts = {}) {
     try { id = RESOLVE(rel); } catch { continue; }
     require.cache[id] = { id, filename: id, loaded: true, exports: exportsObj, children: [], paths: [] };
     injected.push(id);
+  }
+
+  // ⚠ **목을 붙잡고 있는 모듈도 캐시에서 지운다** (2026-09-06).
+  //   `store/entryRecords.js`는 최상단에서 `require("./pendingOrders")`를 붙잡는다.
+  //   안 지우면 **앞 테스트가 쓰던 store 대역**을 계속 들고 있어서, 이번 테스트가
+  //   심어 둔 기록이 그 모듈에는 안 보인다 (실측: 새 테스트 5개가 그렇게 틀렸다).
+  //   목 목록에 넣어 대역으로 바꾸지 않는 이유는 **진짜 판정 규칙을 검산해야** 하기 때문이다
+  for (const rel of RELOAD_WITH_MOCKS) {
+    try { delete require.cache[RESOLVE(rel)]; } catch { /* 없으면 그만 */ }
   }
 
   // 라우트는 캐시를 지우고 새로 읽는다 (앞선 테스트가 남긴 것을 쓰지 않게)
@@ -244,6 +268,9 @@ async function mountRoute(routeRel, opts = {}) {
       delete require.cache[id];
     }
     if (routeId) delete require.cache[routeId];
+    for (const rel of RELOAD_WITH_MOCKS) {
+      try { delete require.cache[RESOLVE(rel)]; } catch { /* 없으면 그만 */ }
+    }
   });
 
   return { request, rec, close, store: map, mocks };

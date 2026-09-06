@@ -23,36 +23,18 @@ const router  = express.Router();
 //   영영 복구 대상에서 빠진다.
 // ※ 분할 SL을 새로 걸어도 표시는 **남는다** — 분할은 "일부만 덮겠다"는 선택이라,
 //   복구가 전량 손절을 대신 걸어 주는 것이 그 선택과 어긋난다
-// ※ 무방비 배너(3초 감시)는 **그대로 뜬다.** 손절이 없다는 사실 자체는 알려야 한다 —
-//   표시가 막는 것은 "말없이 다시 거는 것"뿐이다
-const ENTRY_STATUS = new Set(["WATCHING", "FILLED", "TPSL_PLACED", "TPSL_PARTIAL", "TPSL_MISSING"]);
-
-/**
- * 그 심볼·그 사이드의 **진입 기록**을 고친다. `patch(info)`가 `null`을 돌려주면
- * 그 기록은 건너뛴다 (바꿀 것이 없다는 뜻).
- */
-function patchEntryRecords(symbol, positionSide, patch) {
-  let n = 0;
-  for (const [orderId, info] of store.entries()) {
-    if (store.symbolOf(orderId) !== symbol) continue;
-    if (!ENTRY_STATUS.has(info.status)) continue;
-    if (sideToPosition(info.side) !== positionSide) continue;
-    const next = patch(info);
-    if (!next) continue;
-    store.set(String(orderId), next);
-    n++;
-  }
-  return n;
-}
-
-function markSlRemoved(symbol, positionSide, removed) {
-  return patchEntryRecords(symbol, positionSide, (info) => {
-    if (removed ? !!info.slRemovedAt : !info.slRemovedAt) return null;   // 이미 그 상태
-    const next = { ...info };
-    if (removed) next.slRemovedAt = Date.now(); else delete next.slRemovedAt;
-    return next;
-  });
-}
+//
+// ⚠ **2026-09-06부터 이 표시가 무방비 배너도 막는다** (사용자 요청). 전에는
+//   "말없이 다시 거는 것"만 막고 빨간 줄은 그대로 떴다.
+//   표시를 붙이는 곳은 여기(아래 `DELETE /`)뿐이고, 거두는 곳은 셋이다:
+//     · `PUT /api/tpsl`  — 손절을 다시 걸었다 (아래)
+//     · `orderWatcher.resolveNaked(…, "closed")` — 그 포지션이 닫혔다
+//     · `orderWatcher.resolveNaked(…, "sl")`     — 손절이 다시 보인다
+//   뒤 둘이 없으면 그 방향은 기록이 지워질 때까지(7일) 조용해진다
+//
+// 읽고 쓰는 함수는 `store/entryRecords.js`에 있다 — 이 라우트와 `orderWatcher`가
+// **같은 규칙**으로 같은 기록을 다뤄야 해서 한 곳에 모았다
+const { patchEntryRecords, markSlRemoved } = require("../store/entryRecords");
 
 // ── 체결된 포지션의 TP/SL을 옮기면 **기록도 같이 갱신한다** (2026-09-04) ────
 //

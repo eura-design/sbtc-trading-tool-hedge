@@ -193,3 +193,99 @@ test("거래소 조회가 통째로 실패해도 터지지 않는다", async () 
   assert.ok(r.evt("RECOVERY_FAILED").length, "실패를 안 남겼다");
   assert.equal(r.rec.placed.length, 0);
 });
+
+// ── 1단계가 보는 코인의 범위 (2026-09-06) ──────────────────────────────────
+//
+// ⚠ 예전엔 1단계가 `openOrders`를 **BTCUSDT로만** 불렀다. 그래서 우리 기록에 없는
+//   다른 코인의 미체결 지정가는 재시작 뒤 store에 등록되지 않았고, 그게 체결돼도
+//   `orderWatcher.onFilled`가 첫 줄(`if (!info) return`)에서 그냥 돌아가
+//   **체결되는 순간의 알림이 없었다.**
+
+/** 심볼마다 다른 미체결 목록을 주는 거래소 대역 — 부른 심볼을 `seen`에 적는다 */
+const perSymbol = (openBySymbol, { positions = [], fail = [] } = {}) => {
+  const seen = [];
+  const fn = async (method, p, params) => {
+    if (p === "/fapi/v3/positionRisk") return { data: positions };
+    if (p === "/fapi/v2/positionRisk")
+      return { data: positions.filter(x => x.symbol === params?.symbol) };
+    if (p.includes("openAlgoOrders")) return { data: [] };
+    if (p.includes("openOrders")) {
+      seen.push(params?.symbol);
+      if (fail.includes(params?.symbol)) throw new Error("timeout");
+      return { data: openBySymbol[params?.symbol] ?? [] };
+    }
+    if (p === "/fapi/v1/order") return { data: { status: "NEW" } };
+    return { data: [] };
+  };
+  fn.seen = seen;
+  return fn;
+};
+
+/** 미체결 진입 LIMIT 한 건 (거래소가 주는 모양) */
+const openEntry = (symbol, orderId, over = {}) => ({
+  orderId, symbol, type: "LIMIT", status: "NEW",
+  side: "BUY", positionSide: "LONG", price: "70000", origQty: "0.01", ...over,
+});
+
+test("기록에 있는 코인을 **전부** 조회한다 (기본 심볼만 보지 않는다)", async () => {
+  const bn = perSymbol({});
+  await run({
+    binance: bn,
+    store: {
+      "E1": filledRec({ symbol: "ETHUSDT" }),
+      "D1": filledRec({ symbol: "DOGEUSDT" }),
+    },
+  });
+  const asked = [...new Set(bn.seen)].sort();
+  assert.deepEqual(asked, ["BTCUSDT", "DOGEUSDT", "ETHUSDT"],
+    "우리가 주문을 걸어 둔 코인을 빠뜨리고 물어봤다");
+});
+
+test("심볼을 **주고** 부른다 — 안 주면 가중치가 1이 아니라 40이다", async () => {
+  const bn = perSymbol({});
+  await run({ binance: bn, store: { "E1": filledRec({ symbol: "ETHUSDT" }) } });
+  assert.ok(bn.seen.length > 0, "openOrders를 한 번도 안 불렀다");
+  assert.ok(bn.seen.every(s => !!s), "심볼 없이 부른 호출이 있다");
+});
+
+test("다른 코인의 미체결 주문도 등록되고, **그 코인으로** 적힌다 (회귀)", async () => {
+  const r = await run({
+    binance: perSymbol({ ETHUSDT: [openEntry("ETHUSDT", 777)] }),
+    store: { "E1": filledRec({ symbol: "ETHUSDT" }) },
+  });
+  const w = r.rec.storeWrites.find(x => x.id === "777");
+  assert.ok(w, "다른 코인의 미체결 주문을 store에 등록하지 않았다");
+  assert.equal(w.info.symbol, "ETHUSDT",
+    "ETH 주문이 BTCUSDT 기록으로 적혔다 — 취소·조회가 엉뚱한 심볼로 나간다");
+  assert.equal(w.info.status, "WATCHING");
+});
+
+test("다른 코인의 분할 TP도 **그 코인으로** 적힌다", async () => {
+  const r = await run({
+    binance: perSymbol({
+      ETHUSDT: [openEntry("ETHUSDT", 888, { side: "SELL", positionSide: "LONG" })],
+    }),
+    store: { "E1": filledRec({ symbol: "ETHUSDT" }) },
+  });
+  const w = r.rec.storeWrites.find(x => x.id === "888");
+  assert.ok(w, "청산 방향 LIMIT을 등록하지 않았다");
+  assert.equal(w.info.status, "SPLIT_TP");
+  assert.equal(w.info.symbol, "ETHUSDT");
+});
+
+test("한 코인의 조회가 실패해도 **나머지 단계는 계속 돈다**", async () => {
+  // ETH 조회만 실패시킨다. 그래도 BTC의 무방비 포지션은 3단계가 잡아야 한다
+  const r = await run({
+    binance: perSymbol({}, {
+      positions: [pos("BTCUSDT", "LONG", 0.01, 70000)],
+      fail: ["ETHUSDT"],
+    }),
+    store: { "E1": filledRec() , "E2": filledRec({ symbol: "ETHUSDT" }) },
+  });
+  const q = r.evt("QUERY_FAILED").filter(l => l.what === "openOrders");
+  assert.equal(q.length, 1, "실패한 조회를 안 남겼다");
+  assert.equal(q[0].symbol, "ETHUSDT");
+  assert.ok(r.evt("NAKED_POSITION").length,
+    "한 코인의 조회 실패로 무방비 안전망까지 멈췄다");
+  assert.equal(r.rec.udsStarts, 1, "실시간 연결을 안 열었다");
+});

@@ -3,6 +3,7 @@ const { binance, cancelOrder, placeTPSL, checkExistingTPSL, cancelPresetTPSL } =
 const { isStopOrder, isFullClose, coversPosition, orderQtyOf, triggerPriceOf,
   isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES } = require("../utils/orderKind");
 const store          = require("../store/pendingOrders");
+const { markSlRemoved, isSlRemoved } = require("../store/entryRecords");
 const symbolInfo     = require("./symbolInfo");
 const { parseBigInt } = require("../utils/bigIntJson");
 const { goneSides }   = require("../utils/positionDiff");
@@ -73,17 +74,52 @@ function fmtQty(q, symbol) {
   try { return symbolInfo.roundQty(q, symbol); }
   catch { return Number(q).toFixed(3); }
 }
-// ⚠ **문구에 심볼이 들어간다** (2026-09-02). 문구가 곧 배너의 키라서
-//   (pushService.pushAlertClear 주석), 심볼이 없으면 ETH 경보를 거두는 순간
-//   BTC 경보까지 같이 사라진다
+// ⚠ **문구는 `utils/slAlerts.js` 하나가 만든다** (2026-09-06). 여기서 직접 쓰지 말 것 —
+//   손절이 모자라다고 알리는 자리가 여섯 곳(진입 직후 실패 · 가격 없음 · 재시도 소진 ·
+//   재등록 실패 · 3초 감시 · 60초 점검)인데, 문구가 곧 배너의 키라서
+//   (pushService.pushAlertClear 주석) 한 곳만 글자가 달라도 그 배너는 영영 안 닫힌다
 const nakedMsg = (symbol, side, partialQty = 0, posAmt = null) =>
   partialQty > 0 && posAmt
-    ? `⚠ ${symbol} ${side} 손절이 포지션의 일부만 덮습니다 (${fmtQty(partialQty, symbol)} / ${fmtQty(posAmt, symbol)})`
-    : `⚠ ${symbol} ${side} 포지션에 SL이 없습니다`;
+    ? slAlerts.naked(symbol, side, fmtQty(partialQty, symbol), fmtQty(posAmt, symbol))
+    : slAlerts.naked(symbol, side);
 
 // 무방비 상태를 세는 키 — **심볼마다 따로**여야 한다.
 // side만으로 세면 BTC가 덮이는 순간 ETH의 카운트까지 지워진다
 const nakedKey = (symbol, side) => `${symbol}|${side}`;
+
+/**
+ * 손절이 모자란 상태를 알린다 — **코인·방향마다 빨간 줄 하나**.
+ *
+ * ⚠ 여기가 빨간 줄을 띄우는 **유일한 자리**다 (2026-09-06 통합). 전에는 여섯 곳이
+ *   각자 `pushAlert`를 불렀고 문구도 제각각이라, 손절이 정말 없으면 화면에
+ *   **빨간 줄이 두 개** 떴다 (실패 문구 + 무방비 문구). 하나가 해소돼도 나머지가
+ *   남아 거짓말을 했다.
+ *
+ * 규칙 셋:
+ *   · 이미 **같은 글자**가 떠 있으면 아무것도 하지 않는다 (중복 방지)
+ *   · 상태가 달라져 **글자가 바뀌면** 옛 줄을 거두고 새 줄을 띄운다.
+ *     ⚠ 래치가 문구 갱신까지 막고 있던 적이 있다 (2026-08-24 실측):
+ *       분할 손절이 발동해 덮인 수량이 0.003 → 0이 됐는데 배너는 계속
+ *       "(0.003 / 0.004)"이라, 읽는 사람은 0.003은 덮여 있다고 믿는다
+ *   · **처음 본 시각(`at`)은 유지한다** — 해소될 때 찍는 "몇 초나 없었나"의 기준이다
+ *
+ * @param at 처음 무방비를 본 시각 (3초 감시가 세어 둔 값). 없으면 지금
+ * @returns 배너를 실제로 띄웠으면 true (부르는 쪽이 로그를 남길지 정한다)
+ */
+function raiseNaked(symbol, side, msg, at = null) {
+  const key    = nakedKey(symbol, side);
+  const warned = nakedWarned.get(key);
+  if (warned?.msg === msg) return false;          // 같은 줄이 이미 떠 있다
+  if (warned) push.pushAlertClear(warned.msg);    // 글자가 바뀌었다 — 옛 줄부터 거둔다
+  nakedWarned.set(key, { msg, at: warned?.at ?? at ?? Date.now() });
+  push.pushAlert("critical", msg);
+  return true;
+}
+
+/** 손절이 없다고 알린다 — 수량을 모르는 자리(진입 직후 실패 등)가 부른다 */
+function raiseSlMissing(symbol, posSide) {
+  return raiseNaked(symbol, posSide, nakedMsg(symbol, posSide));
+}
 
 // 경보 해소 — 래치를 풀고, 이미 띄운 배너가 있으면 거둔다
 // (안 거두면 20ms 만에 해결된 경보가 몇 시간씩 화면에 남는다 — 그게 08-22 신고였다)
@@ -102,8 +138,21 @@ const nakedKey = (symbol, side) => `${symbol}|${side}`;
 // ⚠ **없어진 원인은 적지 않는다** (2026-08-24 사용자 확정). 이 환경에서는 계정 스트림이
 //   이벤트를 한 건도 안 보내서(health의 `uds.events: 0`) 누가 취소했는지 알 근거가 없다.
 //   바이낸스 앱에서 지운 것과 우리 화면에서 지운 것을 구분할 수 없으므로 **관측한 사실만** 적는다
+//
+// ⚠ **"일부러 지웠다"는 표시를 여기서 거둔다** (2026-09-06). 그 표시는 무방비 배너를
+//   침묵시키는데, 스스로 없어지지 않는다 — 포지션이 닫혀도 기록은 7일(store 정리 주기)
+//   남는다. 안 거두면 **다음에 진짜로 손절이 빠져도 그 방향이 계속 조용하다.**
+//   거두는 조건은 둘뿐이고, 둘 다 "사용자의 그 선택이 끝난 시점"이다:
+//     · `closed` — 그 포지션이 닫혔다 (손절 없이 가겠다던 그 포지션이 없다)
+//     · `sl`     — 손절이 다시 보인다 (우리 화면으로 걸었든 바이낸스 앱에서 걸었든)
+//   `removed`(사용자가 방금 지웠다)로 불릴 때는 **거두지 않는다** — 그게 표시의 목적이다
 function resolveNaked(symbol, side, reason = "sl", detail = {}) {
-  const key    = nakedKey(symbol, side);
+  const key = nakedKey(symbol, side);
+  // ⚠ **아래 early return보다 먼저 한다.** 배너가 안 떠 있어도 표시는 남아 있을 수 있다
+  if (reason === "closed" || reason === "sl") {
+    const n = markSlRemoved(symbol, side, false);
+    if (n) log("SL_REMOVED_MARK_CLEARED", { symbol, posSide: side, reason, records: n });
+  }
   const warned = nakedWarned.get(key);
   if (!warned) return;
   nakedWarned.delete(key);
@@ -114,16 +163,17 @@ function resolveNaked(symbol, side, reason = "sl", detail = {}) {
 }
 
 /**
- * 그 주문의 **SL 실패 배너를 전부 거둔다** (2026-09-03).
+ * 그 주문의 방향에 떠 있는 빨간 줄을 거둔다 — 손절이 걸린 것을 확인한 자리가 부른다.
  *
- * ⚠ 예전엔 거두는 곳이 아예 없었다 — reconcile이 나중에 성공해도 화면에는
- *   `SL 등록 실패`가 그대로 남아 거짓말을 했다. 무방비 경보(resolveNaked)는
- *   이미 이렇게 거두고 있었는데 이쪽만 빠져 있었다.
- * ⚠ 세 문구를 다 거둔다 — 어느 경로로 떴는지 여기서는 알 수 없다.
- *   안 떠 있는 것을 거두는 건 무해하다 (프론트가 목록에서 못 찾고 넘어간다)
+ * ⚠ 주문번호로 부르는 이유는 부르는 쪽(onFilled·reconcile)이 그것만 들고 있기 때문이다.
+ *   기록이 이미 지워져 방향을 모르면 **아무것도 거두지 않는다** — 방향을 모른 채
+ *   양쪽을 다 거두면 멀쩡히 무방비인 반대쪽 배너까지 지운다.
+ *   그 경우는 3초 감시가 다음 회차에 제대로 판정한다
  */
 function clearSlAlerts(orderId) {
-  for (const msg of slAlerts.allFor(orderId)) push.pushAlertClear(msg);
+  const info = store.get(orderId);
+  if (!info?.side) return;
+  resolveNaked(store.symbolOf(orderId), sideToPosition(info.side), "sl");
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -285,11 +335,12 @@ async function onFilled(orderId, executionData) {
   if (!info.tp || !info.sl) {
     log("TPSL_MISSING_INFO", { level: "error", orderId });
     store.set(orderId, { ...info, status: "TPSL_MISSING", ...fillMeta });
-    // ⚠ **어느 코인의 어느 방향인지 적는다** (2026-09-04 사용자 요청). 체결은 코인을
-    //   바꾼 뒤에 올 수 있어 화면과 다를 수 있다. 그리고 `TP/SL 가격 없음`은 뜻이
-    //   어려웠다 — 지금 상태는 **손절이 없는 포지션**인데 그게 안 드러났다.
-    //   주문번호는 화면에서 뺀다: 19자리라 읽을 수 없고, 로그에 이미 남는다
-    push.pushAlert("critical", `⚠ ${store.symbolOf(orderId)} ${sideToPosition(info.side)} 주문이 체결됐는데 걸어둘 TP/SL 가격이 없습니다 — 직접 걸어 주세요`);
+    // ⚠ **화면에는 "손절이 없다"고만 말한다** (2026-09-06 통합). 걸어둘 가격이 없다는
+    //   것은 서버 사정이고, 사용자가 할 일은 다른 실패와 똑같이 "직접 걸어라" 하나다.
+    //   왜 못 걸었는지는 바로 위 `TPSL_MISSING_INFO`가 로그에 남긴다.
+    //   ⚠ 이 상태는 **스스로 낫지 않는다** — 60초 정합은 tp/sl이 있는 기록만 다시 건다
+    raiseNaked(store.symbolOf(orderId), sideToPosition(info.side),
+      nakedMsg(store.symbolOf(orderId), sideToPosition(info.side)));
     push.pushUpdate(["position", "balance"]);
     return;
   }
@@ -309,8 +360,8 @@ async function onFilled(orderId, executionData) {
       errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })), tp: info.tp, sl: info.sl });
 
     if (slFailed) {
-      const msg = slAlerts.retryExhausted(orderId);
-      push.pushAlert("critical", msg);   // 이벤트는 위 TPSL_PARTIAL이 이미 남겼다
+      // 이벤트는 위 TPSL_PARTIAL이 이미 남겼다 — 여기는 화면만 담당한다
+      raiseSlMissing(store.symbolOf(orderId), sideToPosition(info.side));
     }
     if (tpFailed) {
       // notice = 금색 토스트 — SL은 걸렸고 익절만 빠진 상태다 (pushService 참고).
@@ -605,7 +656,7 @@ async function runReconcile() {
                 failed: tpsl.failed.map(f => f.type),
                 errors: tpsl.failed.map(f => ({ type: f.type, msg: f.error })) });
               if (tpsl.failed.some(f => f.type === "SL")) {
-                push.pushAlert("critical", slAlerts.reRegisterFailed(orderId));
+                raiseSlMissing(store.symbolOf(orderId), orderPosSide);
               }
             }
           }
@@ -622,6 +673,10 @@ async function runReconcile() {
       if (!open) { resolveNaked(RSYM, side, "closed"); continue; }
       const first = await checkExistingTPSL(side, RSYM);
       if (first.hasSL) { resolveNaked(RSYM, side, "sl", { price: first.slPrice }); continue; }
+      // ⚠ **사용자가 일부러 지웠으면 알리지 않는다** (2026-09-06 사용자 요청).
+      //   3초 감시의 같은 판정과 규칙이 하나여야 한다 — 여기만 빠지면 감시가
+      //   조용히 넘긴 것을 60초 뒤 이 점검이 대신 띄운다
+      if (isSlRemoved(RSYM, side)) { resolveNaked(RSYM, side, "removed"); continue; }
       // 위 retryable이 이번 사이클에 고칠 예정이면 중복 경보를 내지 않는다
       const willRetry = retryable.some(([, o]) => closeToPosition(o.closeSide) === side);
       // ⚠ **3초 감시가 이 사이드를 이미 세고 있으면 양보한다** (2026-08-24).
@@ -651,11 +706,14 @@ async function runReconcile() {
         continue;
       }
 
+      // ⚠ **찾는 것은 여기가, 띄우는 것은 `raiseNaked`가 한다** (2026-09-06).
+      //   60초 점검은 3초 감시가 멈췄을 때를 받치는 눈이라 그대로 두되, 배너를 띄우는
+      //   자리는 한 곳이어야 한다 — 두 곳이 각자 띄우면 문구·래치가 갈린다
       const msg = nakedMsg(RSYM, side, second.slPartialQty, second.posAmt);
-      nakedWarned.set(nakedKey(RSYM, side), { msg, at: Date.now() });
-      log("NAKED_POSITION", { level: "error", posSide: side, detectedBy: "reconcile",
-        slPartialQty: second.slPartialQty ?? 0, posAmt: second.posAmt ?? null });
-      push.pushAlert("critical", msg);
+      if (raiseNaked(RSYM, side, msg)) {
+        log("NAKED_POSITION", { level: "error", posSide: side, detectedBy: "reconcile",
+          slPartialQty: second.slPartialQty ?? 0, posAmt: second.posAmt ?? null });
+      }
     }
 
     if (!relevant.length) return;
@@ -840,6 +898,8 @@ function watchedSymbols(positions) {
   //   통째로 빠진다 → checkNakedFast가 안 불리고 → **배너가 영영 안 걷힌다.**
   //   여기 넣어 두면 다음 회차에 포지션 0으로 판정돼 `resolveNaked(..., "closed")`가
   //   돌고, 그러면 스스로 목록에서 빠진다
+  //   ※ 진입 직후 SL 등록에 실패해서 뜬 배너도 여기 함께 걸린다 — 2026-09-06에
+  //     빨간 줄을 `nakedWarned` 하나로 합쳤기 때문이다 (전에는 별도 목록이 필요했다)
   for (const k of nakedWarned.keys())  out.add(k.split("|")[0]);
   for (const k of nakedStrikes.keys()) out.add(k.split("|")[0]);
   return out;
@@ -1066,6 +1126,23 @@ function checkNakedFast(symbol, positions, regular, algos) {
 
     if (busy.has(side)) { nakedStrikes.delete(key); continue; }     // 지금 거는 중이다
 
+    // ── 사용자가 **일부러 지웠으면 알리지 않는다** (2026-09-06 사용자 요청) ──────
+    //
+    // 진입은 손절이 필수라(`middleware/validate`), 손절 없이 들고 가려면 차트에서
+    // `×`로 지우는 것이 유일한 길이다. 그 선택을 두고 빨간 줄을 계속 띄우면
+    // **사용자가 배너를 무시하는 습관이 든다** — 진짜 사고 때 안 보게 된다.
+    //
+    // ⚠ 조용해지는 것은 **그 포지션, 그 구간뿐이다.** 표시는 포지션이 닫히거나
+    //   손절이 다시 보이면 `resolveNaked`가 거둔다. 안 거두면 다음에 진짜로 손절이
+    //   빠져도 조용하다 — 그래서 거두는 두 조건이 이 기능의 절반이다
+    // ⚠ 이미 떠 있던 배너도 함께 거둔다: "일부만 덮습니다"가 떠 있는 동안 그 부분
+    //   손절을 지우면, 지운 순간부터는 사용자가 고른 상태다
+    if (isSlRemoved(symbol, side)) {
+      nakedStrikes.delete(key);
+      resolveNaked(symbol, side, "removed");
+      continue;
+    }
+
     const partialQty = stops.filter(o => !isFullClose(o))
       .reduce((sum, o) => sum + orderQtyOf(o), 0);
     const msg = nakedMsg(symbol, side, partialQty, amt);
@@ -1081,15 +1158,12 @@ function checkNakedFast(symbol, positions, regular, algos) {
     //   **"0.003 은 덮여 있구나"로 읽혀 없느니만 못하다.**
     //
     // ⚠ 문구가 **같으면 아무것도 하지 않는다** — 중복 방지는 그대로다.
-    //   달라졌을 때만 옛 배너를 거두고 새로 띄운다 (프론트는 문구를 키로 지운다)
-    const warned = nakedWarned.get(key);
-    if (warned) {
-      if (warned.msg === msg) continue;
-      push.pushAlertClear(warned.msg);
-      nakedWarned.set(key, { msg, at: warned.at });   // 시작 시각은 처음 그대로 둔다
-      log("NAKED_CHANGED", { level: "error", symbol, posSide: side, detectedBy: "watch",
-        slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
-      push.pushAlert("critical", msg);
+    //   달라졌을 때만 옛 배너를 거두고 새로 띄운다 (그 판정은 `raiseNaked`가 한다)
+    if (nakedWarned.has(key)) {
+      if (raiseNaked(symbol, side, msg)) {
+        log("NAKED_CHANGED", { level: "error", symbol, posSide: side, detectedBy: "watch",
+          slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
+      }
       continue;
     }
 
@@ -1112,10 +1186,11 @@ function checkNakedFast(symbol, positions, regular, algos) {
     //    끝까지 안 되면 그때 알린다
     if (n < NAKED_ALARM_STRIKES) continue;
 
-    nakedWarned.set(key, { msg, at: since });   // 띄운 시각이 아니라 **처음 본 시각**
-    log("NAKED_POSITION", { level: "error", symbol, posSide: side, detectedBy: "watch",
-      slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
-    push.pushAlert("critical", msg);
+    // 시작 시각은 띄운 시각이 아니라 **처음 본 시각**이다 (해소될 때 찍는 초의 기준)
+    if (raiseNaked(symbol, side, msg, since)) {
+      log("NAKED_POSITION", { level: "error", symbol, posSide: side, detectedBy: "watch",
+        slPartialQty: partialQty ?? 0, posAmt: amt ?? null });
+    }
   }
 }
 
@@ -1248,4 +1323,11 @@ function stop() {
   stopPolling();
 }
 
-module.exports = { startUserDataStream, stop, onFilled, verifyImmediateFill, resolveOrphans, udsStatus, accountStatus };
+// ⚠ `raiseSlMissing`은 **라우트가 빨간 줄을 띄우는 유일한 통로**다 (routes/order.js).
+//   `push.pushAlert("critical", …)`를 라우트에서 직접 부르지 말 것 — 그러면 배너의
+//   래치(`nakedWarned`)에 안 남아 아무도 거두지 못한다
+// ⚠ `checkNakedFast`는 **테스트가 부르라고** 내보낸다 (2026-09-06). 서버 코드에서는
+//   `runWatchAccount`만 부른다 — 여기가 "빨간 줄을 띄울지 말지"를 정하는 자리인데
+//   3초 타이머 안에 숨어 있어 검산할 방법이 없었다
+module.exports = { startUserDataStream, stop, onFilled, verifyImmediateFill, resolveOrphans,
+  udsStatus, accountStatus, raiseSlMissing, resolveNaked, checkNakedFast };
