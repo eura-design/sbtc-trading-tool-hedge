@@ -103,7 +103,9 @@ tools/
   logq.js                  로그 조회 (--since/--count/--sum/--event/--level/--day/--grep/--summary)
   backup.js                백업 조회·되돌리기 (--list/--show/--restore-files)
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
-  splitTp / orderKind / side / round.test.js   돈이 걸린 순수 함수부터
+  splitTp / orderKind / side / round / recoverMatch / slAlerts   돈이 걸린 순수 함수부터
+  orderRoute / closeRoute / tpslRoute / recoveryService / orderWatcher   라우트·서비스
+  nakedAlert.test.js       **빨간 줄이 언제 뜨고 언제 안 뜨는가** (일부러 지운 손절 포함)
 logs/  backups/  daily_summary.jsonl  income_cursor.json  pending_orders.json  .env
 ```
 
@@ -198,7 +200,9 @@ components/
     ScaleInCard / SplitTPCard / SplitSLCard / cardControls.jsx
 
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
-  splitLevels / calc / equity / price / decimals   돈이 걸린 순수 함수
+  splitLevels / calc / equity / price / decimals / coordUtils / rsi   돈이 걸린 순수 함수
+  shiftYDomain.test.js     화면 이동·휠의 세로 범위 계산 (로그는 곱셈이다)
+  logScale.test.js         로그 눈금의 바닥값 — 1달러 미만 코인이 화면에서 사라지지 않는가
   paperFills.test.js       페이퍼 체결 규칙 — **"모르면 불리하게"**가 지켜지는지
   deriveStructure.test.js  수동 구조 CHoCH 판정
   chochMirror.test.js      **자동 ZZ와 수동 구조가 같은 답을 내는지** (규칙이 두 벌이다)
@@ -244,12 +248,16 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
   호출부가 직접 넣은 `symbol`이 이긴다
 - ⚠ 수량 자릿수를 `toFixed(3)`으로 쓰지 말 것 — `utils/qty.js`가 심볼 단위를 따른다
 - ⚠ **수량·가격을 절대값으로 비교하지 말 것.** 기준은 그 심볼의 `stepSize`/`minQty`/`tickSize`다.
-  526개 중 **392개(75%)가 수량 단위 1**이라 BTC 스케일 상수는 다수에서 틀린다:
+  528개 중 **394개(74%)가 수량 단위 1**이라 BTC 스케일 상수는 다수에서 틀린다
+  (2026-09-06 실측. 상장·폐지로 숫자는 조금씩 움직이지만 "대다수가 1"은 그대로다):
   `수량 > 100`(상한) → 금액으로 / `qty >= 0.001`(하한) → `minQty`로 /
   `손절 거리 < 0.1` → `tickSize`로
 - **최소 수량과 최소 금액은 별개다** — 거래소가 둘 다 본다. `calcPosition`이 둘 다 넘긴다.
   실측: DOGE는 minQty 1(=$0.2)인데 최소 금액이 $5라 **진짜 최소는 25개**,
-  BTC도 minQty 0.001(=$72)로는 최소 금액 $100에 미달한다
+  BTC는 2026-09-06 실측 최소 금액이 **$50**이라 minQty 0.001(=$70)로도 통과한다 —
+  ⚠ 이 값은 거래소가 바꾼다. 그래서 코드는 숫자를 박아 두지 않고 `exchangeInfo`를 읽는다.
+  ※ `symbolInfo.js`의 SEED(못 받았을 때의 대비값)에는 아직 `minNotional: "100"`이 남아 있다 —
+    조회에 실패한 동안에만 쓰이고, 그때는 필요보다 큰 수량을 요구한다
 - ⚠ **가격을 `d3.format(",.0f")`로 찍지 말 것** — `utils/price.js`가 호가 단위를 따른다.
   DOGE(0.2)에서 축·크로스헤어·현재가가 전부 `$0`이 됐던 것이 그 때문이다.
   **돈(잔고·손익·수수료)은 반대다** — USDT라 `,.2f`가 맞고 호가 단위와 무관하다
@@ -302,8 +310,11 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
 - store(`pending_orders.json`)에는 **거래소가 알 수 없는 것만** 담는다 —
   체결 시 걸 tp/sl, 플랜 박스, 등록 당시 비율, 주문 단계(WATCHING→…)
 - 포지션이 닫힌 뒤에는 store를 힌트로 쓴다 (`limitKind`의 3번째 인자)
-- 밖에서 낸 주문도 화면에 뜨고 취소·이동이 된다.
-  단 트레일링 스톱과 BTCUSDT 외 심볼은 보이지 않는다
+- 밖에서 낸 주문도 화면에 뜨고 취소·이동이 된다 — **지금 고른 심볼의 것만** 보인다
+  (심볼을 바꾸면 그 코인 것이 보인다. 2026-09-02 전에는 BTCUSDT뿐이었다).
+  ⚠ **트레일링 스톱은 어느 심볼에서도 안 보인다** — `routes/tpsl.js`의 `TYPES`가
+    `STOP(_MARKET)`·`TAKE_PROFIT(_MARKET)`만 고르고, `position.js`는 LIMIT만 본다.
+    있는 것을 없다고 보여주는 유일한 경우다
 
 ### 주문 상태 흐름
 ```
@@ -357,6 +368,12 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
 
 ### 일일 손실 한도
 - 한도: 당일 시작 총자본(walletBalance − todayPnl)의 4%, UTC 0시 리셋
+  ⚠ **UTC 0시 = 한국시간 오전 9시다.** 한도가 세는 "오늘"은 오전 9시~다음날 오전 9시이고,
+    **자정에 리셋되지 않는다** (`todayStartUTC`가 `setUTCHours(0,0,0,0)`). 바이낸스가
+    손익을 그렇게 주므로 우리도 맞춘다 — 한국시간 자정으로 세면 거래소가 아는 오늘과
+    달라져 한도가 헐거워진다.
+  ⚠ 그래서 **로그의 하루(로컬)와 한도의 하루(UTC)는 9시간 어긋난 다른 창이다.**
+    하루 요약의 손익과 화면의 일일 손실이 안 맞아 보이면 그 때문이다
 - 백엔드 `checkDailyLoss()`가 `POST /api/order` 앞단에서 차단
 - 프론트 `orderSlice.executeOrder`도 조회 후 remaining ≤ 0이면 차단
 
@@ -519,7 +536,7 @@ Auto Structure Zigzag / Custom Structure Zigzag
   ETH 2019-11-27 / DOGE 2020-07-10. 하나로 박으면 늦게 상장된 코인에서 빈 캔들이 재생된다.
   세션 최대 90일
 - 연습 청산가의 유지증거금률도 심볼별이다 (`/fapi/v1/leverageBracket` 1구간) —
-  BTC 0.004 / DOGE 0.0065, 작은 코인은 0.1까지 **25배 차이**다
+  BTC 0.004 / DOGE 0.0065, 작은 코인은 **0.1667까지 — 41배 차이**다 (2026-09-06 실측)
 - ⚠ `replay/`만 상대 import에 `.js` 확장자 — node로 직접 검산하기 위해서다
 
 ---
@@ -541,6 +558,12 @@ Auto Structure Zigzag / Custom Structure Zigzag
 - `boot`은 부팅마다 새 id — `SERVER_STOP` 없이 boot만 바뀌었으면 비정상 종료다
 - 터미널에는 `warn`/`error`만. 파일에 남긴 내용을 그대로 렌더링한다(`toTerm`)
 - 조회: `node backend/tools/logq.js --since 7d --count` / `--sum income` / `--event X` / `--summary`
+- **시각 기준** (2026-09-06에 맞췄다):
+  · 파일 이름·`--day`·하루 요약 → **로컬 날짜** (파일이 로컬 자정에 바뀐다, `logStore.localDate`)
+  · `logq`가 찍는 시각 → **로컬 시각** (`fmtTs`). 꼬리 줄에 기준을 적는다
+  · 파일에 저장되는 `ts`(숫자)·`iso`(문자열) → **UTC 그대로.** 원본은 시간대에 휘둘리면 안 된다
+  ⚠ 전에는 표시만 UTC였다. 그래서 화면에 `09-03 23:51`로 보이는 사건이
+    `--day 2026-09-03`에는 없었다 (로컬로는 09-04 08:51이라 09-04 파일에 있었다)
 
 ### 데이터가 사는 곳
 
