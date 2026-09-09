@@ -28,8 +28,11 @@ import { LockMark } from "./LockMark";
 //      되살리지 말 것. 되살리려면 deriveStructure의 liveSegment 계산,
 //      structRenderState의 `_liveSegment`, 여기 소유자 판정(liveOwnerId)과 렌더,
 //      hitDetection의 끝점 클릭, cursorRules, legDebug가 전부 다시 필요하다.
-//      ※ 그 결과 **점선은 마지막으로 확정된 꼭짓점까지만 간다** — 현재 봉에 닿지 않는다.
-//        자동 이어그리기는 진행 중 봉을 일부러 빼기 때문이다(structAutoPivots 참고).
+//      ※ 그 결과 **점선은 마지막 꼭짓점까지만 간다** — 현재 봉에 닿을 때도 있고 아닐
+//        때도 있다. 자동 ZZ 지표의 선이 끝나는 자리와 같은 자리다 (2026-09-09).
+//        ⚠ 2026-08-26~09-09 사이에는 `autoPivotsAfter`가 맨 끝에 "잠정 꼭짓점"을 하나
+//          붙여 늘 현재 봉까지 닿게 했는데, 그 점이 자동 ZZ에는 없어서 두 지표의
+//          CHoCH가 갈렸다. 되살리지 말 것 (structAutoPivots.js의 그 자리 주석 참고).
 //
 // [R4] liveCandles는 candlesRef.current다. candles prop으로 바꾸지 말 것 —
 //      진행 중 봉의 고가/저가가 낡아 자동 이어그리기 판정이 한 봉 뒤처진다.
