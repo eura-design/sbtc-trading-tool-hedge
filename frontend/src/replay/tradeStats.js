@@ -122,16 +122,7 @@ export function computeTradeStats(trades = [], startBalance = 0) {
   return s;
 }
 
-/** 자본 곡선 — 스파크라인용 (지금은 미사용, 통계 검산에 쓴다) */
-export function equityCurve(trades = [], startBalance = 0) {
-  const out = [{ t: trades[0]?.t ?? 0, equity: startBalance }];
-  let equity = startBalance;
-  for (const r of trades) {
-    if (r.kind === "funding") equity -= r.pay;
-    else if (r.kind === "open") equity -= r.fee;
-    else if (r.kind === "close") equity += r.pnl - r.fee;
-    else continue;
-    out.push({ t: r.t, equity });
-  }
-  return out;
-}
+// ⚠ 여기 있던 `equityCurve`(자본 곡선)는 **2026-09-26에 지웠다.** 자기 주석이
+//   "지금은 미사용, 통계 검산에 쓴다"였는데 **그리는 화면도, 쓰는 테스트도 없었다.**
+//   스파크라인을 만들 때 다시 쓰면 된다 — 계산은 장부(trades)를 순서대로 훑으며
+//   funding은 빼고, open은 수수료를 빼고, close는 손익에서 수수료를 빼 더하는 것뿐이다

@@ -574,4 +574,7 @@ function limitDir(price, marketPrice) {
   return price <= marketPrice ? "down" : "up";
 }
 
-export const _test = { crossedDown, crossedUp, reached, limitDir, TAKER_FEE, MAKER_FEE };
+// ⚠ 여기 있던 `_test` 창구(crossedDown·crossedUp·reached·limitDir·수수료율)는
+//   **2026-09-26에 지웠다** — `tests/paperFills.test.js`는 `PaperBroker`만 가져가고
+//   이 창구를 쓰는 테스트가 하나도 없었다. 있는 채로 두면 "체결 판정에 단위 테스트가
+//   붙어 있다"는 착각을 준다. 그 함수들을 직접 시험하고 싶어지면 그때 다시 열 것

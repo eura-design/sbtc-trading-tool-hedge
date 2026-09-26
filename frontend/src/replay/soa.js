@@ -27,8 +27,6 @@ export function createSoA(n) {
   };
 }
 
-export const EMPTY_SOA = createSoA(0);
-
 /**
  * Binance kline 행 배열 → SoA.
  * 행 형식: [openTime, open, high, low, close, volume, closeTime, ...]

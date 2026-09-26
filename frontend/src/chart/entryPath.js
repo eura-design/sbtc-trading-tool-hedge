@@ -41,11 +41,6 @@ export function entryPathPoints(steps, entryPrice, xOf, yOf, IW) {
   return pts;
 }
 
-/** SVG polyline의 points 속성 문자열 */
-export function entryPathString(...args) {
-  return entryPathPoints(...args).map(p => `${p.x},${p.y}`).join(" ");
-}
-
 /**
  * 계단을 **가로/세로로 쪼갠다.** 세로 단차를 가로선과 다르게 그리기 위한 것이다.
  *

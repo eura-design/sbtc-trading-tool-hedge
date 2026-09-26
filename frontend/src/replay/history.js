@@ -20,7 +20,7 @@
 // ⚠ 상대 import의 `.js` 확장자는 의도적이다 — klines.js 상단 주석 참고
 import { tfMs } from "./timeframes.js";
 import { fetchRange, FIRST_LISTING_MS } from "./klines.js";
-import { concatSoA, sliceSoA, indexOfTime, soaFromRows, createSoA } from "./soa.js";
+import { concatSoA, sliceSoA, indexOfTime, createSoA } from "./soa.js";
 
 const DB_NAME    = "hadge-replay";
 // v2 (2026-08-26) — 청크에 `at`(받아 둔 시각)을 붙이고 그 인덱스를 만들었다.
@@ -210,28 +210,12 @@ export async function getRange(symbol, tf, startMs, endMs, { signal, onProgress 
   return sliceSoA(all, indexOfTime(all, start), indexOfTime(all, endMs));
 }
 
-/**
- * 끝 시각에서 뒤로 `bars`봉. 리플레이 시작 시점을 고르면 그 이전 워밍업 구간을
- * 받는 용도다 — 지표(ATR·EMA·RSI)가 첫 봉부터 제대로 나오려면 앞쪽 여유가 필요하다.
- */
-export function getLastBars(symbol, tf, endMs, bars, opts) {
-  return getRange(symbol, tf, endMs - tfMs(tf) * bars, endMs, opts);
-}
-
-/**
- * 캐시 통째로 비우기 — 저장 형식을 바꿨을 때 쓴다.
- * ※ 평소 정리는 `trimCache()`가 쓰기 뒤에 알아서 한다 (상한 MAX_CHUNKS).
- */
-export async function clearCache() {
-  memory.clear();
-  const db = await openDB();
-  if (!db) return;
-  await new Promise((resolve) => {
-    const tx = tx0(db, "readwrite");
-    tx.objectStore(STORE).clear();
-    tx.oncomplete = resolve;
-    tx.onerror = resolve;
-  });
-}
-
-export const _internals = { chunkSpan, chunkIdxOf, chunkKey, CHUNK_BARS, soaFromRows };
+// ⚠ 여기 있던 `getLastBars`·`clearCache`·`_internals`는 **2026-09-26에 지웠다** —
+//   422개 export를 훑어 "아무 데서도 안 쓰이는 것"을 골라낸 결과다.
+//   · `getLastBars` (끝 시각에서 뒤로 N봉) — 부르는 곳이 없었다. 필요하면 `getRange`에
+//     `endMs - tfMs(tf) * bars`를 넘기면 그만이라 한 줄짜리 편의 함수였다
+//   · `clearCache` (캐시 통째로 비우기) — 주석은 "저장 형식을 바꿨을 때 쓴다"였는데,
+//     그 일은 `openDB`의 `onupgradeneeded`가 **이미 자동으로 한다**
+//     (`DB_VERSION`을 올리면 objectStore를 지우고 다시 만든다). 부르는 곳도 없었다
+//   · `_internals` (테스트용 창구) — 쓰는 테스트가 없었다
+//   되살릴 거면 쓰는 곳을 같이 만들 것. 안 쓰는 창구는 "테스트가 있다"는 착각만 준다

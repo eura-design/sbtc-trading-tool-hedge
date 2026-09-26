@@ -82,11 +82,6 @@ export function fibLevelsOf(fb) {
   return Array.isArray(fb?.levels) ? fb.levels : FIB_DEFAULT_LEVELS;
 }
 
-/** 레벨 목록 → [{ r, price }] */
-export function fibLevelPrices(fib, levels, isLog = false) {
-  return levels.map(r => ({ r, price: fibPrice(fib.p1, fib.p2, r, isLog) }));
-}
-
 // ※ 두 앵커의 x 픽셀(`fibXs`)은 hitDetection.js에 있다 — tsToIdx가 필요해서다. 위 주석 참고
 
 // 라벨 문자열 — 비율만 [F3]. 0.236처럼 이미 짧은 십진수라 그대로 찍으면 된다

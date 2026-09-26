@@ -8,13 +8,27 @@
 
 import { deriveStructure, normalizeStructurePoints } from "./deriveStructure";
 import { lsGet } from "../utils/storage";
+import { drawingKey } from "../replay/drawingKeys";
+import { useStore } from "../store";
 
 const fmtT = t => new Date(t).toLocaleString("ko-KR", {
   month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
 });
 
+/**
+ * ⚠ 저장 키는 **`drawingKey()` 하나가 만든다** — 직접 `"structures"`로 읽지 말 것.
+ *   2026-09-02에 도형이 심볼별로 나뉘면서 키가 `BTCUSDT:structures` 꼴이 됐고,
+ *   리플레이 중이면 `replay_` 접두사까지 붙는다. 여기서만 옛 키를 읽고 있어서
+ *   이 도구가 **늘 "저장된 수동 구조가 없습니다"만 뱉었다** (2026-09-26에 고쳤다).
+ *   지금 보고 있는 심볼·모드를 스토어에서 읽으므로 화면과 같은 것을 본다.
+ */
+function structKey() {
+  const s = useStore.getState();
+  return drawingKey("structures", s.replayOn, s.symbol);
+}
+
 function readStructures() {
-  try { return JSON.parse(lsGet("structures") || "[]"); }
+  try { return JSON.parse(lsGet(structKey()) || "[]"); }
   catch { return []; }
 }
 
@@ -25,7 +39,7 @@ function readStructures() {
 export function structDebug(id = null) {
   const list = readStructures().filter(s => id == null || s.id === id);
   if (!list.length) {
-    console.log("%c저장된 수동 구조가 없습니다 (localStorage.structures)", "color:#f6465d");
+    console.log(`%c저장된 수동 구조가 없습니다 (localStorage["${structKey()}"])`, "color:#f6465d");
     return "";
   }
 
