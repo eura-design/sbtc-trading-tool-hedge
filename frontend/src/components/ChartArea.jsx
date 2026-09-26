@@ -98,7 +98,7 @@ export function ChartArea({
     selectedBox, setSelectedBox,
     opacityPopup, setOpacityPopup,
     closeConfirm, setCloseConfirm,
-    cancelTpsl, cancelScaleIn, cancelSplitTp, cancelPartialSl, closePosition, deleteBox, cancelScaleLayer,
+    cancelTpsl, cancelScaleIn, cancelSplitTp, cancelPartialSl, closePosition, deleteBox,
     orderPick, setOrderPick, pickDraft, setPickDraft, placeSplitOrders,
   } = useStore(useShallow(s => ({
     drawings: s.drawings, setDrawing: s.setDrawing,
@@ -113,7 +113,6 @@ export function ChartArea({
     closeConfirm: s.closeConfirm, setCloseConfirm: s.setCloseConfirm,
     cancelTpsl: s.cancelTpsl, cancelScaleIn: s.cancelScaleIn,
     cancelSplitTp: s.cancelSplitTp, cancelPartialSl: s.cancelPartialSl, closePosition: s.closePosition,
-    cancelScaleLayer: s.cancelScaleLayer,
     deleteBox: s.deleteBox,
     // 차트에서 분할 주문 걸기 (2026-08-27)
     orderPick: s.orderPick, setOrderPick: s.setOrderPick,
@@ -134,15 +133,12 @@ export function ChartArea({
     if (b.kind === "partial_sl")            { setCloseConfirm(null); cancelPartialSl(b.orderId); return; }
     // 미체결 진입 주문 취소 — 주문일 뿐이라 한 번에 지운다 (진입 라벨의 ×만 2회 확인).
     // deleteBox가 그 사이드의 pending을 orderId로 취소하고 박스가 있으면 같이 정리한다
-    // 스케일 층 하나 취소 — 주문일 뿐이라 한 번에 지운다 (대기선과 같은 규칙).
-    // ⚠ **박스는 남긴다.** 층 몇 개를 지워도 계획 자체는 살아 있고, 마지막 층이 사라지면
-    //   App의 동기화가 박스를 정리한다
-    if (b.kind === "scale_layer")            { setCloseConfirm(null); cancelScaleLayer(b.orderId); return; }    if (b.kind === "pending")                { setCloseConfirm(null); deleteBox(b.side);          return; }
+    if (b.kind === "pending")                { setCloseConfirm(null); deleteBox(b.side);          return; }
     if (b.kind === "entry") {
       if (closeConfirm === b.side) { setCloseConfirm(null); closePosition(b.side, b.size, false); }
       else setCloseConfirm(b.side); // 1회차 — ✓ 로 바뀌며 확인 대기
     }
-  }, [closeConfirm, setCloseConfirm, cancelTpsl, cancelScaleIn, cancelSplitTp, cancelPartialSl, closePosition, deleteBox, cancelScaleLayer]);
+  }, [closeConfirm, setCloseConfirm, cancelTpsl, cancelScaleIn, cancelSplitTp, cancelPartialSl, closePosition, deleteBox]);
 
   // 헷지모드: 양쪽 모두 점유(포지션 or pending)됐을 때만 신규 박스 드로잉 차단
   const { hasLong, hasShort, hasPos, drawLocked } = derivePositionFlags(position);

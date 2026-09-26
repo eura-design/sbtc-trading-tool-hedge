@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
 import { PALETTE } from "../../constants";
-import { posEntryRows, TPSL_BTN, closeBtnRect, qtyBadgeRect, pctBadgeRect, pendingEntryLines, scaleLayerLines }
+import { posEntryRows, TPSL_BTN, closeBtnRect, qtyBadgeRect, pctBadgeRect, pendingEntryLines }
   from "../../chart/hitDetection";
 import { tsToIdx } from "../../chart/scales";
 import { entryPathSegments } from "../../chart/entryPath";
@@ -299,7 +299,6 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
   const [hoveredSplitTp, setHoveredSplitTp] = useState(null);
   const [hoveredPartialSl, setHoveredPartialSl] = useState(null);
   const [hoveredPending, setHoveredPending] = useState(null);
-  const [hoveredLayer, setHoveredLayer] = useState(null);   // 스케일 층 대기선
   const [hoveredAddBtn, setHoveredAddBtn]   = useState(null);
   // × 버튼 호버는 한 곳에 모은다 — 화면에 한 번에 하나만 호버되므로 키 하나면 충분하다
   const [hoveredClose, setHoveredClose]     = useState(null);
@@ -474,24 +473,6 @@ export const PositionLines = memo(function PositionLines({ position, tpsl, dragT
         />
       ))}
 
-      {/* 스케일 진입의 층 대기선 (2026-09-27).
-          ⚠ **박스가 있어도 그린다** — 박스는 진입선 하나만 보여주는데 층은 N개다.
-            안 그리면 걸려 있는 주문을 화면에서 볼 수도 취소할 수도 없다.
-          핸들 글자는 `층`이고 몇 번째인지 함께 적는다 (`3/5`) — 대기선(`대기`)과
-          한눈에 갈라져야 한다 */}
-      {scaleLayerLines({ position, yScale, IH }).map(p => (
-        <PriceLineMarker
-          key={`scale_layer-${p.orderId}`}
-          yPx={p.y} color={p.side === "LONG" ? CL : CS} IW={IW} IH={IH}
-          handleChar={p.scaleCount ? `${(p.scaleIndex ?? 0) + 1}/${p.scaleCount}층` : "층"}
-          dashed draggable={false}
-          isActive={hoveredLayer === p.orderId} isDragging={false}
-          qtyText={fmtQtyBadge(p.qty, qStep)}
-          onHandleEnter={() => setHoveredLayer(p.orderId)}
-          onHandleLeave={() => setHoveredLayer(null)}
-          {...closeProps(`scale_layer-${p.orderId}`)}
-        />
-      ))}
       {/* 분할 TP */}
       {splitTpList.map(o => {
         const isDragging = dragSplitTp?.orderId === o.orderId;

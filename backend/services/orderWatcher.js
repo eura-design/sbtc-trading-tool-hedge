@@ -757,49 +757,6 @@ async function runReconcile() {
     }
     if (scaleIns.length) push.pushUpdate(["position"]);
 
-    // ── 끝난 스케일 묶음의 남은 층 취소 (2026-09-27) ───────────────────────
-    //
-    // 스케일 플랜은 진입 층을 N개 걸어 둔다. 롱이면 층이 전부 손절선 **위**에 있으므로
-    // 손절에 닿을 때는 이미 다 체결돼 있다 — 그 경로에는 남는 층이 없다.
-    // 남는 것은 **익절이나 수동 청산**으로 닫혔을 때다: 위로 가서 닫혔으니 아래 층은
-    // 비어 있다. 그대로 두면 가격이 내려올 때 **원치 않는 포지션이 혼자 열린다**
-    // (기타/주의사항.txt의 "최악" 항목과 같은 모양이다).
-    //
-    // ⚠ **한 층이라도 체결된 묶음만** 치운다. 아직 아무 층도 체결되지 않았다면 그건
-    //   그냥 걸어 둔 계획이므로 건드리면 안 된다 — 포지션이 없는 것이 정상이다.
-    //   판정 근거는 같은 묶음에 **WATCHING이 아닌 기록이 하나라도 있는가**다
-    //   (체결되면 상태가 FILLED·TPSL_*로 바뀌어 `relevant`에서 빠진다 → store 전체를 본다).
-    // ⚠ 사전 등록 TP/SL도 같이 내린다 (`dropPreset`) — 수량을 적어 건 트리거 주문은
-    //   포지션이 0이어도 거래소에 남는다
-    const startedGroups = new Set();
-    for (const [, info] of store.entries()) {
-      if (info.scaleGroup && info.status !== "WATCHING") startedGroups.add(info.scaleGroup);
-    }
-    const staleLayers = [];
-    for (const [orderId, o] of relevant) {
-      if (o.status !== "WATCHING" || !o.scaleGroup) continue;
-      if (!startedGroups.has(o.scaleGroup)) continue;          // 아직 한 층도 안 체결됐다
-      const v = viewOf(store.symbolOf(orderId));
-      if (!v) continue;                                        // 조회 실패 — 손대지 않는다
-      const posSide = o.side ? sideToPosition(o.side) : null;
-      const gone = posSide ? (posSide === "LONG" ? !v.hasLong : !v.hasShort)
-                           : !(v.hasLong || v.hasShort);
-      if (gone) staleLayers.push([orderId, o.scaleGroup, posSide || "?"]);
-    }
-    for (const [orderId, scaleGroup, posSide] of staleLayers) {
-      try {
-        await cancelOrder({ orderId, symbol: store.symbolOf(orderId) });
-      } catch (e) {
-        log("ORDER_CANCEL_FAILED", { level: "warn", orderId, kindOf: "SCALE_LAYER",
-          ctx: "reconcile", err: errOf(e) });
-      }
-      await dropPreset(orderId);
-      store.delete(orderId);
-      log("ORDER_CANCELED", { kindOf: "SCALE_LAYER", orderIds: [String(orderId)], count: 1,
-        posSide, scaleGroup, ctx: "reconcile" });
-    }
-    if (staleLayers.length) push.pushUpdate(["position"]);
-
     const toCheck = relevant.filter(([orderId]) => !openIds.has(String(orderId)));
     if (toCheck.length > 0) {
       const results = await Promise.allSettled(

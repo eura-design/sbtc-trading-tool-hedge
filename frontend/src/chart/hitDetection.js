@@ -288,26 +288,6 @@ export function pendingEntryLines({ position, drawings, yScale, IH }) {
   return out;
 }
 
-
-// 스케일 진입의 **층 대기선** (2026-09-27).
-//
-// ⚠ `pendingEntryLines`와 달리 **박스가 있어도 그린다.** 박스는 진입선 하나만 보여주는데
-//   층은 N개다 — 안 그리면 걸려 있는 주문을 화면에서 볼 수도, 취소할 수도 없다.
-// ⚠ 층은 끌어서 옮기지 않는다 (draggable=false). 옮기려면 취소 후 재등록이라 주문번호가
-//   바뀌고, 그러면 묶음 번호와 사전 등록 손절까지 다시 이어야 한다. ×로 취소만 된다
-export function scaleLayerLines({ position, yScale, IH }) {
-  if (!yScale || !Array.isArray(position?.entryLayers)) return [];
-  const out = [];
-  for (const L of position.entryLayers) {
-    if (!(L?.price > 0)) continue;
-    const y = yScale(L.price);
-    if (!seen(y, IH)) continue;
-    out.push({ side: L.posSide, orderId: L.orderId, price: L.price, qty: L.qty, y,
-               scaleIndex: L.scaleIndex, scaleCount: L.scaleCount,
-               close: closeBtnRect(y) });
-  }
-  return out;
-}
 export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, partialSls, drawings, yScale, IW, IH }) {
   if (!yScale) return [];
   const out = [];
@@ -328,9 +308,6 @@ export function markerCloseButtons({ position, tpsl, scaleInOrders, splitTps, pa
   // 진입 대기선의 × — 주문 취소일 뿐이라 한 번에 지운다 (진입 라벨의 ×만 2회 확인)
   for (const p of pendingEntryLines({ position, drawings, yScale, IH }))
     out.push({ kind: "pending", side: p.side, orderId: p.orderId, ...p.close });
-  // 스케일 층 — 박스가 있어도 그려지므로 ×도 늘 있어야 한다
-  for (const p of scaleLayerLines({ position, yScale, IH }))
-    out.push({ kind: "scale_layer", side: p.side, orderId: p.orderId, ...p.close });
   // 진입 라벨의 ×는 우측 행에서 가져온다 — **밀린 행이면 밀린 자리**여야 클릭이 맞는다.
   // 맨 뒤에 두는 이유: 겹칠 일은 없지만(가로 위치가 반대편) 파괴적인 항목을 마지막에
   for (const r of posEntryRows(position, tpsl, yScale, IW, IH)) {

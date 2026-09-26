@@ -51,15 +51,6 @@ router.get("/", async (req, res) => {
     // 헷지모드: LONG/SHORT 각각 독립 pending 추적
     let longPending  = null;
     let shortPending = null;
-    // ── 스케일 플랜의 층은 `pending`이 아니라 여기로 간다 (2026-09-27) ──────
-    //
-    // ⚠ `pending`은 **사이드당 1건**이다. 층을 거기 담으면 마지막 하나만 화면에 보이고,
-    //   나머지는 걸려 있는데 차트에 대기선이 없어 **취소할 길이 없어진다.**
-    //   그래서 층은 배열로 따로 준다 — `pending`의 모양은 건드리지 않는다
-    //   (그 모양에 기대는 곳이 차트·플랜 카드·재시작 복구까지 여럿이다).
-    // ⚠ 판정은 **우리 기록의 `scaleGroup`**으로 한다. 거래소는 그 층이 묶음의 일부라는
-    //   것을 모른다 — 거래소가 아는 것은 그냥 진입 방향 지정가다
-    const entryLayers = [];
     for (const o of entryOrders) {
       const stored = store.get(String(o.orderId));
       const pendingObj = {
@@ -73,18 +64,9 @@ router.get("/", async (req, res) => {
         sl:      stored?.sl ?? null,
         source:  stored ? "system" : "external",
       };
-      if (stored?.scaleGroup) {
-        entryLayers.push({ ...pendingObj, posSide: o.positionSide,
-          scaleGroup: stored.scaleGroup,
-          scaleIndex: stored.scaleIndex ?? null,
-          scaleCount: stored.scaleCount ?? null });
-        continue;
-      }
       if (o.positionSide === "LONG") longPending = pendingObj;
       else if (o.positionSide === "SHORT") shortPending = pendingObj;
     }
-    // 가격 순으로 — 롱은 위에서 아래, 숏은 아래에서 위 (찍은 순서와 같다)
-    entryLayers.sort((a, b) => (a.posSide === "LONG" ? b.price - a.price : a.price - b.price));
     const pending = (longPending || shortPending)
       ? { long: longPending, short: shortPending }
       : null;
@@ -153,7 +135,6 @@ router.get("/", async (req, res) => {
       pending,
       scaleInOrders,
       funding,
-      entryLayers,
       symbol,
       symbolLeverage,
     });

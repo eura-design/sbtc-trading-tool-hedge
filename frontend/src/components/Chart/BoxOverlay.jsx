@@ -1,7 +1,4 @@
 import { memo } from "react";
-// 층 가격은 실주문과 **같은 함수**가 정한다 (utils/scalePlan.js)
-import { scaleLayerPrices } from "../../utils/scalePlan";
-import { useStore } from "../../store";
 import { tsToIdx } from "../../chart/scales";
 
 /**
@@ -26,9 +23,6 @@ import { tsToIdx } from "../../chart/scales";
  *   같은 사이드 포지션 유무로 감출 마커가 더는 없다. 되살리려면 그 배선부터 다시 필요하다.
  */
 export const BoxOverlay = memo(function BoxOverlay({ drawing, scales, IW, selected, candles }) {
-  // 층 선을 **호가 단위까지 같게** 그리기 위해 필요하다 (실주문과 같은 자리여야 한다).
-  // ⚠ 훅은 아래 조기 반환보다 앞이어야 한다 (React 규칙)
-  const qTick = useStore(s => s.symbolFilters.tick);
   if (!drawing || !scales || !candles?.length) return null;
   const { xScale, yScale } = scales;
 
@@ -59,21 +53,6 @@ export const BoxOverlay = memo(function BoxOverlay({ drawing, scales, IW, select
       <line x1={x1} x2={x2} y1={tPx}  y2={tPx}  stroke={color}   strokeWidth={1.5} />
       <line x1={x1} x2={x2} y1={ePx}  y2={ePx}  stroke="#f0b90b" strokeWidth={2} />
       <line x1={x1} x2={x2} y1={slPx} y2={slPx} stroke="#f6465d" strokeWidth={1.5} />
-      {/* 스케일 진입의 층 선 미리보기 (2026-09-27).
-          박스의 `layers`가 2 이상일 때만 뜬다. 층 개수를 바꾸면 바로 따라 움직인다.
-          ⚠ 가격은 `utils/scalePlan.scaleLayerPrices` 하나가 정한다 — 실제로 나가는 주문과
-            **같은 함수**다 (미리보기와 실주문이 같은 함수를 본다는 원칙).
-          ⚠ 진입선(금색 굵은 선)과 겹치는 첫 층은 그리지 않는다 — 같은 자리에 선이 두 겹이
-            되어 굵어 보인다. 층이 있다는 사실은 나머지 선들이 이미 말한다
-          ⚠ 얇은 점선이다 — TP·SL·진입선보다 뒤로 물러나야 한다. 이 선들은 "걸 예정"일 뿐
-            아직 주문이 아니다 */}
-      {(drawing.layers ?? 1) >= 2 && scaleLayerPrices({
-        entry: drawing.entry, sl: drawing.sl, count: drawing.layers, isLong: drawing.isLong,
-        tick: qTick,
-      }).map((p, i) => i === 0 ? null : (
-        <line key={`layer-${p}`} x1={x1} x2={x2} y1={yScale(p)} y2={yScale(p)}
-          stroke="#f0b90b" strokeWidth={1} strokeDasharray="3,3" strokeOpacity={0.55} />
-      ))}
       {/* 좌우 폭 조절(2026-08-14 추가)은 **표식 없이** 세로 모서리를 그냥 잡아 끈다.
           커서가 모서리 위에서 ew-resize로 바뀌는 것이 유일한 신호다 (cursorRules).
           그립 점을 다시 넣지 말 것 — 넣었다가 같은 날 제거 요청을 받았다 */}
