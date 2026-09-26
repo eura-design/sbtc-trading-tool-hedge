@@ -123,7 +123,7 @@
   <!-- 시드머니 -->
   <div class="card">
     <div class="seed-row">
-      <label>시드머니</label>
+      <label>첫 시드머니</label>
       <span class="seed-prefix">$</span>
       <input type="number" id="seedInput" value="3000" min="1" placeholder="3000">
     </div>
@@ -132,8 +132,8 @@
   <!-- 요약 -->
   <div class="summary">
     <div class="metric">
-      <div class="label">시드머니</div>
-      <div class="value" id="sumSeed">$3,000</div>
+      <div class="label">투입 원금</div>
+      <div class="value" id="sumPrincipal">$3,000</div>
     </div>
     <div class="metric">
       <div class="label">현재 잔고</div>
@@ -463,12 +463,16 @@
     // 요약
     const last = rows.length > 0 ? rows[rows.length - 1] : null;
     const curAsset = last ? last.asset : s;
+    // 투입 원금 = 첫 시드머니 + 누적 입금. **누적 수익률·수익금의 분모와 같은 값**이라
+    // computeRows에서 그대로 꺼낸다 (여기서 다시 더하면 두 곳이 갈릴 수 있다).
+    // ⚠ 기록이 하나도 없으면 아직 입금이 없으니 첫 시드머니가 곧 투입 원금이다
+    const principal = last ? last.principal : s;
     const cumDeposit = last ? last.cumDeposit : 0;
     const cumWithdrawal = last ? last.cumWithdrawal : 0;
     const cumRate = last ? last.cumRate : 0;
     const cumProfit = last ? last.cumProfit : 0;
 
-    $('sumSeed').textContent = '$' + fmt(s);
+    $('sumPrincipal').textContent = '$' + fmt(principal);
     $('sumAsset').textContent = '$' + fmt(curAsset);
     $('sumDeposit').textContent = cumDeposit > 0 ? '$' + fmt(cumDeposit) : '$0';
     $('sumWithdraw').textContent = cumWithdrawal > 0 ? '$' + fmt(cumWithdrawal) : '$0';
