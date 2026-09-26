@@ -556,7 +556,14 @@ export const createOrderSlice = (set, get) => ({
       try {
         // ⚠ **orderId를 실어 보낸다** (2026-08-23). 사이드로만 지우면 그 사이드의 진입
         //   주문이 싹 취소된다 — 밖에서 낸 주문이 같은 사이드에 있으면 그것까지 같이 날아간다
-        await api("DELETE", "/api/orders", { side, orderId: position.pending[sideKey].orderId });
+        const r = await api("DELETE", "/api/orders", { side, orderId: position.pending[sideKey].orderId });
+        // ⚠ **응답의 `cancelled`를 본다** (2026-09-26). 백엔드는 취소 대상을 `limitKind`로
+        //   거르므로 **0건으로 성공**할 수 있다 (`routes/orders.js`가 `{ success, cancelled }`를
+        //   돌려준다). 클릭 직전에 그 주문이 체결되거나 바이낸스에서 취소된 경우가 그렇다.
+        //   그때 "취소 완료"라고 알리면 화면이 거짓말을 하고, 다음 폴링(30초)에 주문이
+        //   되돌아온다. 0건이면 **아무 말도 하지 않고 아래 로컬 정리도 건너뛴다** —
+        //   실제 상태를 그대로 두고 폴링이 진실을 가져오게 한다
+        if (!r?.cancelled) return;
         setOrderStatus({ type: "success", msg: "미체결 주문 취소 완료" });
       } catch (e) {
         setOrderStatus({ type: "error", msg: `미체결 주문 취소 실패: ${e.message}` }); return;

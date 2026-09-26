@@ -22,6 +22,7 @@ setApiSymbol("TESTUSDT");
 // ── 하네스 ─────────────────────────────────────────────────────────────────
 const calls = [];            // 나간 요청 (로그 전송은 뺀다)
 let failFor = () => null;    // 테스트마다 갈아끼운다
+let cancelledCount = 1;      // DELETE /api/orders가 돌려줄 취소 건수 (0건 경로를 시험하려고 둔다)
 
 globalThis.fetch = async (url, opt = {}) => {
   const path = String(url).replace(/^https?:\/\/[^/]+/, "");
@@ -31,6 +32,11 @@ globalThis.fetch = async (url, opt = {}) => {
   calls.push(rec);
   const fail = failFor(rec);
   if (fail) return { ok: false, status: 400, text: async () => JSON.stringify({ error: fail }) };
+  // ⚠ `DELETE /api/orders`는 실제로 **`{ success, cancelled: <건수> }`**를 돌려준다
+  //   (`backend/routes/orders.js`). 여기서 `cancelled`를 안 주면 `deleteBox`가 0건으로 보고
+  //   조기 반환해서, **성공 경로를 아무 테스트도 밟지 않는다.** 실제 모양을 흉내낼 것
+  if (rec.method === "DELETE" && path.startsWith("/api/orders"))
+    return { ok: true, status: 200, json: async () => ({ success: true, cancelled: cancelledCount }) };
   return { ok: true, status: 200, json: async () => ({ ok: true }) };
 };
 
@@ -38,6 +44,7 @@ globalThis.fetch = async (url, opt = {}) => {
 function harness(over = {}) {
   calls.length = 0;
   failFor = over.failFor ?? (() => null);
+  cancelledCount = over.cancelledCount ?? 1;
   const status = [];
   let state = {
     replayOn: false,
@@ -217,6 +224,35 @@ test("박스 삭제 — 취소가 실패하면 박스를 안 지운다", async (
   await s.deleteBox("LONG");
   assert.equal(cleared, false,
     "주문이 살아 있는데 박스만 사라졌다 — 취소할 길이 없어진다");
+});
+
+test("박스 삭제 — 취소가 되면 박스를 지우고 알린다", async () => {
+  let cleared = false;
+  const s = harness({
+    drawings: { long: { isLong: true } },
+    position: { pending: { long: { orderId: "P1" } } },
+    setDrawing: () => { cleared = true; },
+  });
+  await s.deleteBox("LONG");
+  assert.equal(cleared, true, "취소됐는데 박스가 남았다");
+  assert.equal(lastOk(s), "미체결 주문 취소 완료");
+});
+
+test("⚠ 박스 삭제 — **0건 취소**면 아무 말도 하지 않고 박스도 남긴다", async () => {
+  // 클릭 직전에 그 주문이 체결되거나 바이낸스에서 취소된 경우다. 백엔드는
+  // `{ success: true, cancelled: 0 }`으로 **성공**한다 — 그때 "취소 완료"라고 알리면
+  // 화면이 거짓말을 하고, 다음 폴링(30초)에 주문이 되돌아온다
+  let cleared = false;
+  const s = harness({
+    drawings: { long: { isLong: true } },
+    position: { pending: { long: { orderId: "P1" } } },
+    setDrawing: () => { cleared = true; },
+    cancelledCount: 0,
+  });
+  await s.deleteBox("LONG");
+  assert.equal(only("DELETE", "/api/orders").length, 1, "요청은 나갔어야 한다");
+  assert.equal(lastOk(s), "", "0건인데 '취소 완료'라고 알렸다");
+  assert.equal(cleared, false, "0건인데 박스를 지웠다 — 주문이 살아 있는데 취소할 길이 없어진다");
 });
 
 // ── 심볼 ───────────────────────────────────────────────────────────────────

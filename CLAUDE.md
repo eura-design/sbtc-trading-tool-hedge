@@ -54,7 +54,9 @@ routes/
   position.js              GET  /api/position → { long, short, pending, scaleInOrders, funding }
   order.js                 POST /api/order (진입 + TP/SL 등록, 일일 손실 가드)
                            PATCH /api/order (미체결 주문의 TP/SL 수정)
-  orders.js                DELETE /api/orders (미체결 취소)
+  orders.js                DELETE /api/orders (미체결 취소) → `{ success, cancelled: <건수> }`
+                           ⚠ **0건으로 성공할 수 있다** — 취소 대상을 `limitKind`로 거르기 때문이다.
+                             부르는 쪽은 `cancelled`를 봐야 한다 (아래 "취소는 0건일 수 있다")
   close.js                 POST /api/close (전량/부분 청산, 부분 시 분할 TP 재등록)
   tpsl.js                  GET/PUT/DELETE /api/tpsl + POST/DELETE /api/tpsl/split
   scalein.js               POST/DELETE /api/scale-in (추가 진입)
@@ -281,6 +283,19 @@ replay/                    리플레이 트레이딩
 - `기타/compound_calculator.html` — 복리 계산기 (독립 페이지)
 - `MULTI_ACCOUNT.md` — **서브계정까지 두 계정을 같이 돌리는 작업 목록** (2026-09-26 작성, 아직 착수 안 함).
   고칠 파일·줄과 결정이 안 된 것 셋이 적혀 있다. 멀티계정 이야기가 나오면 먼저 읽을 것
+- ⚠ `git stash list`에 **`stash@{0}: 2026-08-23 미커밋 작업`**이 남아 있다 (파일 9개·201줄).
+  **되살릴 것이 없다 — 2026-09-26에 201줄을 지금 코드와 한 줄씩 맞대어 확인했다.**
+  · 지정가 사전 TP/SL → `preplaceTPSL`·`TPSL_PRESET`으로 들어감 (`87595c8`, 같은 날 커밋)
+  · 외부 주문 오탐 → `utils/orderKind.js`의 `limitKind()`로 **빼내서 공유** (더 나은 형태)
+  · `recoveryService` positionSide → `:71`에서 `closeToPosition(o.side)` 폴백이라 **null 불가**
+  · `resolveMissingSplitTps` → 한 번도 커밋 안 됐지만 `reconcile`이 같은 일을 한다
+    (`orderWatcher`의 `SPLIT_TP_FILLED` → `store.delete`)
+  · 외부 주문 카드 취소 버튼 → `7b25771`이 **그 카드 자체를 없애고** 차트 대기선으로 바꿔 무의미
+  · "포지션 없어도 TP/SL 조회" → `5261f13`(08-24)에서 **일부러 뒤집혔다.** 지금은 체결 전까지
+    화면에 안 보이는 것이 정본이다 (아래 「지정가 진입의 TP/SL 사전 등록」 참고)
+  · 유일하게 빠졌던 `cancelled` 확인 → 2026-09-26에 넣었다 (위 「취소는 0건일 수 있다」)
+  ⚠ 이 stash를 `pop`하지 말 것 — 그 자리를 지금 코드가 다르게 채우고 있어 **9개 파일이
+    충돌 상태가 된다** (2026-09-26에 실제로 겪었다). 지우는 것은 사용자가 정한다
 
 ---
 
@@ -376,6 +391,19 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
   ⚠ **트레일링 스톱은 어느 심볼에서도 안 보인다** — `routes/tpsl.js`의 `TYPES`가
     `STOP(_MARKET)`·`TAKE_PROFIT(_MARKET)`만 고르고, `position.js`는 LIMIT만 본다.
     있는 것을 없다고 보여주는 유일한 경우다
+
+### 취소는 0건일 수 있다 — `cancelled`를 볼 것
+`DELETE /api/orders`는 `{ success: true, cancelled: <건수> }`를 돌려주고, **건수가 0인 채로
+성공한다.** 취소 대상을 `utils/orderKind.js`의 `limitKind()`로 거르기 때문이다 — 클릭 직전에
+그 주문이 체결되거나 바이낸스에서 취소되면 지울 것이 없다.
+
+⚠ **`success`만 보고 "취소 완료"라고 알리지 말 것.** 화면이 거짓말을 하고, 다음 폴링(30초)에
+주문이 되돌아온다. 그리고 그때 로컬 상태(플랜 박스·pending)를 지우면 **주문은 살아 있는데
+화면에서 사라져 취소할 길이 없어진다.**
+  · `orderSlice.deleteBox`가 `if (!r?.cancelled) return;`으로 막는다 (2026-09-26)
+  · 검산: `tests/orderActions.test.js`의 "0건 취소면 아무 말도 하지 않고 박스도 남긴다"
+  · ⚠ 테스트 하네스가 이 응답 모양을 흉내내야 한다 — `cancelled`를 안 주면 **성공 경로를
+    아무 테스트도 밟지 않는다** (실제로 그렇게 돼 있었다)
 
 ### 주문 상태 흐름
 ```
