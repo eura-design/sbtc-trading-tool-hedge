@@ -6,6 +6,7 @@ import { paperActions }  from "../replay/paperActions.js";
 import { riskPctFor }   from "./settingsSlice.js";
 import { boxKey }       from "./uiSlice.js";
 import { splitPlan }    from "../utils/splitLevels.js";
+import { scalePlanCalc, maxScaleLayers, DEFAULT_SCALE_LAYERS } from "../utils/scalePlan.js";
 
 // 리플레이(페이퍼) 모드면 같은 이름의 페이퍼 핸들러로 넘긴다.
 // 각 액션 첫 줄에서 한 번만 갈라지므로 아래 실거래 코드는 원래대로 읽힌다.
@@ -85,6 +86,113 @@ export const createOrderSlice = (set, get) => ({
     }
   },
 
+  /**
+   * 스케일 진입 — 진입가부터 손절가까지 층을 나눠 들어간다 (2026-09-27 사용자 요청).
+   *
+   * ⚠ `executeOrder`(단일 진입)와 **따로** 둔다. 백엔드도 라우트가 따로다 —
+   *   돈이 걸린 단일 진입 경로를 새 기능이 바꾸지 않게 하려는 것이다.
+   * ⚠ 수량 계산은 `utils/scalePlan.js` 하나가 한다 — 사이드바가 화면에 보여준 것과
+   *   **같은 함수**를 여기서도 부른다. 미리보기와 실주문이 같은 함수를 본다는 원칙
+   *   (`splitPlan`을 그렇게 쓰는 것과 같다).
+   * ⚠ 층 가격·수량을 서버가 다시 검증한다 (`middleware/validate.validateScalePlan`) —
+   *   화면 계산이 틀려도 손절선을 넘은 층은 거절된다.
+   * @returns 성공하면 true (실패는 안에서 배너로 처리한다)
+   */
+  executeScalePlan: async (isLong) => {
+    // ⚠ 연습(리플레이) 모드는 **아직 지원하지 않는다.** 페이퍼 브로커는 사이드당 진입
+    //   주문 하나만 아는데, 스케일은 N개다. 조용히 실계좌로 나가지 않도록 여기서 막는다
+    //   (api 가드도 막지만, 그때는 원인이 안 드러나는 에러가 뜬다)
+    if (get().replayOn) {
+      get().setOrderStatus({ type: "error", msg: "연습 모드에서는 스케일 진입을 지원하지 않습니다" });
+      return false;
+    }
+    const st = get();
+    const { drawings, leverage, balance, symbolFilters, setOrderStatus, setDrawing,
+            _refetchBal, _refetchPos, _refetchTpsl } = st;
+    const drawing = drawings[boxKey(isLong)];
+    if (!drawing) return false;
+
+    try {
+      const dl = await api("GET", "/api/daily-loss");
+      if (dl && dl.remaining <= 0) {
+        setOrderStatus({ type: "error", msg: "일일 손실 한도 초과 — 매매가 제한됩니다" });
+        return false;
+      }
+    } catch { /* 조회 실패 시 통과 — 서버에서 최종 차단 */ }
+
+    const riskPct = riskPctFor(st, drawing.isLong);
+    const args = {
+      capital: balance?.availableBalance ?? 0, riskPct: riskPct / 100,
+      entry: drawing.entry, sl: drawing.sl, isLong: drawing.isLong, leverage,
+      step: symbolFilters.step, minQty: symbolFilters.minQty,
+      tick: symbolFilters.tick, minNotional: symbolFilters.minNotional,
+    };
+    const count = Math.min(Math.max(2, drawing.layers ?? DEFAULT_SCALE_LAYERS),
+                           maxScaleLayers(args));
+    const plan = scalePlanCalc({ ...args, count });
+    if (!plan) {
+      setOrderStatus({ type: "error", msg: "이 층수로는 주문을 낼 수 없습니다 — 층을 줄이세요" });
+      return false;
+    }
+
+    setOrderStatus(null);
+    try {
+      const data = await api("POST", "/api/scale-plan", {
+        side:  isLongToSide(drawing.isLong),
+        entry: drawing.entry, tp: drawing.tp, sl: drawing.sl,
+        leverage,
+        layers: plan.prices.map(price => ({ price, qty: plan.perLayerQty })),
+        // 재시작 복구가 박스를 되살리는 데 쓴다 (단일 지정가 진입과 같은 모양)
+        drawing: {
+          tStart: drawing.tStart, tEnd: drawing.tEnd,
+          pTop: drawing.pTop, pBot: drawing.pBot,
+          isLong: drawing.isLong, entry: drawing.entry, tp: drawing.tp, sl: drawing.sl,
+          layers: count,
+        },
+      });
+      // ⚠ 박스에 **묶음 번호**를 적어 둔다. 층이 하나라도 살아 있으면 박스를 남기는
+      //   판정에 쓴다 (박스 하나 ↔ 주문 N개라, 단일 진입의 `orderId` 방식으로는 못 잇는다)
+      setDrawing(isLong, prev => prev ? { ...prev, scaleGroup: data.scaleGroup, layers: count } : prev);
+      // ⚠ **몇 개가 실제로 나갔는지 반드시 알린다** (`placeSplitOrders`와 같은 이유).
+      //   중간에 끊기면 화면엔 걸린 것만 보이는데 사용자는 다 나간 줄 안다
+      setOrderStatus(data.warning
+        ? { type: "error",   msg: `⚠ ${data.warning}` }
+        : { type: "success", msg: data.message || `스케일 진입 ${data.placed}층 등록 완료` });
+      setTimeout(async () => {
+        _refetchBal();
+        await _refetchPos();
+        _refetchTpsl();
+      }, 1500);
+      return true;
+    } catch (e) {
+      setOrderStatus({ type: "error", msg: `스케일 진입 실패: ${e.message}` });
+      return false;
+    }
+  },
+  /**
+   * 스케일 층 하나 취소 (차트의 층 대기선 ×).
+   *
+   * ⚠ `DELETE /api/orders`에 **주문번호를 실어** 그 하나만 지운다. 사이드로만 지우면
+   *   그 사이드의 진입 주문을 싹 다 취소한다 — 층이 여럿인 스케일에서는 계획이 통째로
+   *   날아간다 (`routes/orders.js` 머리 주석의 경고가 바로 이 경우다).
+   * ⚠ 그 라우트가 **사전 등록 TP/SL도 같이 내린다** — 층 하나를 지우면 그 층의 손절만
+   *   같이 내려가고 나머지 층은 보호된 채로 남는다 (`routes/scalePlan.js` 머리 주석).
+   * ⚠ **`cancelled` 건수를 본다.** 0건으로 성공할 수 있다 (누르기 직전에 체결됐을 때) —
+   *   그때 "취소 완료"라고 말하면 화면이 거짓말을 한다 (CLAUDE.md "취소는 0건일 수 있다")
+   */
+  cancelScaleLayer: async (orderId) => {
+    if (get().replayOn) return;   // 연습 모드에는 스케일 층이 없다
+    const { setOrderStatus, _refetchPos } = get();
+    setOrderStatus(null);
+    try {
+      const r = await api("DELETE", "/api/orders", { orderId });
+      if (!r?.cancelled) { _refetchPos(); return; }
+      setOrderStatus({ type: "success", msg: "스케일 층 취소 완료" });
+      setTimeout(() => { _refetchPos(); }, 500);
+    } catch (e) {
+      setOrderStatus({ type: "error", msg: `스케일 층 취소 실패: ${e.message}` });
+    }
+  },
   saveTpsl: async (newTp, newSl, dragSide) => {
     if (get().replayOn) return paperActions.saveTpsl(get, newTp, newSl, dragSide);
     const { position, tpsl, tpslSaving, setTpslSaving, setTpsl, setOrderStatus, setDragTpsl,

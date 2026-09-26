@@ -111,6 +111,9 @@ app.use("/api/orders",   require("./routes/orders"));
 app.use("/api/tpsl",      require("./routes/tpsl"));
 app.use("/api/stats",     require("./routes/stats"));
 app.use("/api/scale-in",   require("./routes/scalein"));
+// 스케일 진입 (진입가~손절가 층 나눠 들어가기). ⚠ 단일 진입(`/api/order`)과 **따로** 둔다 —
+//   돈이 걸린 그 길의 모양을 새 기능이 바꾸지 않게 하려는 것이다
+app.use("/api/scale-plan", require("./routes/scalePlan"));
 app.use("/api/leverage",         require("./routes/leverage"));
 app.use("/api/daily-loss",       require("./routes/dailyloss"));
 // 화면에서 일어난 일 — "왜 이 주문이 나갔나"의 절반은 프론트에 있다 (routes/log.js)

@@ -185,6 +185,28 @@ export default function App() {
       //   ※ PlanCard의 `sameSidePos` 분기(`포지션이 이미 있습니다 / 청산 후 주문 가능`)는
       //     아직 살아 있다 — 박스를 그려 둔 **뒤에** 그 사이드 포지션이 생기는 경로
       //     (외부 진입·추가 진입 등)가 남아 있어서, 그리기 가드만으로는 못 덮는다
+      // ── 스케일 플랜: 박스 하나 ↔ 주문 N개 (2026-09-27) ───────────────────
+      // 단일 진입은 박스에 `orderId`를 적어 잇지만, 스케일은 주문이 여럿이라 그 방식으로는
+      // 못 잇는다. 그래서 박스에 **묶음 번호**(`scaleGroup`)를 적고 층 목록에서 찾는다.
+      // ⚠ 아래 두 규칙은 `orderId` 규칙과 **같은 짝**이다: 층이 다 없어지면 박스를 지우고,
+      //   박스가 없는데 층이 살아 있으면 서버가 들고 있던 박스로 되살린다.
+      //   되살리는 쪽이 없으면, 주문을 낸 직후 폴링이 오기 전 이 효과가 먼저 돌 때
+      //   박스가 지워진 채로 끝난다 (단일 진입도 같은 짝으로 그 창을 메운다)
+      if (box?.scaleGroup) {
+        const alive = (position.entryLayers ?? [])
+          .some(L => L.scaleGroup === box.scaleGroup);
+        if (!alive) { setDrawing(isLong, null); continue; }
+      }
+      if (!box) {
+        const layerBox = (position.entryLayers ?? [])
+          .find(L => L.posSide === (isLong ? "LONG" : "SHORT") && L.drawing);
+        if (layerBox) {
+          const d = { ...layerBox.drawing, scaleGroup: layerBox.scaleGroup };
+          if (!d.tStart) { d.tStart = 0; d.tEnd = 0; }
+          if (!!d.isLong === isLong) { setDrawing(isLong, d); continue; }
+        }
+      }
+
       // 주문과 연결됐는데 그 사이드 pending이 사라졌다 → 박스도 정리
       if (box?.orderId && !pend)       { setDrawing(isLong, null); continue; }
       // 박스는 없는데 pending이 살아 있다 → 서버가 들고 있던 박스로 복원

@@ -6,6 +6,7 @@ import { useStore }  from "../../store";
 import { riskPctFor } from "../../store/settingsSlice";
 import { useShallow } from "zustand/react/shallow";
 import { calcPosition } from "../../utils/calc";
+import { scalePlanCalc, maxScaleLayers, scalePreview, DEFAULT_SCALE_LAYERS } from "../../utils/scalePlan";
 import { api }       from "../../api/client";
 import { useDailyLoss } from "../../hooks/useDailyLoss";
 import { useAccordion } from "../../hooks/useAccordion";
@@ -35,7 +36,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     position, tpsl, tpslSaving,
     riskPctLong, riskPctShort, setRiskPct, leverage, setLeverage, symbolFilters,
     drawMode, drawings, orderStatus, setOrderStatus,
-    liveClose, liveCloseSymbol, executeOrder, replayOn, paperBroker, replayNowMs,
+    liveClose, liveCloseSymbol, executeOrder, executeScalePlan, setDrawing, replayOn, paperBroker, replayNowMs,
     symbol, setSymbol, acctPositions,
   } = useStore(useShallow(s => ({
     balance: s.balance, balError: s.balError,
@@ -45,6 +46,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     symbolFilters: s.symbolFilters,
     drawMode: s.drawMode, drawings: s.drawings, orderStatus: s.orderStatus, setOrderStatus: s.setOrderStatus,
     liveClose: s.liveClose, liveCloseSymbol: s.liveCloseSymbol, executeOrder: s.executeOrder,
+    executeScalePlan: s.executeScalePlan, setDrawing: s.setDrawing,
     replayOn: s.replayOn, paperBroker: s.paperBroker, replayNowMs: s.replayNowMs,
     symbol: s.symbol, setSymbol: s.setSymbol, acctPositions: s.acctPositions,
   })));
@@ -199,6 +201,30 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
   const deps = [balance, drawings, riskPctLong, riskPctShort, leverage, position?.pending, symbolFilters];
   const longCalc  = useMemo(() => calcFor(drawings.long),  deps);  // eslint-disable-line react-hooks/exhaustive-deps
   const shortCalc = useMemo(() => calcFor(drawings.short), deps);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── 스케일 플랜 (2026-09-27) ────────────────────────────────────────────
+  // 박스의 `layers`가 2 이상이면 스케일 진입이다. 계산은 `utils/scalePlan.js`가 한다.
+  //
+  // ⚠ **여기서 계산해 카드에 넘긴다** (`posCalc`와 같은 방식). 카드가 직접 계산하면
+  //   자본·리스크·레버리지를 또 구독해야 하고, 그러면 한 값이 바뀔 때 두 곳이 따로 움직인다.
+  // ⚠ `maxLayers`는 **거래소 최소 금액 때문에 실제로 낼 수 있는 층수**다. 슬라이더의
+  //   최대값으로 써서 낼 수 없는 숫자를 애초에 못 넣게 한다
+  const scaleFor = (drawing) => {
+    if (!drawing || !balance) return null;
+    const risk = riskPctFor({ riskPctLong, riskPctShort }, drawing.isLong);
+    const args = {
+      capital: balance.availableBalance ?? 0, riskPct: risk / 100,
+      entry: drawing.entry, sl: drawing.sl, isLong: drawing.isLong, leverage,
+      step: symbolFilters.step, minQty: symbolFilters.minQty,
+      tick: symbolFilters.tick, minNotional: symbolFilters.minNotional,
+    };
+    const maxLayers = maxScaleLayers(args);
+    const count = Math.min(Math.max(2, drawing.layers ?? DEFAULT_SCALE_LAYERS), maxLayers);
+    const plan = scalePlanCalc({ ...args, count });
+    return { maxLayers, count, plan, preview: scalePreview(plan, leverage) };
+  };
+  const longScale  = useMemo(() => scaleFor(drawings.long),  deps);  // eslint-disable-line react-hooks/exhaustive-deps
+  const shortScale = useMemo(() => scaleFor(drawings.short), deps);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{
@@ -436,8 +462,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
         ))}
 
         {/* 플랜 카드도 사이드마다 하나 — 롱을 위에 둔다 (차트 라벨 ▲/▼와 같은 순서) */}
-        {[[true, drawings.long, longCalc, longPendingExists],
-          [false, drawings.short, shortCalc, shortPendingExists]].map(([isLong, box, calc, pend]) => box && (
+        {[[true, drawings.long, longCalc, longPendingExists, longScale],
+          [false, drawings.short, shortCalc, shortPendingExists, shortScale]].map(([isLong, box, calc, pend, sc]) => box && (
           <PlanCard
             key={isLong ? "long" : "short"}
             drawing={box} posCalc={calc} leverage={leverage}
@@ -446,6 +472,11 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
             hasPending={pend}
             onConfirm={(orderType) => executeOrder(orderType, isLong)}
             onCancel={() => onCancelOrder(isLongToPosition(isLong))}
+            scale={sc}
+            /* 층 개수는 **박스에** 적는다 — 차트가 그 값으로 층 선을 그리고,
+               새로고침해도 유지되고, 롱·숏이 서로 다른 층수를 가질 수 있다 */
+            onSetLayers={(n) => setDrawing(isLong, prev => prev ? { ...prev, layers: n } : prev)}
+            onScaleConfirm={() => executeScalePlan(isLong)}
           />
         ))}
         {/* ⚠ **박스 없는 미체결 주문 카드(OrphanPendingCard)는 제거됐다** (2026-08-23 사용자 요청).

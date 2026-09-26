@@ -37,6 +37,7 @@ function makeRecorder() {
     udsStarts: 0,         // startUserDataStream()
     slRaises: [],         // raiseSlMissing() — 라우트가 띄운 "손절 없음" 빨간 줄
     placed: [],           // placeTPSL()
+    preplaced: [],        // preplaceTPSL() — 사전 등록 인자 (층마다 수량이 다르다)
     tpslChecks: [],       // checkExistingTPSL()
     storeWrites: [],      // store.set() 이력 (덮어쓰기 전 값도)
   };
@@ -89,7 +90,13 @@ async function mountRoute(routeRel, opts = {}) {
           : { tp: { orderId: "TP1", orderType: "TAKE_PROFIT_MARKET" },
               sl: { orderId: "SL1", orderType: "STOP_MARKET" }, failed: [] };
       },
-      preplaceTPSL: async () => ({ tp: null, sl: null, failed: [] }),
+      // ⚠ 인자를 기록한다 — 스케일 진입은 **층마다 그 층의 수량으로** 사전 등록한다.
+      //   기록하지 않으면 "층 수량으로 걸었는가"를 아무 테스트도 못 본다
+      preplaceTPSL: async (args) => {
+        rec.preplaced.push(args);
+        return opts.preplaceTPSL ? await opts.preplaceTPSL(args)
+                                 : { tp: { orderId: "PSL" }, sl: { orderId: "PTP" }, failed: [] };
+      },
       cancelPresetTPSL: async (preset, sym) => { rec.presetCancels.push({ preset, symbol: sym }); },
       // 취소 대상이 기대한 종류인지 확인한다. **진짜와 같은 방식으로** —
       // 목이 주는 openOrders·openAlgoOrders에서 그 주문을 찾아 종류를 돌려준다.

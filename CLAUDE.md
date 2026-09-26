@@ -52,6 +52,9 @@ server.js                  Express 앱 설정 + 시작 + 그레이스풀 셧다�
 routes/
   balance.js               GET  /api/balance → { walletBalance, availableBalance, crossUnPnl }
   position.js              GET  /api/position → { long, short, pending, scaleInOrders, funding }
+  scalePlan.js             POST /api/scale-plan (스케일 진입 — 층 N개 + **층마다** TP/SL 사전 등록)
+                           ⚠ 단일 진입(`order.js`)과 **따로** 둔다. 층마다 손절을 거는 이유는
+                             아래 "스케일 진입" 항에 있다 — 큰 손절 하나로 되돌리지 말 것
   positions.js             GET  /api/positions → { at, items } — **계정 전체** 포지션 (하늘색 카드)
                            ⚠ 거래소를 부르지 않는다 — `accountSnapshot`의 3초 관측을 읽는다
   order.js                 POST /api/order (진입 + TP/SL 등록, 일일 손실 가드)
@@ -93,7 +96,8 @@ store/
                            + "손절을 일부러 지웠다" 표시 (markSlRemoved / isSlRemoved)
                            ⚠ `routes/tpsl.js`와 `orderWatcher`가 **같은 규칙**을 써야 해서 모았다
   trackerStore.js          기타/tracker_data.json 읽기·쓰기 (`seed`/`entries`/`autoSkip`)
-middleware/validate.js     POST /api/order 입력 검증
+middleware/validate.js     POST /api/order · /api/scale-plan 입력 검증
+                           `priceRuleError`가 가격 규칙의 **정본**이다 (둘이 같이 쓴다)
 utils/
   side.js                  헷지모드 side 매핑 (sideToPosition/positionToSide/closeToPosition/positionToClose)
   orderKind.js             미체결 LIMIT 정체 판정(limitKind) + 트리거 전량/부분 판정
@@ -118,6 +122,8 @@ tools/
   backup.js                백업 조회·되돌리기 (--list/--show/--restore-files)
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
   splitTp / orderKind / side / round / recoverMatch / slAlerts / tpslView   돈이 걸린 순수 함수부터
+  scalePlanRoute.test.js   스케일 진입 — **층마다 그 층 수량으로** 손절을 미리 거는가 ·
+                           손절선을 넘은 층을 거절하는가 · 중간 실패 시 되돌리지 않는가
   orderRoute / closeRoute / tpslRoute / positionsRoute / recoveryService / orderWatcher   라우트·서비스
   positionsRoute.test.js   계정 전체 포지션 — **거래소를 부르지 않는가** ·
                            TP/SL 분류가 `/api/tpsl`과 같은 함수를 지나는가
@@ -159,6 +165,8 @@ utils/
   decimals.js              자릿수 규칙의 **프론트 정본**. ⚠ 새로 복제하지 말 것 —
                            일곱 벌로 늘어나 그중 둘이 갈린 적이 있다 (2026-09-03)
   equity.js                unrealizedFor/totalUnrealized/totalEquity
+  scalePlan.js             스케일 진입 계산 — 층 가격·층 수량·층수 상한·미리보기 (순수 함수)
+                           ⚠ 미리보기·차트 층 선·실주문이 **이 함수들을** 같이 본다
   acctPositions.js         다른 코인 포지션 카드(하늘색) 목록 만들기 (순수 함수, import 없음)
                            ⚠ **지금 보는 코인을 뺀다** · 정렬은 **심볼 이름 순**이다
   side.js                  헷지모드 side 매핑 (+ isLongToPosition/isLongToSide)
@@ -226,6 +234,8 @@ tests/                     `npm test` (node 내장 러너 — **의존성 0**)
   splitLevels / calc / equity / price / decimals / coordUtils / rsi   돈이 걸린 순수 함수
   shiftYDomain.test.js     화면 이동·휠의 세로 범위 계산 (로그는 곱셈이다)
   logScale.test.js         로그 눈금의 바닥값 — 1달러 미만 코인이 화면에서 사라지지 않는가
+  scalePlan.test.js        스케일 진입 계산 — 손절 손실이 리스크 금액과 같은가 ·
+                           층수 상한이 맞는가 · **화면이 만든 층이 서버 검증을 통과하는가**
   acctPositions.test.js    다른 코인 포지션 카드 목록 — 지금 보는 코인을 빼는가 ·
                            정렬이 심볼 이름 순인가 (미실현 순이면 버튼이 손 아래서 움직인다)
   qtyMirror.test.js        화면 수량과 **거래소로 나가는 수량**이 같은 규칙인가
@@ -451,6 +461,59 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
 - 검산: `backend/tests/positionsRoute.test.js` · `backend/tests/tpslView.test.js` ·
   `frontend/tests/acctPositions.test.js`
 
+### 스케일 진입 — 진입가부터 손절가까지 층을 나눠 들어간다 (2026-09-27 사용자 요청)
+플랜 카드에서 `단일`/`스케일`을 고른다. 스케일이면 층 개수를 정하고, 층은 **진입가에서
+시작해 손절선 직전까지** 균등하게 놓인다. 주문은 `POST /api/scale-plan` 하나로 나간다.
+
+- ⚠ **버튼을 따로 두지 않는다.** 박스는 단일이든 스케일이든 같은 것이고(진입·TP·SL),
+  다른 것은 "어떻게 들어갈지"뿐이다 — 그건 플랜 카드가 이미 묻는 것이다(지정가/시장가).
+  사이드바에 `스케일 플랜` 버튼을 만드는 안이 있었지만 **하나로 정했다**: 그리고 나서
+  마음을 바꿀 수 있고, 겉모습이 같은데 성질이 다른 박스 두 종류가 생기지 않는다
+- **층수는 박스에 적는다** (`drawing.layers`, 2 이상이면 스케일). 그래서 새로고침해도
+  유지되고, 롱·숏이 다른 층수를 가질 수 있고, 차트가 그 값으로 층 선을 그린다
+- **손절선 자리는 비운다.** 거기 층을 놓으면 그 층은 사자마자 손절돼 수수료만 두 번 나간다
+- **수량은 층마다 균등**하고, 총수량은 **전부 체결 시 평단**으로 리스크 %를 맞춘다.
+  그래서 단일 진입보다 수량이 많다 — 평단이 손절선에 가까워 1개당 손실이 작기 때문이고,
+  **손절 시 손실은 단일과 같다.** 대신 잡는 금액과 증거금이 늘고 청산가가 가까워진다
+- ⚠ **비대칭을 화면이 보여준다** — 손절에 닿으려면 모든 층을 지나쳐야 하므로 **손절은 늘
+  풀 사이즈**인데, 익절은 부분 체결일 수 있다. 그래서 카드에 `전부 체결`·`절반 체결`
+  두 줄(수량·평단·증거금)을 같이 띄운다. 이 줄을 없애지 말 것 — 층수를 정하는 근거다
+- **층 개수의 상한은 계산한다** (`maxScaleLayers`). 거래소는 주문마다 최소 금액을 보므로
+  (BTC는 한 주문에 $50) 층이 많으면 거절된다 → 슬라이더 최대값으로 막아 그 상황을 없앤다
+- 계산은 전부 `utils/scalePlan.js`(순수 함수) 하나다. **미리보기·차트 층 선·실주문이 같은
+  함수를 본다** (`splitPlan`과 같은 원칙). 검산은 `tests/scalePlan.test.js`이고,
+  거기에 **화면이 만든 층이 서버 검증을 통과하는지** 맞대어 보는 테스트가 있다
+
+**손절 보장 — 층마다 따로 미리 건다**
+- 층을 낼 때마다 **그 층의 수량으로** TP/SL을 사전 등록한다 (`preplaceTPSL`).
+  묶음 전체에 큰 손절 하나를 거는 방식이 아니다. ⚠ 되돌리지 말 것:
+  · 층을 취소하면 **그 층의 손절만** 같이 내려간다 — 기존 규칙("진입이 사라지면 사전
+    등록분도 내린다")이 그대로 맞게 돈다. 큰 손절을 첫 층에 매달면 첫 층만 취소해도
+    나머지 층이 무방비가 된다
+  · **보유 수량과 손절 수량이 늘 일치한다.** 큰 손절 하나면 "1층만 체결된 상태에서 손절
+    발동"에서 손절 수량이 보유량을 초과한다 — 거래소가 초과분을 잘라주는지 **확인하지
+    못했다.** 확인 안 된 동작에 기대는 대신 그 상황이 안 생기는 설계를 택했다
+- 그래서 **백엔드를 켜두지 않아도 손절은 거래소가 지킨다** (단일 지정가 진입과 같다)
+- ⚠ **익절·수동 청산 뒤 남은 층은 백엔드가 치운다** (`orderWatcher`의 reconcile).
+  롱이면 층이 전부 손절선 위라 손절 경로에는 남는 층이 없지만, 위로 가서 닫히면 아래 층이
+  비어 있다 — 그대로 두면 가격이 내려올 때 **원치 않는 포지션이 혼자 열린다.**
+  판정은 `scaleGroup` + "한 층이라도 체결된 묶음인가"다. 아직 아무 층도 안 체결된 묶음은
+  건드리지 않는다 (그건 그냥 걸어 둔 계획이고 포지션이 없는 것이 정상이다)
+
+**층이 화면에 보이는 방식**
+- `GET /api/position`이 층을 `entryLayers` 배열로 준다. ⚠ `pending`에 담지 않는다 —
+  저건 **사이드당 1건**이라 층을 담으면 마지막 하나만 보이고 나머지는 취소할 길이 없어진다
+- 차트에 층마다 대기선이 뜬다 (핸들 `3/5층`, ×로 하나씩 취소). **박스가 있어도 그린다** —
+  박스는 진입선 하나만 보여주기 때문이다. 끌어서 옮기는 것은 안 된다(주문번호가 바뀌면
+  묶음과 사전 손절을 다시 이어야 한다)
+- 층 하나 취소는 `DELETE /api/orders`에 **주문번호를 실어** 보낸다. 사이드로만 지우면
+  그 사이드 진입 주문이 싹 다 취소된다
+- 박스 ↔ 주문을 잇는 값이 **`scaleGroup`**이다 (단일은 `orderId`). 층이 하나도 안 남으면
+  `App`의 동기화가 박스를 지우고, 박스가 없는데 층이 살아 있으면 서버가 들고 있던 박스로
+  되살린다 — 두 규칙이 짝이다
+- ⚠ **연습(리플레이) 모드는 지원하지 않는다.** 페이퍼 브로커는 사이드당 진입 주문 하나만
+  안다. `executeScalePlan` 첫 줄이 배너로 막는다 (조용히 실계좌로 나가지 않게)
+
 ### 주문번호는 문자열일 수 있다
 바이낸스가 심볼마다 다른 번호 체계를 쓴다 — BTCUSDT는 13자리, **ETHUSDT는 19자리**다.
 19자리는 JS 안전 정수(9007199254740991)를 넘어 `JSON.parse`가 뭉갠다
@@ -566,7 +629,7 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
 - 리스크·레버리지 변경 시 800ms debounce 후 **같은 사이드** 미체결 주문 자동 재등록
 
 ### 주문 액션 (`store/orderSlice.js`)
-`executeOrder` / `saveTpsl` / `scaleIn` / `cancelScaleIn` / `moveScaleIn` /
+`executeOrder` / `executeScalePlan` / `cancelScaleLayer` / `saveTpsl` / `scaleIn` / `cancelScaleIn` / `moveScaleIn` /
 `addSplitTp` / `cancelSplitTp` / `moveSplitTp` / `addPartialSl` / `movePartialSl` /
 `placeSplitOrders` / `cancelSplitOrders` / `closePosition` /
 `updatePendingTpsl` / `replacePendingOrder` / `deleteBox`
