@@ -195,6 +195,13 @@ export const createSettingsSlice = (set, get) => ({
   setSymbol: (symbol) => {
     if (!symbol || symbol === get().symbol) return;
     lsSet("symbol", symbol);
+    // ⚠ **코인을 바꾸면 롱·숏 카드는 접힌 상태로 돌아온다** (2026-09-27 사용자 요청).
+    //   같은 코인을 보는 동안은 접거나 펼친 상태를 기억하고, 코인이 바뀔 때만 접는다.
+    //   ⚠ 이 줄만으로는 안 된다 — `SidebarPanel`이 `key={symbol}`로 카드를 새로 만들어야
+    //     이미 떠 있는 카드가 이 값을 다시 읽는다 (`useAccordion`은 처음 뜰 때 한 번만 읽는다).
+    //   ※ 하늘색 카드는 건드리지 않는다 — 그쪽 키에는 심볼이 들어가고 기본이 펼침이다
+    lsSet("accordion_pos_LONG", false);
+    lsSet("accordion_pos_SHORT", false);
     // ⚠ API 클라이언트에도 즉시 알린다. 여기서 안 하면 심볼을 바꾼 직후의 주문이
     //   **옛 심볼로 나간다** (client.js는 store를 import할 수 없어 밀어 넣는 방식이다)
     setApiSymbol(symbol);

@@ -12,6 +12,7 @@ import { useReplay }                 from "./hooks/useReplay";
 import { useBalance }                from "./hooks/useBalance";
 import { usePosition }               from "./hooks/usePosition";
 import { useTpsl }                   from "./hooks/useTpsl";
+import { useAccountPositions }       from "./hooks/useAccountPositions";
 import { useRSI }                    from "./hooks/useRSI";
 import { usePivotLevels }            from "./hooks/usePivotLevels";
 import { useTrendLines }             from "./hooks/useTrendLines";
@@ -94,6 +95,9 @@ export default function App() {
   useBalance(!replayOn);
   usePosition(!replayOn);
   useTpsl(!replayOn);
+  // 다른 코인의 포지션 (사이드바의 하늘색 카드). 백엔드가 3초마다 뜬 계정 관측을
+  // 그대로 내주므로 이 폴링은 거래소를 부르지 않는다
+  useAccountPositions(!replayOn);
   useRealtimeData(addToast);
 
   // ── 지표 파라미터 ─────────────────────────────────────────────────────────
@@ -282,8 +286,10 @@ export default function App() {
   useEffect(() => {
     if (!replayOn) return;
     setReplayClock(replay.nowMs, replay.price);
-    if (replay.price != null) useStore.getState().setLiveClose(replay.price);
-  }, [replayOn, replay.nowMs, replay.price, setReplayClock]);
+    // ⚠ 심볼을 같이 싣는다 — 안 싣으면 사이드바가 "어느 코인의 가격인지 모른다"로 읽어
+    //   연습 중 총자산이 틱마다 움직이지 않는다 (utils/acctPositions.livePriceFor)
+    if (replay.price != null) useStore.getState().setLiveClose(replay.price, symbol);
+  }, [replayOn, replay.nowMs, replay.price, setReplayClock, symbol]);
 
   // ⚠ 모드를 바꾸거나 시작 시점을 옮기면 **x 도메인을 되돌려야 한다.**
   // 캔들의 시간 범위가 통째로 바뀌는데 뷰포트가 그대로면 화면이 텅 빈다 —

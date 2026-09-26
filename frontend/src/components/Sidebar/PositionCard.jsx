@@ -44,14 +44,38 @@ function AccordionSection({ label, badge, isOpen, onToggle, theme, posColor, chi
   );
 }
 
+// 하늘색 = **여기서는 주문할 수 없다** (2026-09-26 사용자 요청).
+//
+// 다른 코인의 포지션 카드에 쓴다. 롱·숏을 색으로 가르지 않는 것이 요점이다 —
+// 초록·빨강은 "이 카드로 주문할 수 있다"는 뜻으로 남긴다.
+//
+// ⚠ `#60a5fa`를 쓰지 말 것. 이 시스템에서 그 색은 이미 **"지금 켜져 있다"**는 뜻이고
+//   (sidebarBtn.js의 SECTION_OPEN_COLOR·상단 바 모드 버튼), 카드 안쪽 청산 버튼과
+//   개수 배지도 그 색이라 카드 전체를 그 색으로 두면 구분이 흐려진다
+const READ_ONLY_COLOR = "#38bdf8";
+
+/**
+ * @param readOnly 하늘색 읽기 전용 카드인가 (= 지금 보고 있는 코인이 아니다).
+ *   ⚠ 주문 아코디언 넷을 **그리지 않는다** — 회색으로 비활성만 하면 안 된다.
+ *     `api/client.js`가 모든 주문 요청에 **화면 심볼**을 싣기 때문에, 다른 코인 카드의
+ *     버튼이 한 번이라도 눌리면 그 요청은 **지금 보고 있는 코인으로 나간다.**
+ *     아무 일도 안 일어나는 게 아니라 엉뚱한 코인이 청산된다
+ * @param symbol 이 카드의 심볼. 하늘색 카드에서 `차트 보기`가 넘겨줄 값이다
+ * @param filters 이 심볼의 호가·수량 단위. 안 주면 스토어의 것(= 지금 보는 심볼)을 쓴다
+ * @param onPickSymbol 하늘색 카드의 `차트 보기` — 그 코인으로 화면을 옮긴다
+ */
 export function PositionCard({
   posData, side, tpsl, tpslSaving, onClose, lastPrice,
   scaleInOrders, onScaleIn, onCancelScaleIn,
   onCancelSplitTp, onCancelPartialSl,
+  symbol, readOnly = false, filters, onPickSymbol,
 }) {
   const { theme } = useTheme();
   // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1)
-  const { step: qStep, base: qBase, tick: qTick } = useStore(s => s.symbolFilters);
+  // ⚠ 하늘색 카드는 **자기 심볼의 단위**를 인자로 받는다. 스토어에는 지금 보는 심볼의
+  //   단위만 있어서, 그걸 그대로 쓰면 DOGE 청산가가 `$0`으로 보인다
+  const storeFilters = useStore(s => s.symbolFilters);
+  const { step: qStep, base: qBase, tick: qTick } = filters ?? storeFilters;
   const [closePct, setClosePct] = useState(() => Number(lsGet("closePct")) || 100);
   const handleClosePct = v => { setClosePct(v); lsSet("closePct", v); };
   const [confirming, setConfirming] = useState(false);
@@ -64,7 +88,20 @@ export function PositionCard({
   const splitTPOpen = openSection === "splitTP";
   const splitSLOpen = openSection === "splitSL";
   const closeOpen   = openSection === "close";
-  const [expanded, toggleExpanded] = useAccordion(`accordion_pos_${side}`, true);
+  // ⚠ 접은 상태의 저장 키는 **하늘색 카드만 심볼을 포함한다.** 안 그러면 비트코인 롱
+  //   카드를 접었을 때 이더리움 롱 카드도 같이 접힌다.
+  //   보고 있는 코인의 카드는 예전 키를 그대로 쓴다 — 바꾸면 이미 저장된 접기 설정이
+  //   한 번 초기화된다.
+  // ⚠ **기본값이 카드 종류마다 다르다** (2026-09-27 사용자 요청):
+  //   하늘색은 펼침(그래야 목록으로 읽힌다) · 일반은 접힘.
+  //   그리고 **코인을 바꾸면 일반 카드는 늘 접힌 상태로 돌아온다** — 그 일은 두 곳이
+  //   나눠 한다: `settingsSlice.setSymbol`이 저장값을 접힘으로 적고, `SidebarPanel`이
+  //   `key={symbol}`로 카드를 새로 만들어 그 값을 다시 읽게 한다.
+  //   ⚠ 한쪽만 있으면 안 된다 — 저장값만 바꾸면 이미 떠 있는 카드가 그대로 펼쳐져 있고
+  //     (`useAccordion`은 처음 뜰 때 한 번만 읽는다), 새로 만들기만 하면 지난번 펼침을
+  //     다시 읽어 온다
+  const [expanded, toggleExpanded] = useAccordion(
+    readOnly ? `accordion_pos_${symbol}_${side}` : `accordion_pos_${side}`, readOnly);
   // 어느 쪽으로 옮겨 가든 청산 확인 단계는 푼다 — 접힌 채로 `✓ 확인`이 남아 있으면
   // 다시 펼쳤을 때 한 번 클릭으로 시장가 청산이 나간다
   const openOnly        = (k) => { setOpenSection(v => (v === k ? null : k)); setConfirming(false); };
@@ -87,7 +124,8 @@ export function PositionCard({
   const fmt  = p => `${p < 0 ? "-" : ""}$${d3.format(",.2f")(Math.abs(p))}`;
 
   const isLong     = side === "LONG";
-  const posColor   = isLong ? "#0ecb81" : "#f6465d";
+  // 이 한 값이 테두리·왼쪽 굵은 선·아코디언 강조·슬라이더·버튼 색을 전부 정한다
+  const posColor   = readOnly ? READ_ONLY_COLOR : isLong ? "#0ecb81" : "#f6465d";
   const tpPrice    = tpsl.tp?.price ?? null;
   const slPrice    = tpsl.sl?.price ?? null;
   const slInProfit = slPrice !== null && (isLong ? slPrice >= posData.entryPrice : slPrice <= posData.entryPrice);
@@ -118,7 +156,9 @@ export function PositionCard({
         style={{ ...SECTION_HEADER, marginBottom: expanded ? "8px" : 0 }}
       >
         <span style={{ fontSize:"13px", color:posColor, fontWeight:"700", lineHeight:"1" }}>
-          {isLong ? "▲ LONG" : "▼ SHORT"} 포지션
+          {/* ⚠ 코인 이름을 **두 종류 카드 모두** 적는다 (2026-09-26 사용자 요청).
+              카드가 여러 개 늘어서므로, 어느 코인 것인지가 제목에 없으면 읽을 수 없다 */}
+          {isLong ? "▲ LONG" : "▼ SHORT"} 포지션{qBase ? ` (${qBase})` : ""}
         </span>
         <span style={headerArrow(theme)}>{expanded ? "▲" : "▼"}</span>
       </button>
@@ -141,6 +181,8 @@ export function PositionCard({
         </div>
       ))}
 
+      {/* 주문 아코디언 넷 — **하늘색 카드에는 아예 그리지 않는다** (위 readOnly 주석) */}
+      {!readOnly && <>
       {/* 아코디언: 시장가 청산 */}
       <AccordionSection
         label="시장가 청산"
@@ -271,6 +313,21 @@ export function PositionCard({
           onCancelPartialSl={onCancelPartialSl}
         />
       </AccordionSection>
+      </>}
+
+      {/* 하늘색 카드에만 있는 버튼. 누르면 그 코인 차트로 옮겨 가고, 이 카드가
+          초록·빨강으로 돌아와 주문까지 맡는다 (= 보고 있는 차트에서만 매매한다).
+          ⚠ 카드 전체 클릭으로 바꾸지 말 것 — 제목 줄이 이미 접기/펼치기 버튼이고,
+            심볼 전환은 차트 축·도형·플랜 박스를 다시 읽는 무거운 동작이라
+            접으려다 눌리면 안 된다 */}
+      {readOnly && (
+        <button
+          onClick={() => onPickSymbol?.(symbol)}
+          style={{ ...actionBtn(theme, READ_ONLY_COLOR), marginTop: "10px" }}
+          onMouseEnter={e => { e.currentTarget.style.background = `${READ_ONLY_COLOR}22`; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+        >차트 보기</button>
+      )}
       </>}
     </div>
   );

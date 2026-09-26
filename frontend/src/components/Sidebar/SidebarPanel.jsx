@@ -10,6 +10,7 @@ import { api }       from "../../api/client";
 import { useDailyLoss } from "../../hooks/useDailyLoss";
 import { useAccordion } from "../../hooks/useAccordion";
 import { derivePositionFlags } from "../../hooks/usePositionFlags";
+import { otherPositionCards, cardFilters, shownSymbol, livePriceFor } from "../../utils/acctPositions";
 import { isLongToPosition } from "../../utils/side";
 import { Slider }    from "../Slider";
 import { StatusAlert }                from "../StatusAlert";
@@ -34,7 +35,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     position, tpsl, tpslSaving,
     riskPctLong, riskPctShort, setRiskPct, leverage, setLeverage, symbolFilters,
     drawMode, drawings, orderStatus, setOrderStatus,
-    liveClose, executeOrder, replayOn, paperBroker, replayNowMs,
+    liveClose, liveCloseSymbol, executeOrder, replayOn, paperBroker, replayNowMs,
+    symbol, setSymbol, acctPositions,
   } = useStore(useShallow(s => ({
     balance: s.balance, balError: s.balError,
     position: s.position, tpsl: s.tpsl, tpslSaving: s.tpslSaving,
@@ -42,8 +44,9 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     leverage: s.leverage, setLeverage: s.setLeverage,
     symbolFilters: s.symbolFilters,
     drawMode: s.drawMode, drawings: s.drawings, orderStatus: s.orderStatus, setOrderStatus: s.setOrderStatus,
-    liveClose: s.liveClose, executeOrder: s.executeOrder,
+    liveClose: s.liveClose, liveCloseSymbol: s.liveCloseSymbol, executeOrder: s.executeOrder,
     replayOn: s.replayOn, paperBroker: s.paperBroker, replayNowMs: s.replayNowMs,
+    symbol: s.symbol, setSymbol: s.setSymbol, acctPositions: s.acctPositions,
   })));
 
   // ⚠ 스토어 구독 **뒤에** 와야 한다 — replayOn 등을 쓰므로 위로 올리면 TDZ 오류로
@@ -67,7 +70,34 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     hasLong, hasShort, hasPos, hasBoth,
     longPendingExists, shortPendingExists, hasPending, drawLocked,
   } = derivePositionFlags(position);
-  const effectiveLastPrice = liveClose ?? lastPrice;
+  // ⚠ **포지션 응답이 아직 옛 코인의 것이면 살아 있는 가격을 붙이지 않는다** (2026-09-27).
+  //   코인을 바꾸면 `symbol`은 즉시 바뀌는데 `GET /api/position` 응답은 나중에 온다.
+  //   그 사이 옛 코인의 포지션(BTC 진입가 90,000)에 새 코인의 가격(ETH 3,000)을 곱하면
+  //   총자산이 엉뚱한 자릿수가 되고, `BalanceCard.amountSize`가 글자 크기를 한 단계
+  //   줄였다 되돌려 **잔고 줄이 들썩였다** (사용자 신고).
+  //   null을 넘기면 `utils/equity.js`가 **거래소가 준 미실현**을 쓴다 — 그 포지션의
+  //   제 값이라 숫자가 튀지 않고, 응답이 오면 저절로 새 코인 값으로 바뀐다.
+  //   ⚠ 잔고 카드와 포지션 카드에 **같은 값**을 넘겨야 한다 — 둘의 숫자가 같은 곳에서
+  //     나와야 한다는 `utils/equity.js`의 규칙이다. 한쪽만 막으면 그 규칙이 깨진다
+  //   ⚠ **어긋남은 양방향이다** (2026-09-27에 둘 다 겪었다) — 포지션이 늦게 올 수도,
+  //     가격이 늦게 올 수도 있다. 판정은 `utils/acctPositions.livePriceFor` 하나가 한다
+  const effectiveLastPrice = livePriceFor({
+    screenSymbol: symbol, position, liveClose, liveCloseSymbol, candlePrice: lastPrice,
+  });
+
+  // 다른 코인의 포지션 카드(하늘색). 계산은 `utils/acctPositions.js`가 한다
+  //
+  // ⚠ **리플레이 중에는 빈 목록이다.** 페이퍼 브로커는 코인 하나만 알아서, 실계좌의
+  //   다른 코인 포지션이 연습 화면에 섞이면 어느 쪽 계좌 얘기인지 구분이 안 된다
+  //   (`useAccountPositions`도 그때 폴링을 멈춘다 — 여기서 한 번 더 막는다)
+  //
+  // ⚠ 빼는 기준은 **화면 심볼이 아니라 초록·빨강 카드가 지금 보여주고 있는 코인**이다
+  //   (2026-09-27). 화면 심볼로 빼면 코인을 바꾼 직후 옛 코인이 초록 카드와 하늘색 카드에
+  //   동시에 떠서 카드 수가 1 → 2 → 1로 움직인다 — 사이드바가 세로로 들썩인다
+  const otherPositions = useMemo(
+    () => (replayOn ? [] : otherPositionCards(acctPositions?.items, shownSymbol(position, symbol))),
+    [replayOn, acctPositions, position, symbol],
+  );
 
   // 헷지모드: 양쪽 포지션의 레버리지 중 더 큰 값을 최소값으로 사용 (낮은 레버리지로 변경 시 오류 방지)
   const longLeverage  = position?.long?.leverage  ?? null;
@@ -357,8 +387,15 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
 
         <StatusAlert status={orderStatus} onClose={() => setOrderStatus(null)} />
 
-        {/* 포지션 카드 — 롱/숏 각각 (추가진입·분할TP 아코디언 포함) */}
+        {/* 포지션 카드 — 롱/숏 각각 (추가진입·분할TP 아코디언 포함)
+            ⚠ `key`에 심볼이 들어간다 (2026-09-27). 코인을 바꾸면 카드를 **새로 만들어**
+              접힘 상태를 다시 읽게 하려는 것이다 — `setSymbol`이 그 값을 접힘으로 적어 둔다.
+              `key`가 없으면 카드가 그대로 살아 있어서 펼쳐진 채로 남는다.
+              ※ 청산 확인 단계(`✓ 확인`)와 열린 아코디언도 같이 초기화된다 — 코인이 바뀐
+                뒤에 눌러야 할 것이 아니므로 그게 맞다 */}
         <PositionCard
+          key={`live_LONG_${symbol}`}
+          symbol={symbol}
           posData={position?.long} side="LONG"
           tpsl={tpsl.long ?? { tp: null, sl: null, splitTps: [] }}
           tpslSaving={tpslSaving} onClose={onClosePosition} lastPrice={effectiveLastPrice}
@@ -368,6 +405,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           onCancelPartialSl={onCancelPartialSl}
         />
         <PositionCard
+          key={`live_SHORT_${symbol}`}
+          symbol={symbol}
           posData={position?.short} side="SHORT"
           tpsl={tpsl.short ?? { tp: null, sl: null, splitTps: [] }}
           tpslSaving={tpslSaving} onClose={onClosePosition} lastPrice={effectiveLastPrice}
@@ -377,6 +416,24 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           onCancelPartialSl={onCancelPartialSl}
         />
 
+        {/* ── 다른 코인의 포지션 (하늘색, 읽기 전용) ─────────────────────────
+            같은 `PositionCard`를 쓴다 — 보여주는 일곱 줄이 같아야 목록으로 읽힌다.
+            `readOnly`가 주문 아코디언을 빼고 색을 하늘색으로 바꾼다.
+            ⚠ 여기에 주문 콜백을 넘기지 말 것. 넘겨도 안 그려지지만, 그 사실에 기대면
+              나중에 아코디언을 다시 켤 때 **다른 코인 카드에서 낸 주문이 지금 보고 있는
+              코인으로 나간다** (api/client.js가 화면 심볼을 싣는다) */}
+        {otherPositions.map(it => (
+          <PositionCard
+            key={`${it.symbol}_${it.side}`}
+            readOnly
+            symbol={it.symbol}
+            side={it.side}
+            posData={it.posData}
+            tpsl={it.tpsl ?? { tp: null, sl: null, splitTps: [], partialSls: [] }}
+            filters={cardFilters(it.rules, symbolFilters)}
+            onPickSymbol={setSymbol}
+          />
+        ))}
 
         {/* 플랜 카드도 사이드마다 하나 — 롱을 위에 둔다 (차트 라벨 ▲/▼와 같은 순서) */}
         {[[true, drawings.long, longCalc, longPendingExists],

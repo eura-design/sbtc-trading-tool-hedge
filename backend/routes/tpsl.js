@@ -3,7 +3,9 @@ const { binance, roundPrice, roundQty, cancelOrder, assertCancelKind } = require
 const symbolInfo = require("../services/symbolInfo");
 const store   = require("../store/pendingOrders");
 const { sideToPosition, positionToClose } = require("../utils/side");
-const { isLiveLimit, isCloseDir, isFullClose, orderQtyOf, STOP_TYPES } = require("../utils/orderKind");
+const { STOP_TYPES } = require("../utils/orderKind");
+// TP/SL 분류는 이 한 곳이 정한다 — `GET /api/positions`(계정 전체)와 같이 쓴다
+const { presetTpslIds, buildTpslView } = require("../utils/tpslView");
 const { log, errOf } = require("../store/logStore");
 const router  = express.Router();
 
@@ -75,76 +77,13 @@ router.get("/", async (req, res) => {
     const algoRaw = algoRes.status  === "fulfilled" ? algoRes.value.data  : [];
     const algo    = Array.isArray(algoRaw) ? algoRaw : (algoRaw.algoOrders || []);
 
-    // ⚠ **아직 체결되지 않은 진입 주문에 미리 걸어 둔 TP/SL은 감춘다**
-    //   (2026-08-23 사용자 선택 B). 거래소엔 실제로 올라가 있지만, 그 가격은
-    //   **플랜 박스가 이미 보여주고 있다** — 같이 그리면 같은 값이 두 번 뜬다.
-    //   체결되면 `onFilled`가 `closePosition` 방식으로 갈아끼우고 store status도
-    //   WATCHING을 벗으므로, 그때부터는 정상적으로 보인다
-    const presetIds = new Set();
-    for (const [, info] of store.entries()) {
-      if (info.status !== "WATCHING" || !info.presetTpsl) continue;
-      for (const k of ["tp", "sl"]) {
-        const id = info.presetTpsl[k]?.orderId;
-        if (id) presetIds.add(String(id));
-      }
-    }
-
-    // ⚠ **지정가형(`STOP`/`TAKE_PROFIT`)도 같이 찾는다** (2026-08-23).
-    //   우리가 거는 건 늘 `_MARKET`이지만, **바이낸스 웹·앱에서 주문에 붙여 건 TP/SL은
-    //   지정가형일 수 있다.** 그것만 보면 화면에 TP/SL이 없는 것처럼 보이고,
-    //   더 나쁘게는 reconcile이 "SL 없는 포지션"으로 오인해 경보를 띄운다
-    const TYPES = {
-      TAKE_PROFIT_MARKET: ["TAKE_PROFIT_MARKET", "TAKE_PROFIT"],
-      STOP_MARKET:        ["STOP_MARKET",        "STOP"],
-    };
-    //
-    // ⚠ **전량 청산(`closePosition:true`)인 것만 고른다** (2026-08-24).
-    //   예전엔 종류만 맞으면 **먼저 나온 것**을 집었다. 그때는 후보가 하나뿐이라 맞았지만,
-    //   부분 손절(수량 지정)이 생기면 **어느 게 잡힐지 바이낸스가 주는 순서에 달린다.**
-    //   그러면 차트 손절선이 그때그때 다른 가격에 그려지고, 더 나쁘게는 그 선을 끌었을 때
-    //   `saveTpsl`이 **부분 손절의 주문번호를 취소 대상으로 실어 보내** 조용히 지워버린다
-    //   (그 자리에 전량 손절이 새로 걸려 손절이 두 개가 된다).
-    //   → 부분 청산 주문은 아래 `partialOf`가 따로 담는다. 안 보이게 두지 않는다
-    const findOrder = (type, positionSide) => {
-      const types = TYPES[type] ?? [type];
-      const r = regular.find(o => types.includes(o.type) && o.positionSide === positionSide
-        && isFullClose(o) && !presetIds.has(String(o.orderId)));
-      if (r) return { orderId: String(r.orderId), price: parseFloat(r.stopPrice), isAlgo: false };
-      const closeSide = positionToClose(positionSide);
-      // positionSide 필드 없는 algo 주문은 side(closeSide)로 폴백
-      const a = algo.find(o => types.includes(o.orderType) && !presetIds.has(String(o.algoId)) &&
-        isFullClose(o) &&
-        (o.positionSide === positionSide || (!o.positionSide && o.side === closeSide)));
-      if (a) return { orderId: String(a.algoId), price: parseFloat(a.triggerPrice), isAlgo: true };
-      return null;
-    };
-
-    // 부분 청산 트리거 주문(수량 지정) — 예: "평단까지 내려오면 절반만 청산".
-    // 사전 등록분(preset)은 제외한다 — 그건 아직 체결 안 된 진입 주문에 딸린 것이고,
-    // 그 가격은 플랜 박스가 이미 보여준다 (위 presetIds 주석)
-    const partialOf = (type, positionSide) => {
-      const types = TYPES[type] ?? [type];
-      const closeSide = positionToClose(positionSide);
-      const out = [];
-      for (const o of regular) {
-        if (!types.includes(o.type) || o.positionSide !== positionSide) continue;
-        if (isFullClose(o) || presetIds.has(String(o.orderId))) continue;
-        out.push({ orderId: String(o.orderId), price: parseFloat(o.stopPrice),
-          qty: orderQtyOf(o), isAlgo: false, positionSide });
-      }
-      for (const o of algo) {
-        if (!types.includes(o.orderType)) continue;
-        if (!(o.positionSide === positionSide || (!o.positionSide && o.side === closeSide))) continue;
-        if (isFullClose(o) || presetIds.has(String(o.algoId))) continue;
-        out.push({ orderId: String(o.algoId), price: parseFloat(o.triggerPrice),
-          qty: orderQtyOf(o), isAlgo: true, positionSide });
-      }
-      return out.sort((a, b) => b.price - a.price);
-    };
-
     // SPLIT_TP: store에 있는데 바이낸스에 없으면 이미 체결/취소됨 → store 정리
     // 단, openOrders 조회 실패 시엔 정리 스킵 — 빈 배열을 "없음"으로 오판하면
     // 살아있는 SPLIT_TP가 지워져 position.js에서 external 주문으로 오인됨
+    //
+    // ⚠ **이 정리는 이 라우트에만 있다** — `GET /api/positions`(계정 전체)는 같은
+    //   분류 함수를 쓰면서도 store를 건드리지 않는다. 그쪽은 여러 심볼을 한 번에
+    //   보는데, 한 심볼의 주문 목록으로 다른 심볼의 기록을 지울 수 없다
     if (regularRes.status === "fulfilled") {
       const openIds = new Set(regular.map(o => String(o.orderId)));
       const now = Date.now();
@@ -167,35 +106,17 @@ router.get("/", async (req, res) => {
                msg:  regularRes.reason?.response?.data?.msg ?? regularRes.reason?.message ?? null } });
     }
 
-    // ⚠ **분할 TP도 store가 아니라 주문 방향으로 가른다** (2026-08-23, position.js와 같은 이유).
-    //   청산 방향 LIMIT(SELL/LONG, BUY/SHORT)은 분할 TP 말고 다른 것일 수 없다.
-    //   store 기록은 `pct`(등록 당시 비율)에만 쓴다 — 외부 주문은 그게 없어 null이다
-    const splitTps = regular
-      .filter(o => isLiveLimit(o) && isCloseDir(o))
-      .map(o => ({
-        orderId: String(o.orderId),
-        price:   parseFloat(o.price),
-        qty:     parseFloat(o.origQty),
-        side:    o.side,
-        pct:     store.get(String(o.orderId))?.pct ?? null,
-      }))
-      .sort((a, b) => b.price - a.price);
-
-    // SELL side = closing LONG, BUY side = closing SHORT
-    const longSplitTps  = splitTps.filter(o => o.side === "SELL");
-    const shortSplitTps = splitTps.filter(o => o.side === "BUY");
-
-    res.json({
-      long:  { tp: findOrder("TAKE_PROFIT_MARKET", "LONG"),  sl: findOrder("STOP_MARKET", "LONG"),
-               splitTps: longSplitTps,  partialSls: partialOf("STOP_MARKET", "LONG")  },
-      short: { tp: findOrder("TAKE_PROFIT_MARKET", "SHORT"), sl: findOrder("STOP_MARKET", "SHORT"),
-               splitTps: shortSplitTps, partialSls: partialOf("STOP_MARKET", "SHORT") },
-    });
+    // ⚠ **분류 규칙은 `utils/tpslView.js` 하나다** (2026-09-26에 그리로 옮겼다).
+    //   `GET /api/positions`가 계정 전체에 같은 규칙을 써야 해서다 — 여기에 되돌려
+    //   복사하면 일반 카드와 하늘색 카드가 **서로 다른 손절 가격**을 보여준다
+    res.json(buildTpslView(regular, algo, {
+      presetIds: presetTpslIds(store.entries()),
+      pctOf: (orderId) => store.get(orderId)?.pct ?? null,
+    }));
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.response?.data?.msg || err.message });
   }
 });
-
 router.put("/", async (req, res) => {
   // tp/sl 중 변경된 것만 전송 (H1: 변경되지 않은 쪽은 취소/재등록하지 않음)
   const { tp, sl, side, tpOrderId, slOrderId, tpIsAlgo, slIsAlgo } = req.body;

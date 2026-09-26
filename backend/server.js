@@ -102,6 +102,9 @@ app.use("/api/health",   require("./routes/health"));
 app.use("/api/symbols",  require("./routes/symbols"));
 app.use("/api/balance",  require("./routes/balance"));
 app.use("/api/position", require("./routes/position"));
+// 계정 전체 포지션 (하늘색 카드). ⚠ 단수 `/api/position`과 다른 라우트다 —
+//   express는 경로를 칸 단위로 맞추므로 `/api/positions`가 위 줄에 먹히지 않는다
+app.use("/api/positions", require("./routes/positions"));
 app.use("/api/order",    require("./routes/order"));
 app.use("/api/close",    require("./routes/close"));
 app.use("/api/orders",   require("./routes/orders"));

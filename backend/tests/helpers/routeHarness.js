@@ -140,6 +140,9 @@ async function mountRoute(routeRel, opts = {}) {
         return s;
       },
       roundQty, roundPrice,
+      // ⚠ 진짜 `filtersOf`는 모르는 심볼에 **던진다.** 부르는 쪽이 `has`로 먼저 묻는다
+      //   (`routes/positions.js`) — 목에 이게 없으면 그 경로가 테스트에서만 터진다
+      has: (s) => !!symbols[s],
       listTradable: () => Object.keys(symbols),
       load: async () => {}, start: () => {}, isStale: () => false,
       maintRateOf: () => 0.004, setMaintRates: () => {},

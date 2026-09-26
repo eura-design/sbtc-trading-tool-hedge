@@ -33,13 +33,19 @@ export function useRealtimeData(onNotice) {
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
-          const { _refetchPos, _refetchBal, _refetchTpsl,
+          const { _refetchPos, _refetchBal, _refetchTpsl, _refetchAcctPos,
                   pushCriticalAlert, dismissCriticalAlert } = useStore.getState();
 
           if (msg.type === "update") {
             const targets = msg.targets || [];
             if (targets.includes("balance"))  _refetchBal?.();
             if (targets.includes("stats"))    window.dispatchEvent(new CustomEvent("stats-update"));
+
+            // 계정 전체 포지션(하늘색 카드)도 같은 신호에 따라온다. 이 푸시를 보내는
+            // `watchAccount`가 곧 그 목록을 만드는 쪽이라, 여기서 받아오면 늘 새 값이다.
+            // ⚠ 아래 position → tpsl 순서와 **무관하다** — 이 목록은 스토어의 다른 칸을
+            //   채우고, useTpsl의 "포지션이 있나" 판정에 끼지 않는다
+            if (targets.includes("position")) _refetchAcctPos?.();
 
             // ⚠ position → tpsl **순서**를 지킨다. useTpsl은 "포지션이 있나"를 보고
             //   조회 여부를 정하는데, 체결 직후엔 아직 포지션이 스토어에 없어서

@@ -41,7 +41,7 @@ export function useCandles(interval, onTickRef, enabled = true, symbol = DEFAULT
             wsRafRef.current = null;
             if (!closed) {
               onTickRef?.current?.();
-              useStore.getState().setLiveClose(arr[arr.length - 1].c);
+              useStore.getState().setLiveClose(arr[arr.length - 1].c, symbol);
             }
           });
         } else if (candle.t > last.t) {
@@ -49,7 +49,7 @@ export function useCandles(interval, onTickRef, enabled = true, symbol = DEFAULT
           if (arr.length > 3100) arr.shift();
           if (!closed) {
             setCandles([...arr]);
-            useStore.getState().setLiveClose(candle.c);
+            useStore.getState().setLiveClose(candle.c, symbol);
           }
         }
       };
@@ -78,7 +78,7 @@ export function useCandles(interval, onTickRef, enabled = true, symbol = DEFAULT
         if (closed) return;
         candlesRef.current = parsed;
         setCandles([...parsed]);
-        useStore.getState().setLiveClose(parsed[parsed.length - 1]?.c ?? null);
+        useStore.getState().setLiveClose(parsed[parsed.length - 1]?.c ?? null, symbol);
       } catch(e) { console.error(e); } finally { if (!closed) setLoading(false); }
 
       connectWS();

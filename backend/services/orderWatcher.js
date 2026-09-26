@@ -11,6 +11,7 @@ const slAlerts        = require("../utils/slAlerts");
 const push           = require("./pushService");
 const { log, errOf } = require("../store/logStore");
 const statsCache     = require("./statsCache");
+const accountSnapshot = require("./accountSnapshot");
 const { closeToPosition, sideToPosition } = require("../utils/side");
 const { checkDailyLoss } = require("../routes/dailyloss");
 
@@ -968,6 +969,11 @@ async function runWatchAccount() {
     // 여기까지 왔으면 **이번 회차는 계좌 전체를 다 본 것이다.** 아래 판정들이 쓰는
     // 재료가 전부 갖춰진 지점이라, 성공 표시도 여기서 한다
     acct.lastOkAt = Date.now(); acct.failStreak = 0;
+
+    // ⚠ **화면에 줄 관측은 여기서 담는다** (2026-09-26) — 위 줄과 같은 자리다.
+    //   재료가 다 갖춰진 지점이라, 조회가 하나라도 실패한 회차의 반쪽 관측이 안 간다.
+    //   `GET /api/positions`가 이걸 읽어 **거래소 호출 없이** 하늘색 포지션 카드를 만든다
+    accountSnapshot.set(perSymbol);
 
     // ⚠ 무방비 판정은 **지문 비교보다 먼저, 심볼마다** 부른다. 변화가 없는 회차에도
     //   봐야 "연속 2회"가 성립하고, 첫 관측에서도 판정은 해야 한다 —

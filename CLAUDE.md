@@ -52,6 +52,8 @@ server.js                  Express 앱 설정 + 시작 + 그레이스풀 셧다�
 routes/
   balance.js               GET  /api/balance → { walletBalance, availableBalance, crossUnPnl }
   position.js              GET  /api/position → { long, short, pending, scaleInOrders, funding }
+  positions.js             GET  /api/positions → { at, items } — **계정 전체** 포지션 (하늘색 카드)
+                           ⚠ 거래소를 부르지 않는다 — `accountSnapshot`의 3초 관측을 읽는다
   order.js                 POST /api/order (진입 + TP/SL 등록, 일일 손실 가드)
                            PATCH /api/order (미체결 주문의 TP/SL 수정)
   orders.js                DELETE /api/orders (미체결 취소) → `{ success, cancelled: <건수> }`
@@ -78,6 +80,8 @@ services/
   dailySummary.js          하루치 한 줄 요약 (DAILY_SUMMARY)
   incomeLogger.js          손익·수수료·펀딩비 기록 (10분 주기 + 포지션 종료 직후)
   statsCache.js            /api/stats 캐시 상태 공유
+  accountSnapshot.js       watchAccount의 **마지막 계정 관측**을 담는다 (`GET /api/positions`용)
+                           ⚠ 회차를 다 본 뒤에만 담고, 낡아도 지우지 않는다
   trackerAuto.js           월별 결산을 **자동으로** 채운다 (시작 20초 후 + 1시간마다)
                            income + 지갑 잔고 → 월말잔고·입금·출금. 계산은 utils/trackerMonths.js
 store/
@@ -99,6 +103,9 @@ utils/
                            (없다 / 일부만 덮는다). 띄우는 쪽과 거두는 쪽이 같은 글자를 쓴다
   bigIntJson.js            큰 정수를 잃지 않는 JSON 파싱 — **주문번호가 뭉개지는 것을 막는다**
   positionDiff.js          사라진 포지션 찾기 (goneSides) — **직전 관측을 돈다**
+  tpslView.js              미체결·알고 주문 → 화면이 읽는 TP/SL 한 벌 (순수 함수)
+                           ⚠ `/api/tpsl`과 `/api/positions`가 **같이 쓴다** — 복사하면
+                             일반 카드와 하늘색 카드가 다른 손절 가격을 보여준다
   recoverMatch.js          재시작 복구 — 무방비 포지션에 **어느 기록의 TP/SL을 붙일지**
                            ⚠ 조건을 느슨하게 하지 말 것. 못 고르면 사람에게 넘기면 되지만
                              잘못 고르면 **조용히 틀린 손절**이 걸린다
@@ -110,8 +117,10 @@ tools/
   trackerSync.js           월별 결산을 지금 한 번 채운다 (`--dry`면 보여주기만, 파일 안 건드림)
   backup.js                백업 조회·되돌리기 (--list/--show/--restore-files)
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
-  splitTp / orderKind / side / round / recoverMatch / slAlerts   돈이 걸린 순수 함수부터
-  orderRoute / closeRoute / tpslRoute / recoveryService / orderWatcher   라우트·서비스
+  splitTp / orderKind / side / round / recoverMatch / slAlerts / tpslView   돈이 걸린 순수 함수부터
+  orderRoute / closeRoute / tpslRoute / positionsRoute / recoveryService / orderWatcher   라우트·서비스
+  positionsRoute.test.js   계정 전체 포지션 — **거래소를 부르지 않는가** ·
+                           TP/SL 분류가 `/api/tpsl`과 같은 함수를 지나는가
   nakedAlert.test.js       **빨간 줄이 언제 뜨고 언제 안 뜨는가** (일부러 지운 손절 포함)
   trackerMonths.test.js    월별 결산 계산 — 월말잔고 역산이 맞는가 ·
                            **손으로 넣은 줄을 지키는가** · 지운 달이 되살아나지 않는가
@@ -128,7 +137,7 @@ main.jsx   index.css
 
 store/
   index.js                 Zustand 스토어 조립 (4 slice) — useStore
-  serverSlice.js           balance/position/tpsl/liveClose + refetch 콜백
+  serverSlice.js           balance/position/tpsl/liveClose/acctPositions + refetch 콜백
   settingsSlice.js         riskPctLong·riskPctShort/leverage/interval_/indicators/symbol/symbolFilters (localStorage)
   uiSlice.js               drawings/drawMode/orderStatus/criticalAlerts/selectedBox/드래그 상태
   replaySlice.js           리플레이 모드 상태 (replayOn/구간/시계/페이퍼 브로커)
@@ -150,6 +159,8 @@ utils/
   decimals.js              자릿수 규칙의 **프론트 정본**. ⚠ 새로 복제하지 말 것 —
                            일곱 벌로 늘어나 그중 둘이 갈린 적이 있다 (2026-09-03)
   equity.js                unrealizedFor/totalUnrealized/totalEquity
+  acctPositions.js         다른 코인 포지션 카드(하늘색) 목록 만들기 (순수 함수, import 없음)
+                           ⚠ **지금 보는 코인을 뺀다** · 정렬은 **심볼 이름 순**이다
   side.js                  헷지모드 side 매핑 (+ isLongToPosition/isLongToSide)
   coordUtils.js            idxToTimestamp/getCandleMs/addMonthsUTC
   hitTest.js  format.js  rsi.js
@@ -160,6 +171,8 @@ hooks/
   usePoll.js               폴링 공통 훅 (enabled=false면 리플레이용 no-op)
   useBalance / usePosition / useTpsl / useDailyLoss / useStats / useMarketInfo / useHealth
   useSymbolFilters.js      심볼별 호가·수량 단위 (GET /api/symbols) — **수량 계산의 유일한 출처**
+  useAccountPositions.js   계정 전체 포지션 폴링 (GET /api/positions, 30초) — 하늘색 카드용.
+                           실패해도 들고 있던 목록을 지우지 않는다 (카드가 사라지면 오해한다)
   usePositionFlags.js      derivePositionFlags(position) → hasLong/hasShort/hasPos/hasBoth/hasPending/drawLocked
   useOrderFlow.js          orderSlice 액션 재-export 래퍼
   useChartSize / useChartRenderer / useChartInteraction / useCrosshair
@@ -213,6 +226,8 @@ tests/                     `npm test` (node 내장 러너 — **의존성 0**)
   splitLevels / calc / equity / price / decimals / coordUtils / rsi   돈이 걸린 순수 함수
   shiftYDomain.test.js     화면 이동·휠의 세로 범위 계산 (로그는 곱셈이다)
   logScale.test.js         로그 눈금의 바닥값 — 1달러 미만 코인이 화면에서 사라지지 않는가
+  acctPositions.test.js    다른 코인 포지션 카드 목록 — 지금 보는 코인을 빼는가 ·
+                           정렬이 심볼 이름 순인가 (미실현 순이면 버튼이 손 아래서 움직인다)
   qtyMirror.test.js        화면 수량과 **거래소로 나가는 수량**이 같은 규칙인가
                            (`backend/utils/round.js`를 직접 불러 맞대어 본다)
   sideMirror.test.js       방향 매핑이 백엔드와 갈리지 않는가 — 갈리면 화면은 롱인데
@@ -345,7 +360,12 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
 - 라우트는 body/query의 `symbol`을 받는다 (`symbolInfo.fromRequest`, 없으면 기본 심볼).
   **모르는 심볼은 400**이다 — 통과시키면 가격이 이미 기본 심볼 단위로 만들어진 뒤 거절된다
 - **이미 걸린 주문을 건드릴 때는 `store.symbolOf(orderId)`를 쓴다** (요청이 아니라).
-  화면이 다른 심볼로 옮겨간 뒤에도 원래 심볼로 취소·수정해야 한다
+  화면이 다른 심볼로 옮겨간 뒤에도 원래 심볼로 취소·수정해야 한다.
+  ⚠ **기록을 정리할 때도 같다.** `store.entries()`는 계정 전체를 돌므로, 한 심볼의 주문
+    목록으로 판정하면 다른 코인의 기록을 지운다 — `GET /api/tpsl`의 분할 TP 정리가
+    실제로 그랬다 (2026-09-27에 고쳤다. 비트코인 차트를 1분 보고 있으면 이더리움 분할 TP의
+    `pct`가 사라져 목록의 `(40%)`가 빈칸이 되고, 살아 있는 주문에 `ORDER_GONE`이 남았다).
+    검산: `tests/tpslRoute.test.js`의 "다른 코인의 분할 TP 기록은 지우지 않는다"
 - **손익 조회에는 심볼 필터를 걸지 않는다** (`/api/stats`·일일 손실·`INCOME`) —
   한도의 기준인 지갑 잔고가 계정 전체 값이라, 손익만 좁히면 한도가 헐거워진다
 - ⚠ `"BTCUSDT"` 문자열은 `symbolInfo.DEFAULT_SYMBOL`과 `SEED` 두 곳에만 있다. 늘리지 말 것
@@ -357,6 +377,79 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
 - 수량 단위(`stepSize`)는 `rescaleSplitTps`에도 넘긴다 — 백엔드·페이퍼 브로커 **양쪽**.
   안 넘기면 DOGE에서 0.5짜리가 최소 수량 필터를 통과한 뒤 0으로 내려가 **수량 0 주문**이 된다
 - **포지션 플래그**: `derivePositionFlags(position)` → hasLong/hasShort/hasPos/hasBoth/hasPending/drawLocked
+
+### 사이드바는 계정의 포지션을 **전부** 보여준다 — 다른 코인은 하늘색 (2026-09-26 사용자 요청)
+포지션 카드는 롱·숏 두 개가 아니라 **계정에 있는 포지션 수만큼** 늘어선다.
+원칙은 둘이고, 사용자가 정했다:
+
+1. **어느 코인이든 포지션이 있으면 카드가 있다.** 제목에 코인 이름이 들어간다 (`▲ LONG 포지션 (BTC)`)
+2. **보고 있는 차트에서만 매매한다.** 다른 코인 카드는 하늘색이고 주문을 낼 수 없다.
+   `차트 보기`를 누르면 그 코인으로 화면이 옮겨 가고, 그때 카드가 초록·빨강으로 돌아온다
+
+| | 색 | 무엇이 있나 | 재료 |
+|---|---|---|---|
+| 지금 보는 코인 | 초록(롱)·빨강(숏) | 일곱 줄 + 주문 아코디언 넷 | `GET /api/position` + `GET /api/tpsl` |
+| 다른 코인 | 하늘색 `#38bdf8` | 일곱 줄 + `차트 보기` | `GET /api/positions` |
+
+- 컴포넌트는 **하나다** (`PositionCard`의 `readOnly`). 보여주는 일곱 줄이 같아야 목록으로 읽힌다
+- ⚠ **하늘색 카드는 주문 아코디언을 "비활성"하지 않고 아예 그리지 않는다.**
+  `api/client.js`가 모든 주문 요청에 **화면 심볼**을 싣기 때문이다 — 다른 코인 카드의
+  버튼이 한 번이라도 눌리면 그 요청은 **지금 보고 있는 코인으로 나간다.** 아무 일도
+  안 일어나는 게 아니라 엉뚱한 코인이 청산된다. 비활성 조건 하나에 기대지 말 것
+- ⚠ **거래소 호출이 늘지 않는다.** `watchAccount`가 3초마다 이미 계정 전체의 포지션·미체결·
+  알고 주문을 받고 있어서(무방비 판정용), 그 **마지막 관측**을 `services/accountSnapshot.js`에
+  담아 `GET /api/positions`가 그대로 내준다. 이 라우트가 심볼별로 직접 조회하게 바꾸지 말 것 —
+  폴링 × 코인 수만큼 호출이 늘어난다
+- ⚠ TP/SL 분류는 `utils/tpslView.js` **하나**를 `/api/tpsl`과 나눠 쓴다. 두 벌이 되면 같은
+  포지션의 손절 가격이 카드마다 달라진다 (한쪽은 부분 손절, 한쪽은 전량 손절을 집는다).
+  ※ `/api/tpsl`의 SPLIT_TP store 정리는 **그 라우트에만 있다** — 계정 전체를 보는 쪽에서
+    하면 한 심볼의 주문 목록으로 다른 심볼의 기록을 지운다
+- 카드가 **일곱 줄 중 셋**(손익비 R:R·예상 손실·예상 수익)을 TP/SL로 계산한다. 그래서 다른
+  코인의 TP/SL도 같이 내려준다 — 안 주면 손절이 걸려 있는데 `예상 손실 —`로 보인다
+  (2026-09-26에 사용자가 이 이유로 "채우는 쪽"을 골랐다)
+- 카드는 **진입 시각·평단 변화 이력을 안 쓴다** (그건 차트 진입선만 쓴다). 그래서
+  `services/entryTime.js`의 무거운 역산을 다른 코인에는 돌리지 않는다.
+  ⚠ 하늘색 카드에 그 값을 넣으려고 `GET /api/position`을 코인마다 부르지 말 것 —
+    그 캐시는 심볼을 구분하지 않아서, 번갈아 부르면 폴링마다 userTrades 조회가 다시 돈다
+- 호가·수량 단위는 응답의 `rules`로 온다 — **표시 전용**이다 (청산가·수량 자릿수·코인 이름).
+  ⚠ 주문으로 나갈 값은 여전히 `useSymbolFilters`가 정한다
+- **미실현은 틱마다 움직이지 않는다** — 그 코인의 체결가 WebSocket이 없어서 거래소가 준
+  값(마크 가격 기준)을 쓴다. 보고 있는 코인만 체결가로 실시간 계산한다 (`utils/equity.js`)
+- **잔고 카드의 `총자산`은 그대로다** — 보고 있는 코인의 미실현만 더한다. 다른 코인 미실현을
+  넣으려면 "포지션 카드의 미실현과 총자산은 같은 값에서 나온다"는 규칙부터 다시 정해야 한다
+  (2026-09-26에 별건으로 미뤘다)
+- **연습(리플레이) 중에는 하늘색 카드가 없다** — 페이퍼 브로커는 코인 하나만 안다
+- 접은 상태의 저장 키는 **하늘색 카드만** 심볼을 포함한다 (`accordion_pos_ETHUSDT_LONG`).
+  보고 있는 코인의 카드는 예전 키(`accordion_pos_LONG`)를 그대로 쓴다 — 바꾸면 저장된
+  접기 설정이 한 번 초기화된다
+- ⚠ **화면 심볼은 즉시 바뀌지만 `GET /api/position` 응답은 나중에 온다.** 그 사이 화면이
+  두 코인의 값을 섞어 쓰면 사이드바가 들썩인다 (2026-09-27 사용자 신고, 둘 다 고쳤다).
+  판정은 `utils/acctPositions.shownSymbol(position, symbol)` 하나가 한다 —
+  **"초록·빨강 카드가 지금 보여주고 있는 코인"**을 답한다:
+  · 하늘색 목록에서 뺄 코인을 **화면 심볼**로 정하면, 옛 코인이 초록 카드와 하늘색 카드에
+    **동시에** 떠서 카드 수가 1 → 2 → 1로 움직인다
+  · 옛 코인의 포지션에 새 코인의 가격을 곱하거나 **그 반대**가 되면(BTC 진입가 90,000 ×
+    ETH 가격 3,000) 총자산이 엉뚱한 자릿수가 되고, `BalanceCard.amountSize`가
+    **글자 크기를 한 단계 줄였다 되돌린다**.
+    → 판정은 `livePriceFor()` 하나가 한다. 짝이 안 맞는 동안에는 `lastPrice`를 `null`로
+      넘겨 **거래소가 준 미실현**을 쓴다.
+    ⚠ **어긋남은 양방향이다.** 가격이 늦게 오는 쪽이 더 흔하다 — 포지션은 `setSymbol`이
+      즉시 다시 받아오는데(`_refetchPos`), 가격은 `useCandles`가 캔들 1500개를 **두 번**
+      받은 뒤에야 바뀐다. 그래서 스토어가 `liveCloseSymbol`(그 가격이 어느 코인의 것인지)을
+      같이 들고 있고, `setLiveClose`를 부르는 네 곳이 모두 심볼을 싣는다
+    ⚠ 잔고 카드와 포지션 카드에 **같은 값**을 넘길 것 (`utils/equity.js`의 규칙)
+  · ⚠ `symbol` 필드가 **없으면 화면 심볼로 본다** — 연습(리플레이)의 페이퍼 스냅샷에는
+    그 필드가 없다. 없는 것을 "다른 코인"으로 읽으면 연습 중 미실현이 총자산에서 빠진다
+- ⚠ 코인을 바꾸면 **초록·빨강 카드는 접힌 상태로 돌아온다** (2026-09-27 사용자 요청).
+  같은 코인을 보는 동안은 접거나 펼친 상태를 기억한다. 두 곳이 나눠 한다:
+  `settingsSlice.setSymbol`이 저장값을 접힘으로 적고, `SidebarPanel`이 `key={symbol}`로
+  카드를 새로 만들어 그 값을 다시 읽게 한다. **한쪽만 있으면 안 된다** —
+  저장값만 바꾸면 이미 떠 있는 카드가 펼쳐진 채로 남고(`useAccordion`은 처음 뜰 때 한 번만
+  읽는다), 새로 만들기만 하면 지난번 펼침을 다시 읽어 온다.
+  하늘색 카드는 기본이 펼침이고 코인별로 따로 기억한다
+- 서버를 켠 직후 최대 3초는 하늘색 카드가 없다 (첫 관측을 기다린다. 거래소를 대신 부르지 않는다)
+- 검산: `backend/tests/positionsRoute.test.js` · `backend/tests/tpslView.test.js` ·
+  `frontend/tests/acctPositions.test.js`
 
 ### 주문번호는 문자열일 수 있다
 바이낸스가 심볼마다 다른 번호 체계를 쓴다 — BTCUSDT는 13자리, **ETHUSDT는 19자리**다.
