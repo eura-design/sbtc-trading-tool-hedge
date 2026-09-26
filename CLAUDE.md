@@ -209,7 +209,7 @@ components/
     ScaleInCard / SplitTPCard / SplitSLCard / cardControls.jsx
 
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
-  ⚠ 아래는 **일부다** — 전체 목록은 폴더를 볼 것 (`*.test.js` 프론트 23 · 백엔드 18개)
+  ⚠ 아래는 **일부다** — 전체 목록은 폴더를 볼 것 (`*.test.js` 프론트 25 · 백엔드 18개)
   splitLevels / calc / equity / price / decimals / coordUtils / rsi   돈이 걸린 순수 함수
   shiftYDomain.test.js     화면 이동·휠의 세로 범위 계산 (로그는 곱셈이다)
   logScale.test.js         로그 눈금의 바닥값 — 1달러 미만 코인이 화면에서 사라지지 않는가
@@ -220,6 +220,10 @@ tests/                     `npm test` (node 내장 러너 — **의존성 0**)
   paperFills.test.js       페이퍼 체결 규칙 — **"모르면 불리하게"**가 지켜지는지
   deriveStructure.test.js  수동 구조 CHoCH 판정
   chochMirror.test.js      **자동 ZZ와 수동 구조가 같은 답을 내는지** (규칙이 두 벌이다)
+  legHover.test.js         레그 hover가 **자동 이어그리기 구간(하늘색 점선)도 잡는가** ·
+                           ⚠ 드래그·삭제 경로가 자동 점을 잡지 않는가 (잡으면 안 찍은 점이 옮겨진다)
+  indicatorKeys.test.js    `indicators`에서 **없어진 지표의 on/off만** 골라 지우는가
+                           (`main.jsx`). ⚠ 틀리면 살아 있는 설정이 새로고침마다 사라진다
   structAutoMirror.test.js **자동 이어그리기가 자동 ZZ와 같은 꼭짓점을 찍는지** —
                            자동 ZZ의 꼭짓점을 사용자 점으로 놓고 그 뒤를 맞대어 본다.
                            **진행 중 봉까지 포함해서** 본다 (거기서 갈렸다, 2026-09-09)
