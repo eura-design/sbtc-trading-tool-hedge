@@ -1,7 +1,6 @@
 import { useRef, useCallback } from "react";
 import * as d3 from "d3";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
-import { LEG_VOL_METRICS } from "../chart/legVolume";
 import { fmtPrice } from "../utils/price";
 import { useStore } from "../store";
 
@@ -43,27 +42,21 @@ function hideTags(T) {
   T.timeText?.setAttribute("display", "none");
 }
 
-// 구분 공백은 U+00A0 — SVG 기본 공백 처리(xml:space="default")가 tspan 경계의
-// 일반 공백을 없애버려서 숫자들이 붙어 버린다
-const NB = " ";
 const UP = "#0ecb81", DN = "#f6465d";
-
-// 레그 hover 라벨의 거래량 줄 간격 (거래량 줄 fontSize 11 기준)
-const LEG_ROW_H = 13;
+// ⚠ 여기 있던 `NB`(U+00A0 공백)와 `LEG_ROW_H`(줄 간격)는 **2026-09-26에 지웠다** —
+//   레그 hover 라벨의 거래량 줄을 tspan으로 이어 붙일 때 쓰던 값이고, 그 기능이
+//   없어지면서 쓰는 곳이 사라졌다.
+//   ※ `NB`가 필요했던 이유는 SVG 기본 공백 처리(xml:space="default")가 tspan 경계의
+//     일반 공백을 없애 숫자들이 붙어버리기 때문이었다. tspan을 다시 쓸 일이 생기면
+//     그 함정부터 떠올릴 것
 
 // 지그재그 레그 등락률(%)의 글자 크기 — **캔들 몸통 등락률(bodyPct)과 같은 13px**
 // (2026-08-24 사용자 요청). 예전엔 11px이라 같은 `%` 값인데 둘의 크기가 달랐다.
 // 겹쳐 보일 걱정은 없다: 레그 라벨은 한 줄 아래에 따로 놓이므로 자리로 이미 갈린다.
 //
-// ⚠ **ChartSvg의 `<text>` fontSize와 반드시 같아야 한다** — 이 값은 그림이 아니라
-//   거래량 줄의 x를 잡는 데 쓰인다(아래 rowX). 어긋나면 등락률 글자와 거래량 줄이
-//   겹치거나 사이가 벌어진다. 그래서 ChartSvg가 이 상수를 가져다 쓴다
+// ⚠ **ChartSvg의 `<text>` fontSize와 반드시 같아야 한다** — ChartSvg가 이 상수를 가져다 쓴다.
+//   ※ 2026-09-26까지는 이 값으로 거래량 줄의 x도 계산했다(LEG_PCT_CH). 그 기능은 지웠다
 export const LEG_PCT_FS = 13;
-const LEG_PCT_CH = LEG_PCT_FS * 0.6;   // 등폭 한 글자 폭 (JetBrains Mono = 0.6em)
-
-function hideLegRows(L) {
-  for (const { key } of LEG_VOL_METRICS) L[`${key}Text`]?.setAttribute("display", "none");
-}
 
 export function useCrosshair(interval_) {
   const vLineRef      = useRef(null);
@@ -85,19 +78,11 @@ export function useCrosshair(interval_) {
   // 크로스헤어와 같은 imperative 레이어에 둔다 — 마우스 이동마다 React 상태를
   // 갱신하면 SVG 오버레이 전체가 리렌더된다.
   //
-  // 요소가 16개라 **ref 하나에 모아 담는다** (prop을 그만큼 ChartArea →
-  // ChartSvg로 내려보내지 않으려고). ChartSvg가 콜백 ref로 채운다.
-  //   pct                                        등락률
-  //   {key}Text / {key}{Up,UpD,Dn,DnD}           거래량 줄 — key는 LEG_VOL_METRICS
-  //                                              (top3 / mean / sum, 위→아래 순서도 그 배열)
-  // ※ 테이커 기준 줄(tkr*)은 2026-08-13 제거 — legVolume.js [LV5]
-  //
-  // tspan 4개인 이유 — 색이 **두 축으로** 갈리기 때문이다:
-  //   값(▲3.2K)    = 매수 쪽인가 매도 쪽인가 (JSX 고정)
-  //   증감률(↓63%)  = 직전 대비 늘었나 줄었나 (매번 설정)
-  // 실측 126쌍 중 62개(49%)가 이 둘의 색이 갈린다. 한 색으로 묶으면 절반이 틀린 색이 된다.
-  // ※ tspan을 쓰면 **가로 위치가 자동으로 이어진다** — 별도 <text>로 나누면
-  //   문자폭을 추정해 x를 계산해야 하고, 값 길이가 바뀔 때마다 어긋난다.
+  // 담는 것은 `pct`(등락률) 하나다. ChartSvg가 콜백 ref로 채운다.
+  // ⚠ 2026-09-26까지는 여기에 거래량 줄 요소 15개가 더 있었다
+  //   (`{key}Text` / `{key}{Up,UpD,Dn,DnD}`). 그 기능을 지우면서 같이 없앴다 —
+  //   ref 하나에 모아 담는 방식은 그때 요소가 16개였기 때문이고, 지금은 하나뿐이라
+  //   굳이 풀지 않았다(ChartSvg의 콜백 ref 배선을 그대로 두는 편이 변경이 적다).
   const legRefs = useRef({});
 
   const update = useCallback(({ x, y, inRsi, IW, IH, rsiH, volH, price, ts, bodyPct }) => {
@@ -196,99 +181,40 @@ export function useCrosshair(interval_) {
       T.priceText?.setAttribute("display", "none");
       bodyPctEl?.setAttribute("display", "none");
       // RSI 패널엔 지그재그가 없다
-      const L = legRefs.current;
-      L.pct?.setAttribute("display", "none");
-      hideLegRows(L);
+      legRefs.current.pct?.setAttribute("display", "none");
     }
   }, []);
 
   /**
-   * 지그재그 레그 hover 라벨 — 커서 아래쪽에 작게. pct가 null이면 숨긴다.
+   * 지그재그 레그 hover 라벨 — 커서 아래쪽에 작게 **등락률 한 줄**. pct가 null이면 숨긴다.
    * 가격 라벨(priceText)보다 한 줄 아래에 두어 겹치지 않게 한다.
    *
-   *   +2.41%   상위3 ▲2.1K ↓41%    ← 상승 레그면 ▲만 / 하락 레그면 ▼만 ([LV6])
-   *            평균  ▲1.4K ↑12%    └직전 동일방향 레그의 **같은 지표** 대비
-   *            총량  ▲9.8K ↑37%
+   *   +2.41%
    *   └등락률
    *
-   * 줄 이름을 반드시 써 붙인다 — 숫자만 있으면 무엇의 값인지 알 수 없다.
-   *
-   * [LV8][LV9] 세 줄인 이유: 한 값만 보면 그 값의 약점에 그대로 걸린다.
-   *   평균·상위3은 레그 길이와 무관하고(상관계수 0.00 / 0.10), 총량은 길이에 휘둘린다(0.29).
-   *   **셋이 갈리는 것 자체가 정보**다. 줄 수를 줄이지 말 것.
-   *   ※ 피크(봉 하나) 줄은 2026-08-13 사용자가 뺐다 — 되살리지 말 것 (legVolume.js [LV9])
-   *
-   * [LV5] 한때 아래에 **테이커(체결 주체) 기준** 줄을 나란히 두고 비교했다.
-   *   2026-08-13 사용자 요청으로 제거 — 캔들 색 기준 한 줄만 남긴다. 되살리지 말 것.
-   *
-   * ── 색 규칙 (두 축이 섞여 있으니 헷갈리지 말 것) ────────────────────────────
-   *   **값**(▲3.2K)   = 매수 쪽인가 매도 쪽인가  — 초록 / 빨강 (JSX 고정)
-   *   **증감률**(↓63%) = 직전 대비 늘었나 줄었나  — 증가 초록 / 감소 빨강 (매번 설정)
-   * 그래서 `▼1.8K ↑12%`처럼 **한 쌍 안에서 색이 갈리는 게 정상**이다
-   * (매도 쪽 값인데 직전보다 늘었다는 뜻). 실측 126쌍 중 62개(49%)가 갈린다.
-   * 해석은 글자로 단정하지 않는다 — 상승 레그인데 매수 거래량 ↓면 동력 약화지만,
-   * 그 판단은 사용자 몫이다.
-   *
-   * 해당 봉이 없는 레그는 그쪽을 **비운다** (0으로 채우면 "거래량 0"으로 읽힌다).
+   * ⚠ 여기 있던 **거래량 비교 세 줄(상위3·평균·총량)은 2026-09-26에 기능째 지웠다**
+   *   (사용자 요청). 되살리지 말 것 — 되살리려면 `chart/legVolume.js`(계산)부터 다시
+   *   만들어야 하고, `findHoveredLeg`의 `showVol`·`prev`, 구조별 `showLegVol` 토글,
+   *   `zz.show_legvol`, ChartSvg의 tspan 줄까지 전부 딸려 온다.
+   *   그 기능이 담고 있던 결정들(테이커 줄 제거·같은 쪽끼리만 비교·세 지표로 나눈 근거)은
+   *   커밋 메시지에 옮겨 적었다.
    */
-  const showLegPct = useCallback(({ x, y, IH, pct, rows }) => {
-    const L  = legRefs.current;
-    const el = L.pct;
+  const showLegPct = useCallback(({ x, y, IH, pct }) => {
+    const el = legRefs.current.pct;
     if (!el) return;
     if (pct == null) {
       el.setAttribute("display", "none");
-      hideLegRows(L);
       return;
     }
-    // 세 줄이라 커서가 아래쪽에 있으면 패널 밖으로 넘친다 → 커서 **위**로 뒤집는다
-    // (한 줄이던 시절엔 없던 문제. IH를 안 넘겨주면 뒤집지 않고 예전처럼 아래로만 간다)
-    const span = (LEG_VOL_METRICS.length - 1) * LEG_ROW_H;
-    const flip = IH != null && y + 30 + span > IH;
-    const y0   = M.top + y + (flip ? -10 - span : 30);
+    // 커서가 패널 맨 아래에 있으면 라벨이 밖으로 넘친다 → 커서 **위**로 뒤집는다.
+    // IH를 안 넘겨주면 뒤집지 않고 아래로만 간다
+    const flip = IH != null && y + 30 > IH;
 
-    const sign = pct >= 0 ? "+" : "";
-    const text = `${sign}${pct.toFixed(2)}%`;
-    el.textContent = text;
+    el.textContent = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
     el.setAttribute("fill", pct >= 0 ? UP : DN);
     el.setAttribute("x", M.left + x + 8);
-    el.setAttribute("y", y0);
+    el.setAttribute("y", M.top + y + (flip ? -10 : 30));
     el.setAttribute("display", "inline");
-
-    // 거래량 줄의 x는 등락률 폭에서 계산한다
-    // (등폭이라 글자 수 × 한 글자 폭 — getComputedTextLength는 강제 레이아웃을 유발한다)
-    const rowX = M.left + x + 8 + text.length * LEG_PCT_CH + 6;
-
-    // 값 tspan과 증감률 tspan을 채운다.
-    // ※ 증감률 색은 **값의 방향이 아니라 증감 자체**로 정한다
-    const fillSide = (valEl, dEl, side, mark, lead) => {
-      if (side?.vol == null) {
-        if (valEl) valEl.textContent = "";
-        if (dEl)   dEl.textContent   = "";
-        return false;
-      }
-      if (valEl) valEl.textContent = `${lead}${mark}${side.vol}`;
-      if (dEl) {
-        if (side.delta == null) dEl.textContent = "";
-        else {
-          dEl.textContent = `${NB}${side.delta >= 0 ? "↑" : "↓"}${Math.abs(side.delta).toFixed(0)}%`;
-          dEl.setAttribute("fill", side.delta >= 0 ? UP : DN);
-        }
-      }
-      return true;
-    };
-
-    // 줄 순서는 LEG_VOL_METRICS 그대로 (상위3 → 평균 → 총량)
-    LEG_VOL_METRICS.forEach(({ key }, i) => {
-      const textEl = L[`${key}Text`];
-      if (!textEl) return;
-      const row   = rows?.[key];
-      const hasUp = fillSide(L[`${key}Up`], L[`${key}UpD`], row?.up, "▲", "");
-      const hasDn = fillSide(L[`${key}Dn`], L[`${key}DnD`], row?.dn, "▼", hasUp ? NB + NB : "");
-      if (!hasUp && !hasDn) { textEl.setAttribute("display", "none"); return; }
-      textEl.setAttribute("x", rowX);
-      textEl.setAttribute("y", y0 + i * LEG_ROW_H);
-      textEl.setAttribute("display", "inline");
-    });
   }, []);
 
   const hide = useCallback(() => {
@@ -297,9 +223,7 @@ export function useCrosshair(interval_) {
     hLineRsiRef.current?.setAttribute("display", "none");
     bodyPctRef.current?.setAttribute("display", "none");
     hideTags(axisTagRefs.current);
-    const L = legRefs.current;
-    L.pct?.setAttribute("display", "none");
-    hideLegRows(L);
+    legRefs.current.pct?.setAttribute("display", "none");
   }, []);
 
   return {

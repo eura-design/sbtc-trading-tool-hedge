@@ -474,45 +474,30 @@ export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
 /**
  * 지그재그 레그 위에 마우스를 올렸을 때 보여줄 정보 — 없으면 null.
  *
- *   { pct, i1, i2, prev: { i1, i2 } | null }
- *     pct  : 그 레그의 등락률(%)
- *     i1,i2: 레그의 bar index 범위 (거래량 합산용 — chart/legVolume.js)
- *     prev : **직전 동일방향 레그**의 범위. 지그재그는 상승·하락이 반드시 교대하므로
- *            두 칸 앞이 곧 같은 방향이다 → 방향 판정 없이 정확하다
+ *   { pct, i1, i2 }
+ *     pct  : 그 레그의 등락률(%)  <- 화면에 뜨는 것은 이것뿐이다
+ *     i1,i2: 레그의 bar index 범위
  *
  * 수동 구조와 자동 ZZ를 **같은 규칙**으로 훑는다. 좌표계만 다르다:
- *   - 수동 구조: 꼭짓점이 timestamp → tsToIdx로 bar index 변환 (structureXYs)
+ *   - 수동 구조: 꼭짓점이 timestamp이므로 tsToIdx로 bar index 변환 (structureXYs)
  *   - 자동 ZZ:   세그먼트가 이미 bar index (getZzSegments)
  * 두 지표가 겹쳐 있으면 먼저 잡히는 쪽(수동 구조)이 이긴다 — 사용자가 직접 그린
  * 구조가 자동 검출보다 의도가 분명하므로.
  *
  * 자동 ZZ는 진행 중 레그(마지막 세그먼트)도 포함한다.
- * ⚠ 수동 구조 쪽 진행 중 레그(점선)는 **2026-08-26에 기능째 삭제**됐다 —
- *   여기 있던 liveSegment 분기와 `[R8]`(prev를 실어 보내기)도 같이 사라졌다.
+ * ⚠ 수동 구조 쪽 진행 중 레그(점선)는 **2026-08-26에 기능째 삭제**됐다.
  * ※ **자동 이어그리기 구간(하늘색 점선)의 레그도 hover가 된다** (2026-09-26 사용자 요청).
  *   자동 점을 사용자 점 뒤에 **이어 붙여 같은 루프로** 훑는다 — 루프를 두 벌로 만들지 말 것.
- *   이어 붙이는 이유는 좌표 계산 말고 하나 더 있다: 라벨의 거래량 비교가 **두 칸 앞 레그**를
- *   보는데, 배열을 따로 돌리면 자동 구간의 첫 레그가 비교 대상을 못 찾는다. 이어 붙이면
- *   확정 레그에서 자연스럽게 이어지고 `[LV7]`("비교는 그 구조 안에서만")도 지켜진다.
+ *
+ * ⚠ 여기 있던 `prev`(직전 동일방향 레그의 범위)와 `showVol`(구조별 `거래량 비교` 토글)은
+ *   **2026-09-26에 지웠다** — 거래량 비교 기능이 없어지면서 둘 다 소비자가 사라졌다.
+ *   `prev`는 오직 그 비교에만 쓰였고, 그래서 "비교는 그 구조 안에서만 한다"는 [LV7] 규칙도
+ *   같이 없어졌다. 되살릴 거면 `chart/legVolume.js`부터 다시 만들 것 (근거는 커밋 메시지).
  *
  * threshold는 클릭 판정(8)보다 좁은 6 — hover는 잘못 걸리면 라벨이 깜빡여서 거슬린다.
  */
-/**
- * [LV7] ⚠ **비교는 그 구조 안에서만 한다. 다른 구조를 끌어오지 말 것.**
- *   (2026-08-13 사용자 확정 — 한때 있던 `findPrevSameDirLeg` 폴백을 제거했다)
- *
- * 구조의 **첫 상승 레그와 첫 하락 레그는 비교 대상이 없다 → 증감률을 띄우지 않는다.**
- * 이게 정상이다. "비교할 게 없는데 왜 숫자가 뜨냐"가 실제로 나온 지적이다.
- *
- * 폴백이 있던 시절엔 며칠 전에 그린 **다른 구조**의 레그를 끌어와 비교했다.
- * 화면에서 두 구조는 이어져 있지도 않은데 숫자만 뜨니, 그게 어디서 온 값인지
- * 알 수 없었다. 되살리지 말 것 — 구조 하나가 곧 하나의 비교 단위다.
- */
 export function findHoveredLeg({
   px, py, structures, zzSegments, xScale, yScale, candles, threshold = 6,
-  // 자동 ZZ의 `거래량 비교` — 지표 단위 설정이라 인자로 받는다 (수동 구조는 도형이
-  // 자기 값을 들고 있어 st.showLegVol을 직접 읽는다). 2026-08-24 되살림
-  zzShowVol = true,
   // 자동 이어그리기 점 — `structRenderState.getStructAutoChains()`가 주는 `[{ structId, points }]`.
   // 자동 점은 `st.points`에 없어서 이 인자 없이는 그 구간이 hover되지 않는다
   structAutoChains = [],
@@ -526,18 +511,11 @@ export function findHoveredLeg({
     const xy = structureXYs(st, candles, xScale, yScale, pts);
     for (let k = 1; k < xy.length; k++) {
       if (distToSeg(px, py, xy[k - 1].x, xy[k - 1].y, xy[k].x, xy[k].y) < threshold) {
-        // 레그 k는 pts[k-1]→pts[k]. 두 칸 앞 레그(k-2)가 같은 방향이다.
-        // 없으면(= 이 구조의 첫 상승/첫 하락) 비교 대상이 없는 것이다 → null [LV7]
-        const prev = k >= 3
-          ? { i1: tsToIdx(pts[k - 3].t, candles), i2: tsToIdx(pts[k - 2].t, candles) }
-          : null;
+        // 레그 k는 pts[k-1] 에서 pts[k] 까지다
         return {
           pct: pct(pts[k - 1].p, pts[k].p),
           i1: tsToIdx(pts[k - 1].t, candles),
           i2: tsToIdx(pts[k].t, candles),
-          prev,
-          // 거래량 3줄 표시 여부는 **구조마다** (더블클릭 팝업 `거래량 비교`). undefined = ON
-          showVol: st.showLegVol === true,
         };
       }
     }
@@ -549,14 +527,9 @@ export function findHoveredLeg({
     const ax = xScale(sg.i1), bx = xScale(sg.i2);
     if (Math.max(ax, bx) < px - threshold || Math.min(ax, bx) > px + threshold) continue;
     if (distToSeg(px, py, ax, yScale(sg.p1), bx, yScale(sg.p2)) < threshold) {
-      const p = k >= 2 ? segs[k - 2] : null;
       return {
         pct: pct(sg.p1, sg.p2),
         i1: sg.i1, i2: sg.i2,
-        prev: p ? { i1: p.i1, i2: p.i2 } : null,
-        // 거래량 3줄 표시 여부 — 자동 ZZ는 **지표 하나에 값 하나**다
-        // (수동 구조는 구조마다 따로. 저쪽은 도형이 여러 개고 이쪽은 하나뿐이라 그렇다)
-        showVol: zzShowVol !== false,
       };
     }
   }

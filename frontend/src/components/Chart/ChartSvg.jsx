@@ -9,22 +9,13 @@ import { Structures }   from "./Structures";
 import { PositionLines } from "./PositionLines";
 import { OrderPickPreview } from "./OrderPickPreview";
 import { BoxOverlay, DrawingCurrent } from "./BoxOverlay";
-import { LEG_VOL_METRICS } from "../../chart/legVolume";
-// 레그 등락률 글자 크기 — 거래량 줄의 x 계산에도 쓰이므로 **한 곳에서 가져온다**
-// (여기서 숫자를 다시 적으면 라벨과 거래량 줄이 겹친다 — useCrosshair의 rowX)
+// 레그 등락률 글자 크기 — useCrosshair가 라벨 위치를 잡는 데 쓰는 값과 **같아야 한다**
 import { LEG_PCT_FS } from "../../hooks/useCrosshair";
 
-// 지그재그 레그 hover 라벨의 거래량 줄 머리말 (상위3 / 평균 / 총량 — legVolume.js [LV9]).
-// 공백은 U+00A0 — 일반 공백은 SVG 기본 공백 처리에서 사라진다 (useCrosshair 참고).
-//
-// 세 줄의 **값 시작 위치를 맞추려면** 머리말 폭이 같아야 한다. 모노스페이스라도 한글은
-// 폴백 폰트라 반각 2칸을 차지해서("평균" 4칸 vs "상위3" 5칸) 글자 수로는 안 맞는다.
-// → 반각 환산 폭을 재서 가장 넓은 것에 맞춘 뒤, 구분 공백을 하나 더 붙인다.
-// ※ 아래에 있던 "테이커"(체결 주체 기준) 줄은 2026-08-13 제거 — legVolume.js [LV5]
-const NB = " ";
-const halfWidth = s => [...s].reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2000 ? 2 : 1), 0);
-const LABEL_W   = Math.max(...LEG_VOL_METRICS.map(m => halfWidth(m.label)));
-const legLabel  = label => label + NB.repeat(LABEL_W - halfWidth(label) + 1);
+// ⚠ 여기 있던 **거래량 줄 머리말 상수**(`NB`·`halfWidth`·`LABEL_W`·`legLabel`)와
+//   아래의 `<text>`/`<tspan>` 세 줄은 **2026-09-26에 지웠다** (거래량 비교 기능 제거).
+//   머리말 폭을 맞추려고 반각 환산까지 했던 것인데, 그 줄이 없어져 쓸 곳이 사라졌다.
+//   되살릴 거면 `chart/legVolume.js`부터 다시 만들어야 한다 — 근거는 커밋 메시지에 있다.
 
 export function ChartSvg({
   svgRef,
@@ -156,8 +147,8 @@ export function ChartSvg({
         {/* 지그재그 레그 hover 라벨 — 캔들 등락률(bodyPct) **한 줄 아래**.
             등락률(%) 글자는 그 캔들 등락률과 **같은 크기**다 (2026-08-24 사용자 요청) —
             같은 `%`인데 크기가 달랐고, 둘은 줄이 나뉘어 있어 크기로 구분할 필요가 없다.
-            거래량 세 줄은 그대로 11px — 저건 성격이 다른 값이고 줄 수도 많다.
-            요소가 16개라 ref를 객체 하나(legRefs)에 콜백으로 모은다 (useCrosshair 참고) */}
+            ※ 2026-09-26까지는 이 아래에 거래량 세 줄이 더 있었다 (11px, tspan 4개씩).
+              그 기능을 지우면서 `legRefs`에 담기는 요소도 이 `pct` 하나만 남았다 */}
         <text ref={el => (legRefs.current.pct = el)} display="none" x={0} y={0}
           fontSize={LEG_PCT_FS} fontWeight={700}
           fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
@@ -165,25 +156,6 @@ export function ChartSvg({
           stroke={isDark ? "#0d1117" : "#f9fafb"}
           strokeWidth={3} paintOrder="stroke"
         />
-        {/* 오른쪽 세 줄 — 캔들 색 기준 거래량 (상위3봉 평균 / 봉당 평균 / 총량).
-            값의 초록/빨강 = 양봉 쪽/음봉 쪽(고정), 증감률 색 = 증가/감소(매번 설정).
-            tspan으로 나눠야 색을 달리하면서도 가로 위치가 자동으로 이어진다.
-            줄 순서·개수는 LEG_VOL_METRICS 하나가 정한다 — 여기서 따로 늘리지 말 것 */}
-        {LEG_VOL_METRICS.map(({ key, label }) => (
-          <text key={key} ref={el => (legRefs.current[`${key}Text`] = el)}
-            display="none" x={0} y={0}
-            fontSize={11} fontWeight={600}
-            fontFamily="'JetBrains Mono','Fira Code','Courier New',monospace"
-            stroke={isDark ? "#0d1117" : "#f9fafb"}
-            strokeWidth={3} paintOrder="stroke"
-          >
-            <tspan fill={isDark ? "#94a3b8" : "#64748b"}>{legLabel(label)}</tspan>
-            <tspan ref={el => (legRefs.current[`${key}Up`]  = el)} fill="#0ecb81" />
-            <tspan ref={el => (legRefs.current[`${key}UpD`] = el)} />
-            <tspan ref={el => (legRefs.current[`${key}Dn`]  = el)} fill="#f6465d" />
-            <tspan ref={el => (legRefs.current[`${key}DnD`] = el)} />
-          </text>
-        ))}
       </g>
 
       {/* 거래량 구분선 드래그 히트 영역 */}

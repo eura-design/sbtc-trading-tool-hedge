@@ -6,7 +6,6 @@ import { SESSION_MAX_MS } from "./store/replaySlice";
 import { INTERVALS } from "./constants";
 import { ZZ_ID }         from "./chart/drawables";
 import { installStructDebug } from "./chart/structDebug";
-import { installLegDebug }    from "./chart/legDebug";
 
 import { useCandles }                from "./hooks/useCandles";
 import { useReplay }                 from "./hooks/useReplay";
@@ -315,11 +314,8 @@ export default function App() {
     chartActionsRef.current?.resetDomain();
   }, [symbol, replayOn, replayStartMs, candleLoading]);
 
-  // 콘솔에서 `__legDebug()` — 레그 hover의 거래량 비교(↑↓%)가 안 뜨는 이유를 레그별로 출력.
-  // 진행 중 레그는 candlesRef(진행 중 봉 최신값)로 판정해야 화면과 값이 같다.
-  const legDebugCtx = useRef(null);
-  legDebugCtx.current = { structures: structs.structures, candles: candlesRef.current };
-  useEffect(() => { installLegDebug(() => legDebugCtx.current); }, []);
+  // ⚠ 여기 있던 `__legDebug()` 설치는 **2026-09-26에 지웠다** — 레그 hover의 거래량
+  //   비교가 안 뜨는 이유를 출력하는 진단이었고, 그 기능을 없애면서 같이 사라졌다
 
   // ── 포지션 진입 스크린샷 ─────────────────────────────────────────────────
 
@@ -450,11 +446,6 @@ export default function App() {
         alertChoch: indicatorParams.zz?.alert_choch === true,
         showChoch:  indicatorParams.zz?.show_choch  !== false,
         maxChoch:   indicatorParams.zz?.max_choch ?? null,   // null = 전체
-        // 레그 hover 거래량 비교 3줄 — 2026-08-24 되살림 (수동 구조와 짝을 맞춘다).
-        // 2026-08-14~24에는 없었다: 그때 사용자가 뺐고, 같은 사용자가 다시 요청했다.
-        // ⚠ 수동 구조는 **구조마다** 값을 들고 있지만(st.showLegVol) 자동 ZZ는
-        //   지표라 값이 하나다 → indicatorParams.zz.show_legvol
-        showLegVol: indicatorParams.zz?.show_legvol === true,
       }],
       setSelectedId: (id) => setZzSelected(id != null),
       delete:     () => {},   // 지표는 지울 대상이 아니다
@@ -462,7 +453,6 @@ export default function App() {
       // 구조와 마찬가지로 toggleAlert = **CHoCH 발생 알림**(근접 알림이 아니다)
       toggleAlert: () => setIndicatorParam("zz", "alert_choch", !indicatorParams.zz?.alert_choch),
       toggleChoch: () => setIndicatorParam("zz", "show_choch",  indicatorParams.zz?.show_choch  === false),
-      toggleLegVol: () => setIndicatorParam("zz", "show_legvol", !indicatorParams.zz?.show_legvol),
       setOpacity:  (_id, opacity) => setIndicatorParam("zz", "opacity", opacity),
       setMaxChoch: (_id, n) => setIndicatorParam("zz", "max_choch", n),
     },
@@ -478,7 +468,6 @@ export default function App() {
       setOpacity:    structs.setStructOpacity,
       toggleChoch:   structs.toggleStructChoch,   // CHoCH 마크 표시
       setMaxChoch:   structs.setStructMaxChoch,   // CHoCH 표시 개수 (구조별)
-      toggleLegVol:  structs.toggleStructLegVol,  // 레그 hover 거래량 비교 3줄 (구조별)
       // 자동 이어그리기 — **구조마다** on/off와 설정을 갖는다 (2026-08-26).
       // 자동 구조 지표(zz)에는 대응하는 항목이 없다 — 그쪽은 그 자체가 자동이다
       toggleAuto:    structs.toggleStructAuto,

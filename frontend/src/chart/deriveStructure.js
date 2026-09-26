@@ -34,7 +34,7 @@
 //     사용자 요청 — "자동 이어그리기가 그걸 대체하니 제거해도 된다".
 //     되살리지 말 것. 되살리려면 여기 계산뿐 아니라 structRenderState의
 //     `_liveSegment`, Structures의 렌더·[R3] 소유자 판정, hitDetection의 끝점 클릭,
-//     cursorRules, legDebug가 전부 다시 필요하다.
+//     cursorRules가 전부 다시 필요하다.
 //     ※ 그래서 이 함수는 **캔들을 받지 않는다** — 확정 꼭짓점만으로 계산된다.
 //       옛 [5](candlesRef.current를 넘길 것)와 [6](라이브는 구조 하나만)도 같이 사라졌다.
 //

@@ -7,7 +7,6 @@ import { findHitLine } from "../utils/hitTest";
 import { useStore } from "../store";
 import { getCursor } from "../chart/cursorRules";
 import { buildHitChain, findHitChannel, findHitCircle, findHitFib, findHitMeasure, findHitStructure, findHitZzLeg, findHoveredLeg, snapToOHLC, snapToStructurePoint } from "../chart/hitDetection";
-import { legPeakVolume, fmtVol, volChangePct, LEG_VOL_METRICS } from "../chart/legVolume";
 import { getZzSegments } from "../chart/structureZigzag";
 import { getStructAutoChains } from "../chart/structRenderState";
 import { ZZ_ID } from "../chart/drawables";
@@ -72,9 +71,6 @@ export function useChartInteraction({
   commitStructPoints,   // 자동 이어그리기의 점을 클릭해 꼭짓점으로 확정
   // 레그 등락률 hover 표시 — 자동 ZZ는 모듈 상태에서 읽으므로 on/off 여부만 받는다
   showZZ = false,
-  // 자동 ZZ의 `거래량 비교` (indicatorParams.zz.show_legvol) — 2026-08-24 되살림.
-  // 수동 구조는 구조마다 값을 들고 있지만 자동 ZZ는 지표라 값이 하나다
-  zzShowVol = true,
   // 도형 통합 인터페이스
   drawables,
   overlaysRef,
@@ -344,49 +340,17 @@ export function useChartInteraction({
           px: pos.x, py: pos.y,
           structures,
           zzSegments: showZZ ? getZzSegments() : null,
-          xScale: scales.xScale, yScale: scales.yScale, candles, zzShowVol,
+          xScale: scales.xScale, yScale: scales.yScale, candles,
           // 자동 이어그리기(하늘색 점선) 구간도 hover되게 (2026-09-26)
           structAutoChains: getStructAutoChains(),
         });
-        // 거래량은 **candlesRef**로 — React candles는 봉마감 때만 갱신돼서
-        // 진행 중 레그의 마지막 봉 거래량이 낡아 있다 (구조 지표와 같은 함정)
-        const src     = candlesRef?.current?.length ? candlesRef.current : candles;
-        const wantVol = leg != null && leg.showVol !== false;   // 구조별 `거래량 비교` 토글
-        const cur = wantVol ? legPeakVolume(src, leg.i1, leg.i2) : null;
-        const prv = wantVol && leg.prev ? legPeakVolume(src, leg.prev.i1, leg.prev.i2) : null;
-        // 각각 **같은 쪽끼리** 비교한다 (매수↔매수, 매도↔매도).
-        // 섞으면 "이번 상승의 양봉 값이 직전 상승의 음봉 값보다 크다" 같은
-        // 의미 없는 값이 나온다.
-        // 지표(상위3/평균/총량)도 **같은 지표끼리만** 비교한다 — 총량과 평균을
-        // 맞대면 "여러 봉 합이 봉당 평균보다 크다"는 당연한 말밖에 안 나온다
-        const side = (c, p, key) => c == null ? null
-          : { vol: fmtVol(c[key]), delta: p == null ? null : volChangePct(c[key], p[key]) };
-
-        // [LV6] **레그 방향에 해당하는 쪽만 보여준다** (사용자 요청):
-        //   상승 레그 → ▲(양봉 거래량)만 / 하락 레그 → ▼(음봉 거래량)만
-        // 지금 보고 있는 선이 상승인데 하락 쪽 숫자까지 깔면 읽을 게 두 배가 된다.
-        // 비교도 어차피 "직전 동일방향 레그의 같은 쪽"이라 반대쪽은 비교선이 없다.
-        // ※ 잃는 것: 상승 레그 안의 최대 되돌림 봉(▼)이 안 보인다.
-        //   실제로 "올랐지만 가장 큰 한 방은 매도였던" 레그가 있었다 — 되살릴 거면
-        //   양쪽을 다 켜지 말고 "반대쪽이 더 클 때만" 같은 조건부로 할 것.
-        // ※ 테이커(체결 주체) 기준 줄은 2026-08-13 제거 — legVolume.js [LV5]
-        const isUp = (leg?.pct ?? 0) >= 0;
-
-        // [LV9] 세 줄 — 상위3봉 평균 / 봉당 평균 / 총량 (전부 그 방향 봉만).
-        // 판정이 갈리는 게 정보다 (총량만 레그 길이에 휘둘린다 — 상관계수 0.29 vs 평균 0.00)
-        // ※ 구조별 `거래량 비교` OFF면 세 줄만 빼고 **등락률은 그대로 띄운다**
-        //   (전부 사라지면 hover가 죽은 것처럼 보인다 — 더블클릭 팝업의 토글)
-        const rows = {};
-        if (leg?.showVol !== false) {
-          for (const { key } of LEG_VOL_METRICS) {
-            rows[key] = isUp
-              ? { up: side(cur?.up, prv?.up, key) }   // 캔들 색 기준 (양봉 쪽)
-              : { dn: side(cur?.dn, prv?.dn, key) };  //              (음봉 쪽)
-          }
-        }
-
-        // IH는 라벨(3줄)이 패널 아래로 넘칠 때 커서 위로 뒤집는 데 쓴다
-        showLegPct?.({ x: pos.x, y: pos.y, IH, pct: leg?.pct ?? null, rows });
+        // ⚠ 여기 있던 **거래량 비교(상위3·평균·총량 세 줄)는 2026-09-26에 기능째 지웠다**
+        //   (사용자 요청). 남는 것은 등락률 한 줄이다.
+        //   되살리려면 계산(`legVolume`)·진단(`legDebug`) 두 파일부터 다시 만들어야 하고,
+        //   레그 정보의 `showVol`·`prev`, 구조별 토글, 지표 파라미터, 라벨의 tspan 줄까지
+        //   전부 딸려 온다. 왜 지웠는지는 커밋 메시지에 남겼다.
+        // IH는 라벨이 패널 아래로 넘칠 때 커서 위로 뒤집는 데 쓴다
+        showLegPct?.({ x: pos.x, y: pos.y, IH, pct: leg?.pct ?? null });
       } else {
         showLegPct?.({ pct: null });
       }
@@ -430,7 +394,7 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, dragPartialSl, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, partialSls, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, measureMode, selectedMeasureId, measures, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ, zzShowVol]);
+  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, dragPartialSl, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, partialSls, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, measureMode, selectedMeasureId, measures, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
 
   const onMouseUp = useCallback(e => {
     const drag = dragRef.current;

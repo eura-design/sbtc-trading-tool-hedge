@@ -6,6 +6,7 @@ import { installClientLog } from './api/clientLog'
 import { installBackup } from './api/backup'
 import { migrateDrawingsToSymbol, cleanupLegacyDrawings } from './replay/drawingKeys.js'
 import { lsRemove, lsGetJSON, lsSetJSON } from './utils/storage.js'
+import { keepOnly, withoutFields, withoutFieldsInList } from './utils/deadStorage.js'
 // 살아 있는 지표 이름의 **정본** — 아래 `indicators` 정리가 이 목록만 남긴다
 import { INDICATORS } from './components/IndicatorMenu.jsx'
 
@@ -49,11 +50,34 @@ for (const k of DEAD_KEYS) lsRemove(k)
 //   때문이다. 남아 있어도 해롭지 않다: 읽는 쪽이 `indicators[key] !== false`라 모르는
 //   이름은 쳐다보지 않는다. 그래서 굳이 즉시 반영하려고 순서를 바꾸지 않았다
 // ⚠ 백엔드 백업(60일)에는 지운 값이 그대로 남아 있다
-const live = new Set(INDICATORS.map(i => i.key))
-const saved = lsGetJSON("indicators", null)
-if (saved && typeof saved === "object") {
-  const kept = Object.fromEntries(Object.entries(saved).filter(([k]) => live.has(k)))
-  if (Object.keys(kept).length !== Object.keys(saved).length) lsSetJSON("indicators", kept)
+{
+  const saved = lsGetJSON("indicators", null)
+  if (saved && typeof saved === "object") {
+    const { value, changed } = keepOnly(saved, INDICATORS.map(i => i.key))
+    if (changed) lsSetJSON("indicators", value)
+  }
+}
+
+// ── 레그 거래량 비교가 남긴 값 정리 (2026-09-26 기능 제거) ────────────────────
+// 자동 ZZ는 지표 파라미터 한 칸(`zz.show_legvol`), 수동 구조는 **구조마다**
+// (`showLegVol`) 값을 들고 있었다. 두 곳 다 읽는 코드가 없어졌다.
+// ⚠ 구조 저장 키는 심볼별이고 리플레이는 접두사가 붙어 여러 벌이다
+//   (`BTCUSDT:structures` / `replay_BTCUSDT:structures` …) — 그래서 이름으로 찾는다.
+//   `drawingKey()`로 만들려면 지금까지 쓴 심볼을 다 알아야 하는데 그럴 방법이 없다
+{
+  const ip = lsGetJSON("indicatorParams", null)
+  if (ip?.zz && typeof ip.zz === "object") {
+    const { value, changed } = withoutFields(ip.zz, ["show_legvol"])
+    if (changed) lsSetJSON("indicatorParams", { ...ip, zz: value })
+  }
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!/(^|:)structures$/.test(key)) continue
+      const list = lsGetJSON(key, null)
+      const { value, changed } = withoutFieldsInList(list, ["showLegVol"])
+      if (changed) lsSetJSON(key, value)
+    }
+  } catch { /* 저장소를 못 읽는 환경(사생활 보호 모드 등)에서도 앱은 떠야 한다 */ }
 }
 
 createRoot(document.getElementById('root')).render(

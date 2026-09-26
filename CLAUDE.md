@@ -187,8 +187,8 @@ chart/
   structAutoPivots.js      커스텀 구조 자동 이어그리기
   deriveStructure.js       수동 구조 → 세그먼트 + CHoCH (순수 함수)
   structRenderState.js     수동 구조 렌더가 남기는 모듈 상태
-  fib.js  measure.js  entryPath.js  legVolume.js  drawables.js
-  structDebug.js  legDebug.js       콘솔 진단 (__structDebug / __legDebug)
+  fib.js  measure.js  entryPath.js  drawables.js
+  structDebug.js             콘솔 진단 (__structDebug) — 수동 구조 CHoCH 판정을 표로 보여준다
 
 components/
   TopBar.jsx               TF 선택, 현재가, 드로잉 모드 버튼, 지표·알림·단축키 메뉴, 테마
@@ -222,8 +222,9 @@ tests/                     `npm test` (node 내장 러너 — **의존성 0**)
   chochMirror.test.js      **자동 ZZ와 수동 구조가 같은 답을 내는지** (규칙이 두 벌이다)
   legHover.test.js         레그 hover가 **자동 이어그리기 구간(하늘색 점선)도 잡는가** ·
                            ⚠ 드래그·삭제 경로가 자동 점을 잡지 않는가 (잡으면 안 찍은 점이 옮겨진다)
-  indicatorKeys.test.js    `indicators`에서 **없어진 지표의 on/off만** 골라 지우는가
-                           (`main.jsx`). ⚠ 틀리면 살아 있는 설정이 새로고침마다 사라진다
+  deadStorage.test.js      없어진 기능이 브라우저에 남긴 찌꺼기를 지우는 규칙
+                           (`utils/deadStorage.js`, `main.jsx`가 쓴다).
+                           ⚠ 틀리면 **살아 있는 설정이 새로고침마다 사라진다**
   structAutoMirror.test.js **자동 이어그리기가 자동 ZZ와 같은 꼭짓점을 찍는지** —
                            자동 ZZ의 꼭짓점을 사용자 점으로 놓고 그 뒤를 맞대어 본다.
                            **진행 중 봉까지 포함해서** 본다 (거기서 갈렸다, 2026-09-09)
@@ -561,7 +562,12 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
     실측 722건 중 4건이라 그대로 두기로 했다 (2026-09-09 사용자 판단)
   - ⚠ 이 파일만 `zigzagPivots` import에 **`.js` 확장자**를 쓴다 — node가 테스트에서 직접 읽는다
 - CHoCH: 첫 돌파(bias=0)도 CHoCH, BOS는 표시하지 않는다. 마크는 가로선만(글자 없음)
-- 레그 hover: 등락률 + 거래량 3줄(상위3/평균/총량), 직전 동일방향 레그(k-2)와 비교
+- 레그 hover: **등락률만** 뜬다 (`findHoveredLeg` → `showLegPct`)
+  ⚠ 2026-09-26까지 거래량 비교 3줄(상위3/평균/총량)이 같이 떴다. **기능째 지웠다** (사용자 요청) —
+    `chart/legVolume.js`·`chart/legDebug.js` 두 파일, 구조별 `showLegVol` 토글,
+    `zz.show_legvol`, `findHoveredLeg`의 `showVol`·`prev`, 라벨의 tspan 줄이 전부 빠졌다.
+    되살리지 말 것. 그 기능이 담고 있던 결정들(테이커 줄 제거·같은 쪽끼리만 비교·
+    세 지표로 나눈 실측 근거)은 지운 커밋 메시지에 옮겨 적었다
 
 ### 보조지표
 Volume / RSI(+구간 배경) / Pivot Levels / FVG / 오더블록 / EMA(다중) /

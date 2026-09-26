@@ -93,7 +93,7 @@ export function candleAt(soa, i) {
 /**
  * SoA [from, to) → useCandles와 **완전히 같은 형태**의 객체 배열.
  *
- * 형태가 조금이라도 다르면 renderCandles·structureZigzag·legVolume 등
+ * 형태가 조금이라도 다르면 renderCandles·structureZigzag 등
  * 캔들을 받는 모든 코드가 리플레이에서만 조용히 어긋난다. 필드명·타입을 바꾸지 말 것.
  */
 export function soaToCandles(soa, from = 0, to = soa.n) {

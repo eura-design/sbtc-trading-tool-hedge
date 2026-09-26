@@ -33,12 +33,10 @@ export const INDICATOR_DEFAULTS = {
   // max_choch(표시 개수, null = 전체) / alert_choch(CHoCH 발생 알림) / opacity(투명도)는
   // 지표 메뉴가 아니라 **ZZ 선 클릭 → 더블클릭 팝업**에서 조작한다 (수동 구조와 같은 조작감).
   // max_choch 기본이 숫자면 낮춰둔 걸 잊고 "CHoCH가 안 뜬다"고 오해한다 → 기본은 전체
-  // ※ show_legvol은 **없다** — 자동 ZZ의 레그 hover 거래량 비교는 2026-08-14 사용자 요청으로
-  //   기능째로 제거됐다 (거래량 3줄은 수동 구조 전용). 키를 되살리지 말 것
-  //   show_legvol — 레그 hover 거래량 비교 3줄 (2026-08-24 되살림, 수동 구조와 짝)
-  //   ⚠ **alert_choch·show_legvol 둘 다 기본 false**다 (2026-08-24 사용자 요청).
-  //     수동 구조(`alertChoch`/`showLegVol`)와 초기값을 맞춘 것이다 — 한쪽만 바꾸지 말 것.
-  //     읽는 쪽은 `=== true`로 본다 (App.jsx) — `!== false`로 되돌리면 저장값이 없을 때 켜진다
+  // ※ `show_legvol`(레그 hover 거래량 비교)은 **2026-09-26에 기능째 지웠다** —
+  //   자동 ZZ·수동 구조 양쪽에서 같이 없앴다. 키를 되살리지 말 것
+  //   ⚠ **alert_choch는 기본 false**다 (2026-08-24 사용자 요청). 읽는 쪽은 `=== true`로
+  //     본다 (App.jsx) — `!== false`로 되돌리면 저장값이 없을 때 켜진다
   //   opacity — 2026-08-25 사용자 요청으로 0.25 → **0.3** (1.0 → 0.25는 2026-08-24).
   //     수동 구조의 STRUCT_DEFAULT_OPACITY와 **같은 값이어야 한다** (초기 수치 통일).
   //     한쪽만 바꾸지 말 것
@@ -56,7 +54,7 @@ export const INDICATOR_DEFAULTS = {
   //     ⚠ 기본값은 **전 TF**다 — struct처럼 좁혀 두면 이미 알림을 켜 둔 사용자에게
   //       기능이 고장 난 것처럼 보인다 (rsi.tfs와 같은 이유)
   //     ※ TF를 늘리면 그만큼 kline WebSocket이 늘어난다. 알림이 꺼져 있으면 하나도 안 연다
-  zz:  { left_bars: 2, use_filter: true, atr_mult: 1.0, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, show_legvol: false, opacity: 0.3,
+  zz:  { left_bars: 2, use_filter: true, atr_mult: 1.0, atr_period: 14, max_choch: null, show_choch: true, alert_choch: false, opacity: 0.3,
          alert_tfs: ["5m", "15m", "1h", "4h", "1d", "1w", "1M"] },
   // 수동 구조(Custom Structure Zigzag)
   //   tfs — 표시할 타임프레임 (중복 선택 가능, 기본 1h). **여기 있는 건 이것뿐이다.**

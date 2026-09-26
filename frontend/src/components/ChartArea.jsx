@@ -306,8 +306,6 @@ export function ChartArea({
     useChartInteraction({
       candles, candlesRef, IW, IH, rsiH: effectiveRsiH, volH: effectiveVolH,
       updateCrosshair, hideCrosshair, showLegPct, showZZ,
-      // 자동 ZZ 레그 hover의 거래량 3줄 on/off (더블클릭 팝업의 `거래량 비교`)
-      zzShowVol: indicatorParams.zz?.show_legvol !== false,
       scalesRef,
       onLineDoubleClick: (id, type, x, y) => setOpacityPopup({ id, type, x, y }),
       xDomainRef, yDomainRef, moveModeRef, svgRef, redrawCanvas, redrawChart,

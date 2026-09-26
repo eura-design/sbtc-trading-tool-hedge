@@ -23,16 +23,13 @@ export const STRUCT_DEFAULT_OPACITY = 0.3;
  * 수동 구조(Structure) 도형 스토어
  *
  * 데이터: { id, points: [{ t, p, type:"H"|"L" }], opacity, locked,
- *          showChoch, alertChoch, maxChoch, showLegVol }
+ *          showChoch, alertChoch, maxChoch }
  *   maxChoch: 표시할 CHoCH 개수(최신 N개). undefined = 제한 없음 (기본)
  *   showChoch만 **undefined = ON** — CHoCH 마크는 이 지표의 본체라 보이는 게 기본이다
- *   alertChoch / showLegVol은 **기본 OFF** (true일 때만 ON)
- *     - alertChoch: 알림 ON이 호박색 점선으로 보이므로, 기본이 ON이면 전 구조가
- *       알림 스타일이 되어 색이 아무것도 구분해주지 못한다 — [SL2] / Structures.jsx [R10]
- *     - showLegVol: 2026-08-24 사용자 요청으로 ON → OFF. 자동 ZZ(`zz.show_legvol`)와
- *       **초기값을 맞춘 것**이다. 한쪽만 바꾸지 말 것
- *       ⚠ 판정을 `!== false`로 되돌리지 말 것 — 그러면 손대지 않은 기존 구조가
- *         전부 다시 켜진다 (기본값을 바꾼 의미가 사라진다)
+ *   alertChoch는 **기본 OFF** (true일 때만 ON) — 알림 ON이 호박색 점선으로 보이므로,
+ *     기본이 ON이면 전 구조가 알림 스타일이 되어 색이 아무것도 구분해주지 못한다
+ *     ([SL2] / Structures.jsx [R10])
+ *   ⚠ 2026-09-26까지 `showLegVol`(레그 거래량 비교)이 하나 더 있었다. 기능째 지웠다
  *
  * ╔════════════════════════════════════════════════════════════════════════╗
  * ║ 사용자 확정 사양 — 임의 변경 금지 (2026-08-12 확정, 실사용 테스트 통과)    ║
@@ -95,7 +92,7 @@ export const STRUCT_DEFAULT_OPACITY = 0.3;
 // [S8] 이어 붙일 때 승계하는 필드. undefined인 값은 넘기지 않는다 —
 // maxChoch/showChoch는 undefined 자체가 "제한 없음 / ON"이라 명시적으로 실어 보낼 필요가 없고,
 // store.add의 기본값(opacity 등)을 undefined로 덮어쓰면 안 되기 때문.
-const INHERITED_KEYS = ["opacity", "showChoch", "alertChoch", "showLegVol", "maxChoch"];
+const INHERITED_KEYS = ["opacity", "showChoch", "alertChoch", "maxChoch"];
 
 function inheritSettings(item) {
   const out = {};
@@ -309,17 +306,9 @@ export function useStructures(mode = {}) {
     store.update(id, item => ({ alertChoch: !item.alertChoch }));
   }, [store]);
 
-  /**
-   * 이 구조의 레그에 마우스를 올렸을 때 **거래량 비교 3줄**(피크/상위3/평균)을 띄울지.
-   * 더블클릭 팝업의 `거래량 비교` 행. **기본 OFF** (true일 때만 ON) — 2026-08-24
-   * 사용자 요청으로 ON에서 바뀌었다. 자동 ZZ(`zz.show_legvol`)와 초기값을 맞춘 것이다.
-   *
-   * 등락률(%)은 이 설정과 무관하게 항상 뜬다 — 끄고 싶은 건 거래량 쪽이고,
-   * 등락률까지 사라지면 "레그 hover가 통째로 죽었다"로 보인다.
-   */
-  const toggleStructLegVol = useCallback((id) => {
-    store.update(id, item => ({ showLegVol: !item.showLegVol }));
-  }, [store]);
+  // ⚠ 여기 있던 `toggleStructLegVol`(구조별 `거래량 비교` 토글)은 **2026-09-26에
+  //   기능째 지웠다** (사용자 요청). 레그 hover에는 등락률만 뜬다.
+  //   되살릴 거면 `chart/legVolume.js`부터 다시 만들 것 (근거는 커밋 메시지)
 
   /**
    * 이 구조에서 표시할 CHoCH 개수(최신 N개). null = 제한 없음(전체).
@@ -371,7 +360,7 @@ export function useStructures(mode = {}) {
     deleteStruct, deleteStructSelection,
     setStructOpacity:  store.setOpacity,
     toggleStructLock:  store.toggleLock,
-    toggleStructChoch, toggleStructChochAlert, setStructMaxChoch, toggleStructLegVol,
+    toggleStructChoch, toggleStructChochAlert, setStructMaxChoch,
     toggleStructAuto, setStructAutoParam,
   };
 }
