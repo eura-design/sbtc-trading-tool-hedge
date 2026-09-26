@@ -42,6 +42,17 @@ function amountSize(parts) {
   return (SIZES.find(px => chars * CHAR_W * px <= avail) ?? SIZES[SIZES.length - 1]) + "px";
 }
 
+// ⚠ **줄 높이를 못박는다** (2026-09-27 사용자 요청). `amountSize`가 글자 크기를 단계로
+//   바꾸므로, 칸을 글자에 맡기면 크기가 바뀔 때마다 **아래 내용이 밀린다**:
+//     · 리플레이를 켜고 끄면 연습 계좌 잔고가 그 자리에 들어와 자릿수가 달라진다
+//       (`replaySlice`가 `setBalance(balanceSnapshot)`으로 밀어 넣는다)
+//     · 평소에도 잔고가 커져 자릿수가 늘면 같은 일이 난다
+//   가장 큰 글자(SIZES[0]) 기준으로 고정하면 글자만 작아지고 칸은 그대로다.
+//   ⚠ **네 갈래(정상·로딩·에러·백엔드 꺼짐)가 모두 같은 높이를 쓴다** — 한 갈래만
+//     빼면 백엔드가 잠깐 끊길 때 카드 높이가 달라져 또 밀린다
+const ROW_H = Math.round(SIZES[0] * 1.35);   // 가장 큰 글자의 줄 높이
+const ROW = { display:"flex", alignItems:"center", justifyContent:"space-between",
+              height:`${ROW_H}px` };
 export function BalanceCard({ balance, position, lastPrice, error, online, exchangeDown }) {
   const { theme } = useTheme();
   // 음수는 `-$1,234` — 부호가 `$` 앞이다 (PositionCard 주석 참고)
@@ -87,14 +98,14 @@ export function BalanceCard({ balance, position, lastPrice, error, online, excha
   // ⚠ **어느 갈래로 빠지든 점을 함께 그린다.** 예전엔 이 줄에 점이 없어서
   //   문구가 뜨는 순간 점이 통째로 사라졌다 (사용자 신고)
   if (error || online === false) return (
-    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+    <div style={ROW}>
       <span style={{ fontSize:"12px", color:"#f6465d" }}>⚠ server.js 실행 확인</span>
       {healthDot}
     </div>
   );
 
   if (!balance) return (
-    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+    <div style={ROW}>
       <span style={{ fontSize:"12px", color:theme.textFaint }}>잔고 로딩중...</span>
       {healthDot}
     </div>
@@ -113,7 +124,7 @@ export function BalanceCard({ balance, position, lastPrice, error, online, excha
   const size   = amountSize(texts);
 
   return (
-    <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:"6px" }}>
+    <div style={{ ...ROW, gap:"6px" }}>
       <div style={{ display:"flex", alignItems:"baseline", gap:"5px", minWidth:0 }}>
         {/* ⚠ 감싸는 요소 없이 **Fragment**로 펼친다 — div로 묶으면 그 자체가 flex 아이템이
             되어 숫자와 구분자 사이 gap(5px)이 사라진다 */}
