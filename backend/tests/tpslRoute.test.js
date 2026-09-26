@@ -228,6 +228,58 @@ test("이미 걸린 주문은 **그 주문의 심볼**로 취소한다 (화면 �
   await h.close();
 });
 
+// ── 분할 TP 기록 정리(splitTpSweep)는 **그 심볼의 기록만** 본다 (2026-09-27) ──
+//
+// `openIds`는 이 심볼의 미체결 목록인데 `store.entries()`는 계정 전체를 돈다.
+// 심볼을 안 가리면 비트코인 차트를 보고 있는 것만으로 이더리움 기록이 지워진다.
+
+test("다른 코인의 분할 TP 기록은 지우지 않는다", async () => {
+  const old = Date.now() - 60_000;   // 유예(30초)를 넘긴 기록
+  const h = await mountRoute("routes/tpsl.js", {
+    // 바이낸스는 **BTCUSDT의** 미체결을 준다 — 지금 보고 있는 심볼이다
+    binance: feed({ open: [] }),
+    store: {
+      "E9": { status: "SPLIT_TP", symbol: "ETHUSDT", side: "SELL", pct: 40, createdAt: old },
+      "B9": { status: "SPLIT_TP", symbol: "BTCUSDT", side: "SELL", pct: 50, createdAt: old },
+    },
+  });
+  await h.request("GET", "/?symbol=BTCUSDT");
+  try {
+    assert.ok(h.store.has("E9"),
+      "이더리움 분할 TP 주문은 거래소에 살아 있다 — 기록을 지우면 비율 표시가 사라진다");
+    assert.equal(h.store.has("B9"), false,
+      "보고 있는 심볼의 기록은 예전처럼 정리한다");
+  // ⚠ 실패해도 서버를 닫는다. 안 닫으면 `node --test`가 열린 포트를 기다리며
+  //   **테스트 파일 전체가 멈춘다** (실측 2026-09-27 — 2분 넘게 끝나지 않았다)
+  } finally { await h.close(); }
+});
+
+test("심볼 필드가 없는 옛 기록은 기본 심볼을 볼 때 정리한다 (전과 같다)", async () => {
+  const old = Date.now() - 60_000;
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: feed({ open: [] }),
+    // ⚠ 심볼 필드가 없는 기록 — 진짜 `symbolOf()`는 그럴 때 기본 심볼로 읽는다
+    store: { "OLD1": { status: "SPLIT_TP", side: "SELL", createdAt: old } },
+  });
+  await h.request("GET", "/?symbol=BTCUSDT");
+  try { assert.equal(h.store.has("OLD1"), false); }
+  finally { await h.close(); }
+});
+
+test("조회가 실패하면 아무 기록도 지우지 않는다 (회귀)", async () => {
+  const old = Date.now() - 60_000;
+  const h = await mountRoute("routes/tpsl.js", {
+    binance: async (m, p) => {
+      if (p.includes("openOrders")) throw new Error("timeout");
+      return { data: [] };
+    },
+    store: { "B9": { status: "SPLIT_TP", symbol: "BTCUSDT", side: "SELL", createdAt: old } },
+  });
+  await h.request("GET", "/?symbol=BTCUSDT");
+  try { assert.ok(h.store.has("B9"), "빈 값을 '없음'으로 읽으면 살아 있는 주문의 기록이 지워진다"); }
+  finally { await h.close(); }
+});
+
 // ── 손절을 일부러 지웠다는 표시 (2026-09-04) ───────────────────────────────
 //
 // ⚠ 진입은 손절이 **필수**다. 그래서 손절 없이 들고 가려면 주문한 뒤 차트에서

@@ -89,6 +89,17 @@ router.get("/", async (req, res) => {
       const now = Date.now();
       for (const [orderId, info] of store.entries()) {
         if (info.status === "SPLIT_TP" && !openIds.has(String(orderId))) {
+          // ⚠ **다른 코인의 기록은 건드리지 않는다** (2026-09-27).
+          //   `openIds`는 **이 심볼의** 미체결 목록이고 `store.entries()`는 **계정 전체**
+          //   기록을 돈다. 그래서 이 줄이 없으면, 비트코인 차트를 1분쯤 보고 있는 것만으로
+          //   이더리움 분할 TP의 기록이 지워졌다 — 거래소의 주문은 멀쩡한데 `pct`(등록 당시
+          //   비율)가 사라져 분할 TP 목록의 `(40%)`가 빈칸이 되고, 로그에는 살아 있는
+          //   주문을 두고 `ORDER_GONE`이 남았다.
+          //   ※ `symbolOf`는 심볼 필드가 없는 **옛 기록을 기본 심볼로 읽는다.** 그래서
+          //     BTCUSDT를 볼 때의 정리는 이 줄이 생기기 전과 같다 (덜 지우는 쪽으로만 바뀐다).
+          //   ※ 다른 코인 기록은 60초 정합(`reconcileWithBinance`)이 심볼별로 치운다 —
+          //     이 정리는 그 일의 보조지 유일한 통로가 아니다
+          if (store.symbolOf(orderId) !== symbol) continue;
           // ⚠ **갓 등록한 항목은 건너뛴다** (2026-08-23, SPLIT_TP_GRACE_MS).
           //   openOrders 스냅샷은 이 요청이 **시작될 때** 찍힌다. POST /split과 겹치면
           //   방금 건 분할 TP가 목록에 없는 것처럼 보여 **살아있는 주문의 store 기록을
