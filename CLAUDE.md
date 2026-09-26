@@ -76,6 +76,8 @@ services/
   dailySummary.js          하루치 한 줄 요약 (DAILY_SUMMARY)
   incomeLogger.js          손익·수수료·펀딩비 기록 (10분 주기 + 포지션 종료 직후)
   statsCache.js            /api/stats 캐시 상태 공유
+  trackerAuto.js           월별 결산을 **자동으로** 채운다 (시작 20초 후 + 1시간마다)
+                           income + 지갑 잔고 → 월말잔고·입금·출금. 계산은 utils/trackerMonths.js
 store/
   logStore.js              로그 한 벌 — logs/<날짜>.jsonl (구조화 이벤트 + 콘솔 캡처)
   backupStore.js           백업 — backups/<날짜>.json (60일)
@@ -84,7 +86,7 @@ store/
   entryRecords.js          진입 기록을 **심볼·방향으로** 찾아 고친다 (patchEntryRecords)
                            + "손절을 일부러 지웠다" 표시 (markSlRemoved / isSlRemoved)
                            ⚠ `routes/tpsl.js`와 `orderWatcher`가 **같은 규칙**을 써야 해서 모았다
-  trackerStore.js          기타/tracker_data.json 읽기·쓰기
+  trackerStore.js          기타/tracker_data.json 읽기·쓰기 (`seed`/`entries`/`autoSkip`)
 middleware/validate.js     POST /api/order 입력 검증
 utils/
   side.js                  헷지모드 side 매핑 (sideToPosition/positionToSide/closeToPosition/positionToClose)
@@ -99,13 +101,18 @@ utils/
                            ⚠ 조건을 느슨하게 하지 말 것. 못 고르면 사람에게 넘기면 되지만
                              잘못 고르면 **조용히 틀린 손절**이 걸린다
   splitTp.js               rescaleSplitTps() — 부분 청산 후 분할 TP 재계산 (순수 함수, import 없음)
+  trackerMonths.js         월별 결산 계산 (순수 함수) — 달 묶기·월말잔고 역산·병합 규칙
+                           ⚠ **손으로 넣은 줄을 덮어쓰지 않는 규칙이 여기 있다** (mergeAuto)
 tools/
   logq.js                  로그 조회 (--since/--count/--sum/--event/--level/--day/--grep/--summary)
+  trackerSync.js           월별 결산을 지금 한 번 채운다 (`--dry`면 보여주기만, 파일 안 건드림)
   backup.js                백업 조회·되돌리기 (--list/--show/--restore-files)
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
   splitTp / orderKind / side / round / recoverMatch / slAlerts   돈이 걸린 순수 함수부터
   orderRoute / closeRoute / tpslRoute / recoveryService / orderWatcher   라우트·서비스
   nakedAlert.test.js       **빨간 줄이 언제 뜨고 언제 안 뜨는가** (일부러 지운 손절 포함)
+  trackerMonths.test.js    월별 결산 계산 — 월말잔고 역산이 맞는가 ·
+                           **손으로 넣은 줄을 지키는가** · 지운 달이 되살아나지 않는가
 logs/  backups/  daily_summary.jsonl  income_cursor.json  pending_orders.json  .env
 ```
 
@@ -200,7 +207,7 @@ components/
     ScaleInCard / SplitTPCard / SplitSLCard / cardControls.jsx
 
 tests/                     `npm test` (node 내장 러너 — **의존성 0**)
-  ⚠ 아래는 **일부다** — 전체 목록은 폴더를 볼 것 (프론트 23 · 백엔드 18개)
+  ⚠ 아래는 **일부다** — 전체 목록은 폴더를 볼 것 (`*.test.js` 프론트 23 · 백엔드 18개)
   splitLevels / calc / equity / price / decimals / coordUtils / rsi   돈이 걸린 순수 함수
   shiftYDomain.test.js     화면 이동·휠의 세로 범위 계산 (로그는 곱셈이다)
   logScale.test.js         로그 눈금의 바닥값 — 1달러 미만 코인이 화면에서 사라지지 않는가
@@ -226,9 +233,54 @@ replay/                    리플레이 트레이딩
 
 ### 기타
 - `start.bat` — 백엔드·프론트엔드 동시 실행
-- `기타/monthly_tracker.html` — 월별 수익 결산 (독립 페이지, 데이터는 `기타/tracker_data.json`)
+- `기타/monthly_tracker.html` — 월별 수익 결산. **백엔드가 자동으로 채운다** (아래 항 참고)
+  - "독립 페이지"는 **React 앱(5174)과 분리된 별도 HTML**이라는 뜻이다 — 백엔드를 안 쓴다는
+    말이 아니다. 저장은 `POST /api/tracker`를 거치고 원본은 `기타/tracker_data.json` 하나다.
+    ⚠ 브라우저에 사본을 두지 않는다 (2026-08-22 사용자 확정). 그래서 **백엔드가 꺼져 있으면
+      이 페이지는 입력 자체를 막는다** — 사본이 있으면 백엔드가 꺼진 채로 넣은 달이
+      다시 켤 때 조용히 사라진다
   - 권장 경로: `http://localhost:3002/tools/monthly_tracker.html` (동일 출처라 CORS가 안 낀다)
+  - ⚠ `기타/tracker_data.json`은 **.gitignore에 있다** — 실제 금액이라 저장소에 올리지 않는다
+
+### 월별 결산 자동 기록 (2026-09-26 사용자 요청: "완전 자동으로")
+`services/trackerAuto.js`가 시작 20초 후 + **1시간마다** `기타/tracker_data.json`을 채운다.
+재료는 `/fapi/v1/income`(종류 필터 없음)과 `/fapi/v2/balance`뿐이고, 계산은 전부
+`utils/trackerMonths.js`(순수 함수)에 있다. 손으로 채우려면 `node backend/tools/trackerSync.js`
+(`--dry`면 무엇이 들어갈지 보여주기만 한다).
+
+사용자가 정한 규칙 — **판단만으로 바꾸지 말 것**:
+- **달 경계는 로컬 시간**이다 (`logStore.localDate`와 같은 관례). UTC로 자르면 "9월"이
+  한국시간 9월 1일 오전 9시~10월 1일 오전 9시가 되어 사람이 읽는 표가 9시간 어긋난다
+- **월말 잔고에 미실현 손익을 넣지 않는다.** 넣으면 다음 달에 청산되며 또 잡혀 **같은 돈을
+  두 번 센다.** 그래서 9월에 열고 10월에 닫은 거래의 수익은 전부 10월로 간다
+- **월말 잔고는 지금 지갑 잔고에서 거꾸로 내려온다** — 시드머니에서 더해 올리지 않는다.
+  시드머니는 사람이 적는 값이라, 그걸 기준으로 삼으면 시드를 고치는 순간 과거 월말 잔고가
+  전부 따라 움직인다. 지갑 잔고는 거래소가 아는 사실이다
+- **입금·출금은 그 달 `TRANSFER`의 순합**이다 (양수=입금 / 음수=출금). 총액을 따로 적지 않는다 —
+  실측(2026-09-26) 하루에 `+140 / −100 / +100`이 있었는데, 총액으로 세면 총 입금이 100 부풀고
+  월 수익률의 분모도 같이 부풀어 수익률이 낮게 나온다. 순합이면 왕복이 상쇄된다
+- **`TRANSFER`가 외부에서 온 새 돈인지 현물에서 옮겨온 내 돈인지 가리지 않는다.** 선물 API로는
+  구분할 방법이 없다(진짜 외부 입금은 `/sapi` 계열인데 이 시스템은 그 계열을 부르지 않고
+  API 키 권한도 다르다). 이 표가 재는 것은 **선물 계정의 성적**이라 어디서 왔든 "번 게 아니라
+  넣은 돈"으로 세는 것이 맞다
+- **시드머니(`seed`)는 자동이 절대 건드리지 않는다** — 사람이 적는 값이다.
+  자동이 쓰면 사용자가 고친 값이 다음 실행에 되돌아간다
+- **매번 전 기간을 긁지 않는다.** 끝난 달의 income은 변하지 않으므로 보통 이번 달만 받아온다
+  (`earliestNeededMonth`). income 조회는 가중치 30이다.
+  ※ 실측: 300일 전 창을 물어도 에러 없이 0건이 온다 — 바이낸스 쪽 기간 제한은 없었다
+
+안전장치 셋 (`utils/trackerMonths.mergeAuto` — **이 함수가 이 기능의 절반이다**):
+- 저장된 줄에 `auto` 표시가 **없으면 사람이 넣은 것**이다 → 그대로 둔다.
+  `store/trackerStore.js`에 "결산 기록은 손으로 넣은 값이라 다시 만들 수 없다"고 적혀 있다
+- `auto: true`면 **갱신한다** — 이번 달은 아직 안 끝나서 잔고가 바뀐다. 갱신 안 하면 첫 값에 굳는다
+- `autoSkip`에 적힌 달은 **넣지 않는다.** 자동 줄을 `×`로 지우면 그 달이 여기 들어간다.
+  ⚠ 이게 없으면 지운 줄이 1시간 뒤 되살아나 **지울 방법이 없어진다**
+
+검산: `tests/trackerMonths.test.js` (역산이 맞는가 · 손으로 넣은 줄을 지키는가 ·
+지운 달이 되살아나지 않는가)
 - `기타/compound_calculator.html` — 복리 계산기 (독립 페이지)
+- `MULTI_ACCOUNT.md` — **서브계정까지 두 계정을 같이 돌리는 작업 목록** (2026-09-26 작성, 아직 착수 안 함).
+  고칠 파일·줄과 결정이 안 된 것 셋이 적혀 있다. 멀티계정 이야기가 나오면 먼저 읽을 것
 
 ---
 

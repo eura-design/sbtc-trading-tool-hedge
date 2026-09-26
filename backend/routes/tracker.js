@@ -9,7 +9,7 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", (req, res) => {
-  const { seed, entries } = req.body || {};
+  const { seed, entries, autoSkip } = req.body || {};
 
   if (!Number.isFinite(seed) || seed <= 0) {
     return res.status(400).json({ error: "seed는 0보다 큰 숫자여야 합니다" });
@@ -28,14 +28,31 @@ router.post("/", (req, res) => {
     if (!Number.isFinite(e.asset) || e.asset < 0) {
       return res.status(400).json({ error: `${e.month}: asset이 올바르지 않습니다` });
     }
+    // deposit = 외부에서 가져와 넣은 돈 (2026-09-26 추가). withdrawal과 같은 규칙 —
+    // 없으면 0, 음수는 거절. 옛 기록에는 이 칸이 없어서 **빠져 있어도 통과해야 한다**
+    const deposit = Number.isFinite(e.deposit) ? e.deposit : 0;
+    if (deposit < 0) {
+      return res.status(400).json({ error: `${e.month}: deposit이 올바르지 않습니다` });
+    }
     const withdrawal = Number.isFinite(e.withdrawal) ? e.withdrawal : 0;
     if (withdrawal < 0) {
       return res.status(400).json({ error: `${e.month}: withdrawal이 올바르지 않습니다` });
     }
-    clean.push({ month: e.month.trim(), asset: e.asset, withdrawal });
+    // auto = 자동 기록(`services/trackerAuto.js`)이 넣은 줄이라는 표시.
+    // ⚠ **true일 때만 실어 보낸다.** 이 표시가 없는 줄은 사람이 넣은 것으로 보고
+    //   자동이 절대 덮어쓰지 않는다 (`utils/trackerMonths.mergeAuto`).
+    //   화면에서 값을 고치면 표시를 떼서 보내므로, 그 뒤로는 자동이 손대지 않는다
+    const row = { month: e.month.trim(), asset: e.asset, deposit, withdrawal };
+    if (e.auto === true) row.auto = true;
+    clean.push(row);
   }
 
-  if (!store.save({ seed, entries: clean })) {
+  // autoSkip = 자동이 넣었다가 사용자가 지운 달. 그 달을 다시 채우지 않게 하는 유일한 표시다
+  const skip = Array.isArray(autoSkip)
+    ? [...new Set(autoSkip.filter(m => typeof m === "string" && m.trim()).map(m => m.trim()))]
+    : [];
+
+  if (!store.save({ seed, entries: clean, autoSkip: skip })) {
     return res.status(500).json({ error: "파일 저장에 실패했습니다" });
   }
   res.json({ ok: true, count: clean.length });

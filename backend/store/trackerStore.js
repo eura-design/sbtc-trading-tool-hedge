@@ -7,19 +7,23 @@ const { log, errOf } = require("./logStore");
 //   백업·git 관리도 페이지 옆에 있어야 짝이 맞는다
 const FILE = path.join(__dirname, "..", "..", "기타", "tracker_data.json");
 
-const DEFAULTS = { seed: 3000, entries: [] };
+// autoSkip = 자동이 넣었다가 **사용자가 지운 달** (2026-09-26). 이게 없으면 지운 줄이
+// 다음 자동 실행에 되살아나 지울 방법이 없어진다 (`utils/trackerMonths.mergeAuto` 참고)
+const DEFAULTS = { seed: 3000, entries: [], autoSkip: [] };
 
 function load() {
   try {
-    if (!fs.existsSync(FILE)) return { ...DEFAULTS };
+    if (!fs.existsSync(FILE)) return { ...DEFAULTS, entries: [], autoSkip: [] };
     const saved = JSON.parse(fs.readFileSync(FILE, "utf-8"));
     return {
       seed:    Number.isFinite(saved.seed) && saved.seed > 0 ? saved.seed : DEFAULTS.seed,
       entries: Array.isArray(saved.entries) ? saved.entries : [],
+      // 2026-09-26 이전 파일에는 이 칸이 없다 — 없으면 빈 목록이다
+      autoSkip: Array.isArray(saved.autoSkip) ? saved.autoSkip.filter(m => typeof m === "string") : [],
     };
   } catch (e) {
     log("STORE_IO_FAILED", { level: "error", store: "tracker", op: "load", err: errOf(e) });
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, entries: [], autoSkip: [] };
   }
 }
 
