@@ -400,8 +400,17 @@ export function snapToStructurePoint(pos, candles, xScale, yScale, expectType = 
   return { t: +candles[best].t, p: type === "H" ? candles[best].h : candles[best].l, type };
 }
 
-export function structureXYs(st, candles, xScale, yScale) {
-  return (st.points ?? []).map(pt => ({ x: xScale(tsToIdx(pt.t, candles)), y: yScale(pt.p) }));
+/**
+ * 구조 꼭짓점의 화면 좌표.
+ *
+ * @param pts 훑을 점 배열. **기본값은 `st.points`(사용자가 찍은 점)뿐이다.**
+ *   ⚠ 기본값을 바꾸지 말 것. 꼭짓점 드래그·Delete 경로가 이 함수를 기본값으로 부르는데,
+ *     거기에 자동 이어그리기 점이 섞이면 **사용자가 찍지도 않은 점을 잡아 옮기거나 지운다**
+ *     (자동 점은 `st.points`에 없어서 인덱스가 어긋난다).
+ *   레그 hover(`findHoveredLeg`)만 자동 점을 이어 붙인 배열을 넘긴다 — 그쪽은 읽기만 한다.
+ */
+export function structureXYs(st, candles, xScale, yScale, pts = st.points) {
+  return (pts ?? []).map(pt => ({ x: xScale(tsToIdx(pt.t, candles)), y: yScale(pt.p) }));
 }
 
 export function findHitStructure(px, py, structures, xScale, yScale, candles, threshold = 8) {
@@ -480,8 +489,11 @@ export function findHitZzLeg(px, py, segments, xScale, yScale, threshold = 8) {
  * 자동 ZZ는 진행 중 레그(마지막 세그먼트)도 포함한다.
  * ⚠ 수동 구조 쪽 진행 중 레그(점선)는 **2026-08-26에 기능째 삭제**됐다 —
  *   여기 있던 liveSegment 분기와 `[R8]`(prev를 실어 보내기)도 같이 사라졌다.
- * ※ 자동 이어그리기 구간의 레그는 **아직 hover가 안 된다** — 그 점들은 st.points에
- *   없어서 아래 루프가 훑지 못한다. 붙이려면 자동 점을 여기까지 넘겨야 한다 (미구현).
+ * ※ **자동 이어그리기 구간(하늘색 점선)의 레그도 hover가 된다** (2026-09-26 사용자 요청).
+ *   자동 점을 사용자 점 뒤에 **이어 붙여 같은 루프로** 훑는다 — 루프를 두 벌로 만들지 말 것.
+ *   이어 붙이는 이유는 좌표 계산 말고 하나 더 있다: 라벨의 거래량 비교가 **두 칸 앞 레그**를
+ *   보는데, 배열을 따로 돌리면 자동 구간의 첫 레그가 비교 대상을 못 찾는다. 이어 붙이면
+ *   확정 레그에서 자연스럽게 이어지고 `[LV7]`("비교는 그 구조 안에서만")도 지켜진다.
  *
  * threshold는 클릭 판정(8)보다 좁은 6 — hover는 잘못 걸리면 라벨이 깜빡여서 거슬린다.
  */
@@ -501,14 +513,19 @@ export function findHoveredLeg({
   // 자동 ZZ의 `거래량 비교` — 지표 단위 설정이라 인자로 받는다 (수동 구조는 도형이
   // 자기 값을 들고 있어 st.showLegVol을 직접 읽는다). 2026-08-24 되살림
   zzShowVol = true,
+  // 자동 이어그리기 점 — `structRenderState.getStructAutoChains()`가 주는 `[{ structId, points }]`.
+  // 자동 점은 `st.points`에 없어서 이 인자 없이는 그 구간이 hover되지 않는다
+  structAutoChains = [],
 }) {
   const pct = (p1, p2) => (p1 ? ((p2 - p1) / p1) * 100 : null);
 
   for (const st of structures ?? []) {
-    const xy = structureXYs(st, candles, xScale, yScale);
+    // 사용자 점 뒤에 자동 점을 이어 붙인다 (위 ※ 참고). 자동 점이 없으면 원래 배열 그대로다
+    const auto = structAutoChains.find(c => c.structId === st.id)?.points ?? [];
+    const pts  = auto.length ? [...st.points, ...auto] : st.points;
+    const xy = structureXYs(st, candles, xScale, yScale, pts);
     for (let k = 1; k < xy.length; k++) {
       if (distToSeg(px, py, xy[k - 1].x, xy[k - 1].y, xy[k].x, xy[k].y) < threshold) {
-        const pts = st.points;
         // 레그 k는 pts[k-1]→pts[k]. 두 칸 앞 레그(k-2)가 같은 방향이다.
         // 없으면(= 이 구조의 첫 상승/첫 하락) 비교 대상이 없는 것이다 → null [LV7]
         const prev = k >= 3

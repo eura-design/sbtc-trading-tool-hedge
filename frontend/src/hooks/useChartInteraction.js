@@ -345,6 +345,8 @@ export function useChartInteraction({
           structures,
           zzSegments: showZZ ? getZzSegments() : null,
           xScale: scales.xScale, yScale: scales.yScale, candles, zzShowVol,
+          // 자동 이어그리기(하늘색 점선) 구간도 hover되게 (2026-09-26)
+          structAutoChains: getStructAutoChains(),
         });
         // 거래량은 **candlesRef**로 — React candles는 봉마감 때만 갱신돼서
         // 진행 중 레그의 마지막 봉 거래량이 낡아 있다 (구조 지표와 같은 함정)
