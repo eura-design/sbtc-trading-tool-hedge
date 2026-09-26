@@ -792,11 +792,24 @@ Auto Structure Zigzag / Custom Structure Zigzag
   갭이면 갭 시가 체결, 승패는 수수료를 뺀 뒤 판정
 - 페이퍼 스냅샷(position/tpsl/balance)은 **백엔드 라우트와 같은 모양**이라
   사이드바·차트가 리플레이인지 모른 채 그대로 돈다
-- 실주문 차단 2겹: `setReplayGuard`(GET 외 차단) + 액션별 `paperActions` 위임
+- 실주문 차단 2겹: `api/client.js`의 가드 + 액션별 `paperActions` 위임
+  - ⚠ **가드의 정본은 스토어의 `replayOn` 하나다** (2026-09-27에 바꿨다). api가 그 값을
+    **그때그때 읽는다** (`store/index.js`가 `setReplayGuardSource`로 읽는 함수를 등록한다 —
+    api는 스토어를 import할 수 없다, store → api 방향이라 순환이다).
+    예전에는 `setReplayOn`이 boolean을 밀어 넣어 값이 **두 벌**이었고, 실제로 어긋나
+    **실거래 모드인데 실계좌 미체결 취소가 "리플레이 모드"라고 막혔다** (사용자 신고,
+    로그 `API_BLOCKED` 1건). boolean으로 되돌리지 말 것.
+    검산: `tests/replayToggle.test.js`
 - 미래 누출 차단: Pivot Levels·펀딩비·공포탐욕은 재생 시각까지만, 실시간 RSI 감시는 끈다
 - 도형·플랜 박스·리스크·레버리지는 `replay_` 접두사로 분리
 - 세션은 localStorage에 저장 (진행 위치를 **시각**으로) — 구간이 바뀌면 장부만 복원
-- 연습 성적이 사라지는 경로는 `성적 초기화` 버튼 하나뿐
+- ⚠ **모드를 바꿀 때 `position`·`balance`·`tpsl`을 비운다 — 켜고 끌 때 둘 다**
+  (`replaySlice.EMPTY_SNAPSHOT`). 실계좌와 연습 계좌가 같은 슬롯을 쓰기 때문이다.
+  2026-09-27까지 **켜는 쪽에만 이 짝이 빠져 있었다**: 리플레이에서 지정가를 걸어두고
+  모드를 끄고 다시 켜면 `drawings`만 리플레이 것으로 바뀌고 `position`은 실계좌 값이라,
+  `App`의 동기화가 `box.orderId && !pend`로 읽어 **플랜 박스를 지웠다.** 페이퍼 미체결의
+  `drawing`은 늘 null이라 되살아나지도 않아, 그 주문은 차트의 점선 대기선으로만 남았다
+  (사용자 신고). 검산: `tests/replayToggle.test.js`- 연습 성적이 사라지는 경로는 `성적 초기화` 버튼 하나뿐
 - 재생 가능 시작: **그 심볼의 상장일** (`onboardDate`, exchangeInfo가 준다) — BTC 2019-09-08 /
   ETH 2019-11-27 / DOGE 2020-07-10. 하나로 박으면 늦게 상장된 코인에서 빈 캔들이 재생된다.
   세션 최대 90일

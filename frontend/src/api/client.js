@@ -15,7 +15,22 @@ import { clientLog } from "./clientLog.js";
 //
 // ⚠ 이 파일은 store를 import하지 않는다 (store → api 방향이라 순환이 된다).
 //   그래서 replaySlice가 setReplayGuard로 값을 밀어 넣는다.
-let _replayGuard = false;
+// ⚠ **가드는 값이 아니라 "지금 리플레이인가"를 묻는 함수다** (2026-09-27에 바꿨다).
+//
+//   예전에는 boolean 하나를 `setReplayOn`이 밀어 넣었다. 그러면 스토어의 `replayOn`과
+//   이 값이 **두 벌**이 되어 어긋날 수 있다 — 실제로 어긋났다 (사용자 신고):
+//   스토어는 실거래인데 이 값이 true로 남아, 실계좌 미체결 취소가
+//   "리플레이 모드에서는 실제 주문을 보낼 수 없습니다"로 막혔다
+//   (로그 `API_BLOCKED` 1건 + 그 직후 `MODE_CHANGED replay=true`가 또 "변경"으로 남은 것이
+//    그 증거다 — 그 사이 `replayOn`이 기록 없이 false가 되어 있었다는 뜻이다).
+//   파일을 고치는 중이어서 화면이 자동으로 다시 불려온 것(HMR)이 계기였을 가능성이 크지만,
+//   **두 벌이라 어긋날 수 있다는 구조 자체가 결함이다.**
+//
+//   → 이제 `store/index.js`가 스토어를 만든 직후 "스토어의 replayOn을 읽는 함수"를
+//     등록한다(`setReplayGuardSource`). 정본이 하나뿐이라 갈라질 자리가 없다.
+//   ⚠ 다시 boolean으로 되돌리지 말 것.
+//   ※ 테스트는 `setReplayGuard(true|false)`로 상수 함수를 심는다 (스토어가 없으므로).
+let _isReplay = () => false;
 
 // ── 심볼 (2026-09-02) ─────────────────────────────────────────────────────
 // 모든 요청에 **지금 보고 있는 심볼**을 실어 보낸다. 백엔드는 없으면 기본 심볼로
@@ -45,7 +60,10 @@ export function setApiSymbol(sym) { _symbol = sym; }
 //   raw fetch라 애초에 가드를 지나지 않는다 (clientLog와 같다)
 const ALLOW_IN_REPLAY = [];
 
-export function setReplayGuard(on) { _replayGuard = on; }
+/** 스토어가 등록한다 — `() => useStore.getState().replayOn` (정본은 스토어다) */
+export function setReplayGuardSource(fn) { _isReplay = typeof fn === "function" ? fn : () => false; }
+/** 스토어 없이 시험할 때 쓴다 (테스트) — 상수로 고정한다 */
+export function setReplayGuard(on) { _isReplay = () => !!on; }
 
 export async function api(method, path, body) {
   // ⚠ **상태를 바꾸는 요청은 전부 여기서 기록한다** (2026-08-25).
@@ -56,7 +74,7 @@ export async function api(method, path, body) {
   const logged = method !== "GET";
   const t0 = logged ? Date.now() : 0;
 
-  if (_replayGuard && method !== "GET" && !ALLOW_IN_REPLAY.some(p => path.startsWith(p))) {
+  if (_isReplay() && method !== "GET" && !ALLOW_IN_REPLAY.some(p => path.startsWith(p))) {
     // 거래소에 닿지도 못한 요청 — **백엔드 로그에는 흔적이 없다.** 여기서만 남는다
     clientLog("API_BLOCKED", { level: "warn", method, path, reason: "replay" });
     throw new Error("리플레이 모드에서는 실제 주문을 보낼 수 없습니다 (연습 계좌로 처리됩니다)");

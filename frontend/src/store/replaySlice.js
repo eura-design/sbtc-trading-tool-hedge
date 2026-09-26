@@ -10,11 +10,19 @@
 // 페이퍼 화면을 실거래로 착각하거나(반대도 마찬가지) 하는 사고가 난다.
 // 편의를 위해 마지막으로 고른 **시작 날짜만** 저장한다.
 
-import { setReplayGuard } from "../api/client.js";
 import { clientLog } from "../api/clientLog.js";
 import { swapDrawingStorage } from "./uiSlice.js";
 import { swapTradeSettings } from "./settingsSlice.js";
 import { lsGet, lsSet } from "../utils/storage.js";
+
+// 실계좌·연습 계좌가 **같은 슬롯**을 쓰므로, 모드를 바꿀 때 그 슬롯을 비운다.
+// ⚠ 값은 `store/serverSlice.js`의 초기값과 같아야 한다 — 이미 모든 화면이 다루는 상태다.
+// ⚠ **켜고 끌 때 둘 다** 쓴다 (한쪽만 비우면 아래 setReplayOn 주석의 버그가 난다)
+const EMPTY_SNAPSHOT = {
+  position: null,
+  balance:  null,
+  tpsl: { long: { tp: null, sl: null, splitTps: [] }, short: { tp: null, sl: null, splitTps: [] } },
+};
 
 const START_KEY = "replay_start_ms";
 
@@ -82,8 +90,12 @@ export const createReplaySlice = (set, get) => ({
 
   setReplayOn: (v) => {
     const on = typeof v === "function" ? v(get().replayOn) : !!v;
-    // 실주문 차단은 **상태보다 먼저** 건다 — 렌더 타이밍에 기대지 않기 위해서다
-    setReplayGuard(on);
+    // ⚠ **실주문 차단 가드는 여기서 밀어 넣지 않는다** (2026-09-27에 바꿨다).
+    //   `store/index.js`가 "스토어의 `replayOn`을 읽는 함수"를 api에 등록해 두므로,
+    //   아래 `set`이 끝나는 순간 가드도 저절로 맞는다. 정본이 하나뿐이라 갈라질 자리가 없다.
+    //   ⚠ 여기에 `setReplayGuard(on)`을 되살리지 말 것 — 그러면 그 상수가 스토어를 읽는
+    //     함수를 덮어써서, 값이 두 벌이던 옛 버그가 그대로 돌아온다
+    //     (실거래인데 실계좌 주문이 "리플레이 모드"라고 막혔다 — 사용자 신고)
     // ⚠ 모드 전환을 기록한다 — 나중에 로그를 볼 때 **"그때 연습 중이었나"**가
     //   자주 답이다 (주문이 왜 안 나갔는지, 왜 알림이 안 떴는지)
     if (on !== get().replayOn) clientLog("MODE_CHANGED", { replay: on });
@@ -102,8 +114,21 @@ export const createReplaySlice = (set, get) => ({
     //   (store/settingsSlice.js의 swapTradeSettings 참고)
     const drawings = swapDrawingStorage(on, get().drawings, get().symbol);
     const trade   = swapTradeSettings(on);
+    // ⚠ **켤 때도 스냅샷을 비운다** (2026-09-27에 고친 버그). 아래 "끌 때" 주석과 같은
+    //   이유인데, **켜는 쪽에만 이 짝이 빠져 있었다.**
+    //   증상: 리플레이에서 지정가를 걸어두고(페이퍼 미체결) 모드를 끄고 다시 켜면
+    //   **플랜 박스가 사라지고 점선 대기선만 남았다** (사용자 신고).
+    //   경로: 이 `set`이 `drawings`만 리플레이 것으로 갈아끼우고 `position`은 실계좌 값을
+    //   그대로 둔다 → 그 순간 App의 drawing↔pending 동기화가
+    //   `box.orderId && !pend`(리플레이 박스에는 페이퍼 주문번호가 적혀 있고, 실계좌에는
+    //   그 사이드 미체결이 없다)에 걸려 **박스를 지운다.**
+    //   되살아나지도 않는다 — 복원 규칙은 `pend.drawing`을 보는데 페이퍼 미체결의
+    //   `drawing`은 늘 null이다 (`paperBroker.js`의 pending 생성부).
+    //   → 비우면 동기화가 첫 줄(`if (!position) return`)에서 빠져나간다. 직후
+    //     `syncFromBroker`가 페이퍼 스냅샷으로 채운다.
+    //   ⚠ 한쪽만 되돌리지 말 것 — 비대칭이 곧 이 버그였다
     set(on
-      ? { replayOn: true, balError: null, drawings, ...trade }
+      ? { replayOn: true, balError: null, drawings, ...trade, ...EMPTY_SNAPSHOT }
       : {
           replayOn: false, replayNowMs: null, replayPrice: null, drawings, ...trade,
           // ⚠ 나갈 때 페이퍼 스냅샷을 **앱 시작 직후 상태로 되돌린다**
@@ -121,9 +146,7 @@ export const createReplaySlice = (set, get) => ({
           //     이유도 적혀 있었다. 그 판정을 하던 `usePositionCloseAlert`은 지워졌고
           //     지금은 백엔드(orderWatcher)가 계정 전체를 보고 알린다 — 화면 상태와
           //     무관하므로 이 오작동은 원인째 사라졌다.
-          position: null,
-          balance:  null,
-          tpsl: { long: { tp: null, sl: null, splitTps: [] }, short: { tp: null, sl: null, splitTps: [] } },
+          ...EMPTY_SNAPSHOT,
         });
   },
 
