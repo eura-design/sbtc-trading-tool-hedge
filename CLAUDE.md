@@ -366,6 +366,14 @@ Binance Futures 헷지 모드 전제 — LONG/SHORT 동시 보유 가능.
     실제로 그랬다 (2026-09-27에 고쳤다. 비트코인 차트를 1분 보고 있으면 이더리움 분할 TP의
     `pct`가 사라져 목록의 `(40%)`가 빈칸이 되고, 살아 있는 주문에 `ORDER_GONE`이 남았다).
     검산: `tests/tpslRoute.test.js`의 "다른 코인의 분할 TP 기록은 지우지 않는다"
+  ⚠ **`DELETE /api/orders`에도 같은 것이 있었다** (2026-09-27에 고쳤다). 끝의
+    "store에만 남아있는 WATCHING 정리"가 계정 전체를 돌아서, **한 코인의 주문을 취소하면
+    다른 코인의 WATCHING 기록이 지워졌다.** 그 주문은 살아 있는데 기록이 없으니
+    `source:"external"`이 되고, 체결돼도 `onFilled`가 TP/SL을 걸 근거가 없다
+    (사전 등록분만 남아 보호가 한 겹 얇아진다). 실측으로 비트코인 층 3개가 그렇게 됐다.
+    검산: `tests/ordersRoute.test.js`
+  ⚠ **`store.entries()`를 도는 코드를 새로 쓸 때는 심볼을 가리는지 먼저 볼 것.**
+    같은 실수를 두 파일에서 각각 찾았다 (`tpsl.js`·`orders.js`)
 - **손익 조회에는 심볼 필터를 걸지 않는다** (`/api/stats`·일일 손실·`INCOME`) —
   한도의 기준인 지갑 잔고가 계정 전체 값이라, 손익만 좁히면 한도가 헐거워진다
 - ⚠ `"BTCUSDT"` 문자열은 `symbolInfo.DEFAULT_SYMBOL`과 `SEED` 두 곳에만 있다. 늘리지 말 것

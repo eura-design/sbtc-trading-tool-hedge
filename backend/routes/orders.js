@@ -86,9 +86,20 @@ router.delete("/", async (req, res) => {
     //   주문의 tp/sl 기록까지 날아가고, 그 주문이 체결되면 **TP/SL을 걸 근거가 없어
     //   무방비 포지션**이 된다 (2026-08-15에 고친 사고와 같은 모양).
     //   "store에만 남아있는"이라는 원래 의도대로 openOrders에 없는 것만 지운다
+    // ⚠ **다른 코인의 기록은 건드리지 않는다** (2026-09-27). `openOrders`는 **이 심볼의**
+    //   목록인데 `store.entries()`는 **계정 전체**를 돈다. 그래서 이 줄이 없으면,
+    //   한 코인의 주문을 취소하는 것만으로 **다른 코인의 WATCHING 기록이 전부 지워졌다.**
+    //   실측(2026-09-27): 이더리움 층을 취소했더니 비트코인 층 3개의 기록이 사라져,
+    //   그 주문들이 `source:"external"`이 되고(기록이 없으니) 플랜 박스도 같이 사라졌다.
+    //   기록이 없으면 체결돼도 `onFilled`가 TP/SL을 걸 근거가 없다 —
+    //   사전 등록분만 남아 보호가 한 겹 얇아진다.
+    //   ⚠ 바로 위 주석의 "side를 지정해도 전부 지웠다"와 **같은 종류의 실수**다
+    //     (그때는 사이드만 고쳤고 심볼은 2026-09-02에 생긴 뒤로 빠져 있었다).
+    //     `routes/tpsl.js`의 분할 TP 정리도 같은 이유로 고쳤다
     const liveIds = new Set(openOrders.map(o => String(o.orderId)));
     for (const [id, info] of store.entries()) {
       if (info.status !== "WATCHING") continue;
+      if (store.symbolOf(id) !== symbol) continue;
       if (liveIds.has(String(id))) continue;
       store.delete(id);
     }
