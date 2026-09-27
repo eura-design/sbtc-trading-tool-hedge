@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from "react";
+import { useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import { M, RSI_GAP, VOL_GAP } from "../constants";
 import { getScales, fitYDomain, zoomYDomain, tsToIdx } from "../chart/scales";
 import { idxToTimestamp } from "../utils/coordUtils";
@@ -22,6 +22,32 @@ import { ZZ_ID } from "../chart/drawables";
 //   지금은 어느 TF에서든 캔들이 화면의 85.7%를 채운 지점에서 멈춘다
 // (확대 하한은 아래 wheel 핸들러의 "3봉" 조건이 맡는다 — 둘이 한 쌍이다)
 const MAX_VIEW_RATIO = 7 / 6;
+
+/**
+ * 핸들러를 **고정된 껍데기**로 내보내고, 속은 매 렌더 최신 것으로 바꿔 끼운다 (2026-09-27).
+ *
+ * ── 왜 ─────────────────────────────────────────────────────────────────────
+ * 예전엔 핸들러마다 `useCallback(fn, [값 54개])`처럼 **쓰는 값을 손으로 전부 적었다.**
+ * 목록이 길어 빠뜨린 것이 실제로 있었다 — `onMouseDown`·`onMouseUp`이 가격 계산에
+ * `isLog`(로그 눈금)를 쓰는데 목록에 없었다. 그러면 로그를 켜고 끈 뒤에도 **다른 값이
+ * 바뀔 때까지 옛 눈금으로** 클릭 위치를 판정하고 드래그를 놓은 가격을 계산한다
+ * (ESLint `exhaustive-deps`가 이 파일에서만 빠진 값 수십 개를 짚었다).
+ *
+ * ── 어떻게 ─────────────────────────────────────────────────────────────────
+ * 본문(`fn`)은 **매 렌더 새로 만들어져** 그 렌더의 값을 그대로 본다 — 목록이 필요 없다.
+ * 밖으로 나가는 함수는 한 번 만들어진 것이 끝까지 간다 — 그래서 휠 이벤트도 한 번만
+ * 걸면 된다(예전엔 값이 바뀔 때마다 풀었다 다시 걸었다).
+ * React 문서의 `useEffectEvent`와 같은 방식이다.
+ *
+ * ⚠ **렌더 중에 부르지 말 것** — 이벤트·효과 안에서만 부른다 (그래서 최신 값이 들어 있다)
+ */
+function useLatestHandler(fn) {
+  const ref = useRef(fn);
+  // ⚠ **렌더 중이 아니라 화면이 확정된 직후에** 바꿔 끼운다. 렌더 중에 끼우면 버려진 렌더
+  //   (동시 렌더링)의 본문이 끼워질 수 있다. 사용자 입력은 확정 뒤에만 오므로 늘 최신이다
+  useLayoutEffect(() => { ref.current = fn; });
+  return useCallback((...args) => ref.current(...args), []);
+}
 
 export function useChartInteraction({
   candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, showLegPct, onLineDoubleClick,
@@ -107,7 +133,7 @@ export function useChartInteraction({
     return { x: e.clientX - rect.left - M.left, y: e.clientY - rect.top - M.top };
   }, [svgRef]);
 
-  const onWheel = useCallback(e => {
+  const onWheel = useLatestHandler(e => {
     e.preventDefault();
     if (!candles.length) return;
 
@@ -154,9 +180,9 @@ export function useChartInteraction({
         redrawChart();
       }, 150);
     });
-  }, [candles, redrawChart, IW, IH, getSvgPos, isLog]);
+  });
 
-  const onMouseDown = useCallback(e => {
+  const onMouseDown = useLatestHandler(e => {
     const pos = getSvgPos(e);
     if (pos.x < 0 || pos.x > IW || pos.y < 0 || pos.y > IH) return;
     if (e.button !== 0) return;
@@ -199,9 +225,9 @@ export function useChartInteraction({
       const result = step.handle();
       if (result !== false) return;
     }
-  }, [drawings, selectedBox, locked, drawMode, candles, hasPos, hasLong, hasShort, tpsl, position, onMarkerClose, scaleInOrders, splitTps, partialSls, lineMode, lineStart, selectedLineId, lines, IW, IH, getSvgPos, channelMode, channelStep, channelPoints, channelPreview, channels, selectedChannelId, addChannel, circleMode, circleCenter, circlePreview, circles, selectedCircleId, addCircle, fibMode, fibStart, fibs, selectedFibId, addFib, measureMode, measures, selectedMeasureId, structMode, structDraft, structures, selectedStructId, addStructDraftPoint, startExtendStruct, mergeStructIntoDraft, structPart, selectStructPart, commitStructPoints, showZZ, orderPick]);
+  });
 
-  const refreshCrosshair = useCallback((clientX, clientY) => {
+  const refreshCrosshair = useLatestHandler((clientX, clientY) => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return;
     const pos  = { x: clientX - rect.left - M.left, y: clientY - rect.top - M.top };
@@ -259,9 +285,9 @@ export function useChartInteraction({
     } else {
       hideCrosshair?.();
     }
-  }, [candles, IW, IH, rsiH, volH, updateCrosshair, hideCrosshair, scalesRef, xDomainRef, yDomainRef, isLog]);
+  });
 
-  const onMouseMove = useCallback(e => {
+  const onMouseMove = useLatestHandler(e => {
     const clientX = e.clientX, clientY = e.clientY;
     lastMousePosRef.current = { clientX, clientY };
 
@@ -394,9 +420,9 @@ export function useChartInteraction({
 
       handler.onMove({ pos, drag, scales, IW, IH, candles, setters, state });
     });
-  }, [drawings, drawMode, candles, dragTpsl, dragSplitTp, dragPartialSl, redrawCanvas, redrawChart, lineMode, lineStart, selectedLineId, lines, hasPos, tpsl, scaleInOrders, splitTps, partialSls, IW, IH, channelMode, channelStep, channelPoints, selectedChannelId, channels, circleMode, circleCenter, selectedCircleId, circles, fibMode, fibStart, selectedFibId, fibs, measureMode, selectedMeasureId, measures, structMode, structDraft, selectedStructId, structures, refreshCrosshair, isLog, showLegPct, showZZ]);
+  });
 
-  const onMouseUp = useCallback(e => {
+  const onMouseUp = useLatestHandler(e => {
     const drag = dragRef.current;
     dragRef.current = null;
     setCursor("crosshair");
@@ -423,9 +449,9 @@ export function useChartInteraction({
       // position은 `draw.onUp`이 **같은 사이드 포지션 보유 시 박스 그리기를 막는 데** 쓴다
       state: { drawings, dragTpsl, dragScaleIn, dragSplitTp, dragPartialSl, position, orderPick },
     });
-  }, [candles, drawings, dragTpsl, dragSplitTp, dragPartialSl, dragScaleIn, position, orderPick, placeSplitOrders, saveTpsl, moveSplitTp, movePartialSl, moveScaleIn, redrawChart, IW, IH, getSvgPos, moveStructPoint, normalizeStruct, clearStructPart]);
+  });
 
-  const onDoubleClick = useCallback(e => {
+  const onDoubleClick = useLatestHandler(e => {
     const pos    = getSvgPos(e);
     const scales = getScales(candles, xDomainRef, yDomainRef, IW, IH, isLog);
     if (!scales) return;
@@ -460,9 +486,9 @@ export function useChartInteraction({
     if (showZZ && findHitZzLeg(pos.x, pos.y, getZzSegments(), xScale, yScale)) {
       onLineDoubleClick?.(ZZ_ID, "zz", e.clientX, e.clientY);
     }
-  }, [candles, lines, channels, circles, fibs, measures, structures, structMode, finishStruct, drawings, locked, IW, IH, getSvgPos, onLineDoubleClick, showZZ]); // eslint-disable-line react-hooks/exhaustive-deps
+  });
 
-  const onMouseLeave = useCallback(() => {
+  const onMouseLeave = useLatestHandler(() => {
     dragRef.current = null;
     setCurrent(null);
     // 그리다 만 측정 박스는 버린다 — 차트 밖에서 버튼을 놓으면 onMouseUp이 안 와서
@@ -470,7 +496,7 @@ export function useChartInteraction({
     setMeasureDraft?.(null);
     setCursor("crosshair");
     hideCrosshair?.();
-  }, [setCurrent, setMeasureDraft, hideCrosshair]);
+  });
 
   // wheel 이벤트는 React prop으로 등록하면 passive가 되어 preventDefault()가 무시됨
   useEffect(() => {
@@ -478,7 +504,7 @@ export function useChartInteraction({
     if (!el) return;
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [svgRef, onWheel]);
+  }, [svgRef, onWheel]);   // onWheel은 고정된 껍데기라 다시 걸리지 않는다
 
   // isLog 토글 시 진행 중인 wheel RAF/타이머가 옛 yDomain 계산을 마저 적용하지 않도록 즉시 정리
   useEffect(() => {
