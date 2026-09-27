@@ -4,6 +4,7 @@ import { PALETTE } from "../../constants";
 import { usePersistedNum, PercentSlider, CountSlider, ChartPickButton, useChartPick, SubmitButton, CardWrapper, CancelAllButton } from "./cardControls";
 import { iconBtn } from "../sidebarBtn";
 import { floorQty, qtyLabel } from "../../utils/qty";
+import { minEntryQty } from "../../utils/calc";
 import { useStore } from "../../store";
 
 /**
@@ -25,7 +26,7 @@ import { useStore } from "../../store";
 export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders, onCancelScaleIn, embedded }) {
   const { theme } = useTheme();
   // 수량 자릿수와 코인 이름은 심볼마다 다르다 (SOL 0.01 / DOGE 1)
-  const { step: qStep, base: qBase, minQty: qMin } = useStore(s => s.symbolFilters);
+  const { step: qStep, base: qBase, minQty: qMin, minNotional: qMinNotional } = useStore(s => s.symbolFilters);
   const isLong = side === "LONG";
   const [orderType, setOrderType] = useState("LIMIT");
   const [pct, setPct]     = usePersistedNum("scaleInPct", 50);
@@ -44,9 +45,25 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
   const avgPrice = orderType === "MARKET" && lastPrice > 0 && addQty > 0
     ? (posData.size * posData.entryPrice + addQty * lastPrice) / (posData.size + addQty)
     : null;
-  // ⚠ 하한은 **심볼의 최소 수량**이다. 0.001 고정이면 DOGE(최소 1)에서
-  //   0.5 같은 값이 통과했다가 거래소 직전에 0으로 내려간다
-  const valid = addQty >= qMin;
+  // ── 거래소 최소 수량 미만이면 **최소로 올린다** (2026-09-27 사용자 요청) ─────
+  //
+  // 거래소는 주문마다 **최소 수량과 최소 금액**을 둘 다 본다. 수량이 "지금 포지션의 %"라
+  // 최소로 진입한 포지션에서는 그 %가 너무 작다 — 실측: 0.05 SOL 포지션의 50%를 5분할하면
+  // 층당 0.004 SOL이라 거래소가 전부 거절했다(`Order's notional must be no smaller than 5`).
+  // → 막지 않고 **모자란 조각만 최소로 올린다.** 진입의 `calcPosition`이 이미 그렇게 한다.
+  //
+  // ⚠ 올리면 **슬라이더가 말하는 것보다 많이 나간다** (위 예: 0.02 → 0.25, 12배).
+  //   그래서 올라가는 경우 카드에 `⚠ 최소 수량으로 올림`을 띄운다 — 지우지 말 것.
+  // ⚠ 여기의 기준 가격은 **현재가**다(어림). 실제로 올리는 것은 주문을 내는 자리
+  //   (`orderSlice.placeSplitOrders`)가 **층마다 그 층의 가격으로** 한다 — 롱이면 아래 층일수록
+  //   금액이 작아지므로 거기서 재야 정확하다. 늘 실제가 표시보다 크거나 같은 쪽이다
+  const minPiece = minEntryQty({ price: lastPrice || posData.entryPrice, step: qStep,
+                                 minQty: qMin, minNotional: qMinNotional });
+  // 시장가는 한 번에 한 조각, 지정가는 count조각으로 나뉜다
+  const raised = orderType === "MARKET"
+    ? addQty < minPiece
+    : addQty / Math.max(1, count) < minPiece;
+  const marketQty = Math.max(addQty, minPiece);
 
   const btnStyle = (active) => ({
     flex: 1, padding: "4px 0", borderRadius: "3px", cursor: "pointer",
@@ -89,7 +106,15 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
       />
 
       {orderType === "LIMIT" && (
-        <CountSlider count={count} onChange={setCount} qty={addQty} color={color} />
+        /* 개수는 1~10 전부 고를 수 있다 — 모자란 조각은 최소로 올라가므로 수량이 개수를
+           제한하지 않는다 (분할 TP·SL은 예전처럼 수량이 개수를 제한한다) */
+        <CountSlider count={count} onChange={setCount} qty={addQty} color={color} max={10} />
+      )}
+
+      {raised && (
+        <div style={{ fontSize: "11px", color: PALETTE.warn, marginBottom: "6px" }}>
+          ⚠ 최소 수량으로 올림
+        </div>
       )}
 
       {avgPrice && (
@@ -104,11 +129,11 @@ export function ScaleInCard({ posData, side, lastPrice, onScaleIn, scaleInOrders
 
       {orderType === "LIMIT" ? (
         <ChartPickButton active={pick.active} onToggle={pick.toggle}
-          disabled={!valid} color={color} count={count} qty={addQty} />
+          disabled={!(addQty > 0 || minPiece > 0)} color={color} count={count} qty={addQty} max={10} />
       ) : (
         <SubmitButton
-          disabled={!valid} color={color}
-          onClick={() => onScaleIn(side, "MARKET", null, addQty)}
+          disabled={!(marketQty > 0)} color={color}
+          onClick={() => onScaleIn(side, "MARKET", null, marketQty)}
         >
           {isLong ? "▲ 시장가 추가 매수" : "▼ 시장가 추가 매도"}
         </SubmitButton>

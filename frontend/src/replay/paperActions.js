@@ -11,7 +11,7 @@
 // ⚠ 여기 없는 액션은 페이퍼 처리가 없다는 뜻이고, 그 경우 api()의 가드가
 //   에러를 던진다(api/client.js). 조용히 실주문이 나가는 일은 없다.
 
-import { calcPosition } from "../utils/calc.js";
+import { calcPosition, minEntryQty } from "../utils/calc.js";
 import { isLongToPosition, closeToPosition } from "../utils/side.js";
 import { computePaperDailyLoss } from "./dailyLoss.js";
 import { riskPctFor } from "../store/settingsSlice.js";
@@ -41,7 +41,8 @@ const err = (get, e, what) => get().setOrderStatus({
 
 export const paperActions = {
 
-  executeOrder: (get, orderType, isLong) => {
+  // @param qtyMode 실거래(orderSlice.executeOrder)와 **같은 규칙** — "min"이면 거래소 최소 수량
+  executeOrder: (get, orderType, isLong, qtyMode = "risk") => {
     const st = get();
     const { drawings, leverage, balance, paperBroker, setDrawing, replayNowMs } = st;
     const drawing = drawings[boxKey(isLong)];
@@ -67,16 +68,26 @@ export const paperActions = {
       get().setOrderStatus({ type: "error", msg: "수량 계산 실패 — 잔고나 손절 폭을 확인하세요" });
       return;
     }
+    // 최소 수량으로 들어갈 때는 리스크 계산을 쓰지 않는다 (실거래와 같은 규칙).
+    // 연습에서는 재생 시각의 가격이 곧 현재가다
+    const qty = qtyMode === "min"
+      ? minEntryQty({ price: (orderType === "MARKET" ? get().replayPrice : null) ?? drawing.entry,
+                      step, minQty, minNotional })
+      : posCalc.actualQty;
+    if (!(qty > 0)) {
+      get().setOrderStatus({ type: "error", msg: "수량 계산 실패 — 잔고나 손절 폭을 확인하세요" });
+      return;
+    }
     try {
       const r = paperBroker.placeEntry({
         positionSide: isLongToPosition(drawing.isLong),
         orderType,
         entry: drawing.entry, tp: drawing.tp, sl: drawing.sl,
-        qty: posCalc.actualQty, leverage,
+        qty, leverage,
       });
       if (orderType === "LIMIT") setDrawing(isLong, prev => prev ? { ...prev, orderId: r.orderId } : prev);
       else setDrawing(isLong, null);
-      ok(get, `연습 주문 완료 (${qtyLabel(posCalc.actualQty, step, get().symbolFilters.base)})`);
+      ok(get, `연습 주문 완료 (${qtyLabel(qty, step, get().symbolFilters.base)})`);
     } catch (e) { err(get, e, "연습 주문 실패"); }
   },
 

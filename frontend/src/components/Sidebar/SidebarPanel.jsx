@@ -5,7 +5,7 @@ import { useHealth } from "../../hooks/useHealth";
 import { useStore }  from "../../store";
 import { riskPctFor } from "../../store/settingsSlice";
 import { useShallow } from "zustand/react/shallow";
-import { calcPosition } from "../../utils/calc";
+import { calcPosition, minEntryQty } from "../../utils/calc";
 import { api }       from "../../api/client";
 import { useDailyLoss } from "../../hooks/useDailyLoss";
 import { useAccordion } from "../../hooks/useAccordion";
@@ -196,6 +196,19 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
                        symbolFilters.minNotional);
   };
 
+  // 플랜 카드의 `최소` 수량 — **주문 종류마다 기준 가격이 다르다**:
+  //   지정가는 그 지정가(박스 진입선), 시장가는 **현재가**다. 시장가인데 진입선으로 재면
+  //   박스가 현재가에서 멀 때 최소 금액이 틀린다 (`utils/calc.minEntryQty` 주석).
+  // ⚠ 현재가는 **이 심볼의 값일 때만** 쓴다 (`effectiveLastPrice`가 이미 그 판정을 지났다)
+  const minEntryFor = (drawing) => {
+    if (!drawing) return null;
+    const f = { step: symbolFilters.step, minQty: symbolFilters.minQty,
+                minNotional: symbolFilters.minNotional };
+    return {
+      limit:  minEntryQty({ price: drawing.entry, ...f }),
+      market: minEntryQty({ price: effectiveLastPrice ?? drawing.entry, ...f }),
+    };
+  };
   const deps = [balance, drawings, riskPctLong, riskPctShort, leverage, position?.pending, symbolFilters];
   const longCalc  = useMemo(() => calcFor(drawings.long),  deps);  // eslint-disable-line react-hooks/exhaustive-deps
   const shortCalc = useMemo(() => calcFor(drawings.short), deps);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -321,13 +334,9 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
             🔒 대기 주문 체결 전까지 변경 불가
           </div>
         )}
-        {!hasPending && hasPos && posLeverage !== null && !pendingLeverage && (
-          <div style={{ fontSize:10, color:theme.textFaint, marginTop:3, textAlign:"right" }}>
-            {longLeverage !== null && shortLeverage !== null && longLeverage !== shortLeverage
-              ? `L ${longLeverage}x / S ${shortLeverage}x — ${posLeverage}x 미만 불가`
-              : `포지션 보유 중 — ${posLeverage}x 미만 불가`}
-          </div>
-        )}
+        {/* ⚠ `포지션 보유 중 — 5x 미만 불가`(및 `L 5x / S 3x — …`) 안내 줄은 2026-09-27
+            사용자 요청으로 제거됐다. 막는 것 자체는 그대로다 — 슬라이더의 최소값
+            (`leverageMin`)이 그 값이라 더 내려가지 않는다. 되살리지 말 것 */}
         {pendingLeverage && (
           /* ⚠ 버튼 둘뿐이다 (2026-08-22 사용자 요청).
              규격은 `components/confirmBtn.js` — 시장가 청산의 `✓ 확인 / ✕ 취소`와
@@ -444,7 +453,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
             riskPct={riskPctFor({ riskPctLong, riskPctShort }, isLong)}
             position={position}
             hasPending={pend}
-            onConfirm={(orderType) => executeOrder(orderType, isLong)}
+            onConfirm={(orderType, qtyMode) => executeOrder(orderType, isLong, qtyMode)}
+            minEntry={minEntryFor(box)}
             onCancel={() => onCancelOrder(isLongToPosition(isLong))}
           />
         ))}

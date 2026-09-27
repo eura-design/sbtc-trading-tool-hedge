@@ -5,7 +5,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calcPosition } from "../src/utils/calc.js";
+import { calcPosition, minEntryQty } from "../src/utils/calc.js";
 import { MIN_QTY, QTY_STEP } from "../src/constants.js";
 
 test("리스크 금액 ÷ 1단위 손실 = 수량", () => {
@@ -163,4 +163,48 @@ test("최소 금액을 안 넘기면 예전 동작 그대로다", () => {
   const b = calcPosition(50, 0.001, 0.2, 0.15, 10, 1, 1, 0.00001, 0);
   assert.deepEqual(a, b);
   assert.equal(a.actualQty, 1);   // minQty만 본 결과
+});
+
+// ── 거래소가 받아 주는 가장 작은 주문 수량 (2026-09-27) ─────────────────────
+//
+// 플랜 카드의 `최소` 버튼이 쓴다 — 수동 스케일 진입의 첫 조각을 넣는 용도다.
+// ⚠ **최소 수량과 최소 금액은 별개이고 거래소는 둘 다 본다.** 하나만 보면 거절된다.
+
+test("최소 수량과 최소 금액 중 **큰 쪽**이다", () => {
+  // BTC: 0.001이 이미 $84라 수량 쪽이 이긴다
+  assert.equal(minEntryQty({ price: 84236.3, step: 0.001, minQty: 0.001, minNotional: 50 }), 0.001);
+  // ETH: 0.001은 $2.7뿐 → 최소 금액 $20에 걸려 0.008로 올라간다
+  assert.equal(minEntryQty({ price: 2686.41, step: 0.001, minQty: 0.001, minNotional: 20 }), 0.008);
+  // DOGE: 1개는 $0.2뿐 → $5에 걸려 25개
+  assert.equal(minEntryQty({ price: 0.2, step: 1, minQty: 1, minNotional: 5 }), 25);
+});
+
+test("금액을 수량으로 바꿀 때 **올린다** — 내리면 미달이라 거절된다", () => {
+  const q = minEntryQty({ price: 2686.41, step: 0.001, minQty: 0.001, minNotional: 20 });
+  assert.ok(q * 2686.41 >= 20, `${q} × 2686.41 = ${q * 2686.41} — 최소 금액에 못 미친다`);
+  // 한 단위 내리면 미달이어야 한다 (= 올림이 실제로 필요했다)
+  assert.ok((q - 0.001) * 2686.41 < 20);
+});
+
+test("단위 자릿수로 정리한다 (부동소수 잡음이 남지 않는다)", () => {
+  const q = minEntryQty({ price: 2686.41, step: 0.001, minQty: 0.001, minNotional: 20 });
+  assert.equal(String(q), "0.008", "0.008000000000000002 같은 값이 나오면 안 된다");
+});
+
+test("최소 금액을 모르면 최소 수량만 본다 (그 인자가 생기기 전 동작)", () => {
+  assert.equal(minEntryQty({ price: 100, step: 0.001, minQty: 0.001 }), 0.001);
+  assert.equal(minEntryQty({ price: 100, step: 0.001, minQty: 0.001, minNotional: 0 }), 0.001);
+});
+
+test("가격을 모르면 최소 수량으로 떨어진다 (0으로 나누지 않는다)", () => {
+  assert.equal(minEntryQty({ price: 0, step: 0.001, minQty: 0.001, minNotional: 50 }), 0.001);
+});
+
+test("⚠ `calcPosition`의 하한과 **같은 값**이다 (규칙이 한 벌이다)", () => {
+  // 자본이 아주 작으면 리스크 계산 결과가 하한에 눌린다 — 그 하한이 이 함수여야 한다
+  const r = calcPosition(3, 0.01, 2686.41, 2600, 10, 0.001, 0.001, 0.01, 20);
+  const floor = minEntryQty({ price: 2686.41, step: 0.001, minQty: 0.001, minNotional: 20 });
+  assert.equal(r.actualQty, floor);
+  assert.equal(r.isMinCapped, true);
+  assert.equal(r.isNotionalCapped, true, "수량이 아니라 금액 때문에 올라간 경우다");
 });

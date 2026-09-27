@@ -53,10 +53,13 @@ export function PercentSlider({ pct, onChange, color, label, secondaryText }) {
 // ⚠ 고를 게 하나뿐이면(총 수량이 최소 단위 한 칸) **아예 그리지 않는다.**
 //   끌리는데 값이 안 변하는 죽은 컨트롤을 남기지 않는다는 이 앱의 규칙과 같다
 //   (PercentSlider의 1~4% 죽은 구간 주석 참고)
-export function CountSlider({ count, onChange, qty, color }) {
+// @param max 상한을 직접 준다 — **추가 진입만** 넘긴다 (2026-09-27). 추가 진입은 모자란 조각을
+//   최소 수량으로 올리므로 수량이 개수를 제한하지 않는다. 분할 TP·SL은 안 넘긴다 —
+//   그쪽은 예전처럼 총 수량이 개수를 정한다 (조각이 0이 되면 조용히 빠지기 때문이다)
+export function CountSlider({ count, onChange, qty, color, max: maxOverride }) {
   const { theme } = useTheme();
   const qStep = useStore(s => s.symbolFilters.step);
-  const max = maxSplitCount(qty, 10, qStep);
+  const max = maxOverride ?? maxSplitCount(qty, 10, qStep);
   if (max <= 1) return null;
   return (
     <div style={{ marginBottom: "6px" }}>
@@ -101,10 +104,10 @@ export function useChartPick({ kind, side, count, qty }) {
 }
 
 // `차트에서 지정` 버튼 + 켜져 있을 때의 조작 안내 한 줄
-export function ChartPickButton({ active, onToggle, disabled, color, count, qty }) {
+export function ChartPickButton({ active, onToggle, disabled, color, count, qty, max: maxOverride }) {
   const { theme } = useTheme();
   const qStep = useStore(s => s.symbolFilters.step);
-  const n = Math.min(count, maxSplitCount(qty, 10, qStep));
+  const n = Math.min(count, maxOverride ?? maxSplitCount(qty, 10, qStep));
   return (
     <>
       <button

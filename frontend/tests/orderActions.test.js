@@ -51,7 +51,9 @@ function harness(over = {}) {
     symbolFilters: { step: 0.001, minQty: 0.001, tick: 0.1, minNotional: 100 },
     position: null, tpsl: { long: {}, short: {} }, balance: null, drawings: {},
     leverage: 10,
-    setOrderStatus: (s) => { if (s) status.push(s); },
+    // ⚠ 진짜 스토어처럼 **`orderStatus`에도 담는다** — `placeSplitOrders`가 멈춘 이유를
+    //   그 값에서 읽어 최종 문구에 붙인다. 안 담으면 그 경로를 아무 테스트도 못 본다
+    setOrderStatus: (s) => { if (s) status.push(s); state.orderStatus = s; },
     setTpsl: () => {}, setPosition: () => {}, setDrawing: () => {},
     _refetchBal: () => {}, _refetchPos: () => {}, _refetchTpsl: () => {},
     ...over,
@@ -60,7 +62,12 @@ function harness(over = {}) {
   const set = (patch) => {
     state = { ...state, ...(typeof patch === "function" ? patch(state) : patch) };
   };
-  return { ...createOrderSlice(set, get), _status: status };
+  const slice = createOrderSlice(set, get);
+  // ⚠ 액션도 **스토어 안에** 넣는다 — 진짜 스토어가 그렇다. `placeSplitOrders`는
+  //   `get()`에서 `scaleIn`·`addSplitTp`·`addPartialSl`을 꺼내 부르는데, 여기 없으면
+  //   undefined를 불러 터진다. (그래서 그 경로를 시험하는 테스트가 전에는 하나도 없었다)
+  state = { ...state, ...slice };
+  return { ...slice, _status: status };
 }
 
 const only  = (method, path) => calls.filter(c => c.method === method && c.path.startsWith(path));
@@ -309,4 +316,81 @@ test("가드가 켜져 있으면 api()가 막는다 (위임을 빠뜨려도 나�
   assert.deepEqual(calls, [], "가드를 뚫고 나갔다");
   assert.match(lastErr(s), /리플레이/);
   setReplayGuard(false);
+});
+
+// ── 추가 진입 분할 — 거래소 최소 주문 금액 (2026-09-27) ─────────────────────
+//
+// 실측: 조각이 최소 금액에 모자라 **5개 중 0개**가 나갔다. 이제 모자란 조각은 **최소로
+// 올려서** 보낸다 (사용자 결정 — 막지 않는다). 분할 TP·SL은 reduceOnly라 올리지 않는다
+
+test("추가 진입 조각이 최소에 모자라면 **최소로 올려서** 요청한 개수대로 보낸다", async () => {
+  // 실측 재현(SOL): 포지션 0.05의 50% = 0.02를 5분할 → 조각 0.004라 거래소가 전부 거절했다.
+  // 최소 금액 $5, 단위 0.01, 층 가격 ~120 → 조각 최소 0.05
+  const s = harness({
+    liveClose: 121.4,
+    symbolFilters: { step: 0.01, minQty: 0.01, tick: 0.01, minNotional: 5 },
+    position: { short: { size: 0.05, entryPrice: 121.53 } },
+  });
+  // 숏 추가 진입은 현재가 **위** — 122 ~ 130 사이 5개
+  await s.placeSplitOrders("scale_in", "SHORT", 122, 130, 5, 0.02);
+  const sent = only("POST", "/api/scale-in");
+  assert.equal(sent.length, 5, "개수가 줄면 안 된다 — splitPlan은 단위가 모자라면 조각을 조용히 뺀다");
+  for (const c of sent) {
+    assert.ok(c.body.quantity * c.body.price >= 5,
+      `${c.body.quantity} × ${c.body.price} = $${(c.body.quantity * c.body.price).toFixed(2)} — 최소 금액 미달`);
+  }
+  assert.match(lastOk(s), /5개 등록 완료/);
+});
+
+test("⚠ 롱은 **가장 싼 층**으로 최소를 잰다 — 아래 층일수록 금액이 작아서다", async () => {
+  // 현재가 100, 층 99 ~ 60 (롱은 아래). 최소 금액 $50 → 60에서는 0.84가 필요하다
+  const s = harness({
+    liveClose: 100,
+    symbolFilters: { step: 0.01, minQty: 0.01, tick: 0.01, minNotional: 50 },
+    position: { long: { size: 0.1, entryPrice: 100 } },
+  });
+  await s.placeSplitOrders("scale_in", "LONG", 99, 60, 3, 0.03);
+  const sent = only("POST", "/api/scale-in");
+  assert.equal(sent.length, 3);
+  for (const c of sent) assert.ok(c.body.quantity * c.body.price >= 50,
+    `${c.body.price}에서 $${(c.body.quantity * c.body.price).toFixed(2)} — 가장 싼 층이 미달이면 거절된다`);
+});
+
+test("최소 이상이면 **건드리지 않는다** (슬라이더가 정한 그대로)", async () => {
+  const s = harness({
+    liveClose: 100,
+    symbolFilters: { step: 0.01, minQty: 0.01, tick: 0.01, minNotional: 5 },
+    position: { long: { size: 10, entryPrice: 100 } },
+  });
+  await s.placeSplitOrders("scale_in", "LONG", 99, 90, 2, 2);
+  const total = only("POST", "/api/scale-in").reduce((a, c) => a + c.body.quantity, 0);
+  assert.equal(Number(total.toFixed(2)), 2, "최소를 이미 넘으면 총량이 그대로여야 한다");
+});
+
+test("⚠ 분할 TP는 최소 금액으로 막지 않는다 (reduceOnly — 거래소가 묻지 않는다)", async () => {
+  // 같은 크기의 조각이라도 청산 주문이면 나가야 한다
+  const s = harness({
+    liveClose: 100,
+    position: { long: { size: 1, entryPrice: 100 } },
+  });
+  await s.placeSplitOrders("split_tp", "LONG", 110, 120, 5, 1);
+  assert.ok(only("POST", "/api/tpsl/split").length > 0,
+    "분할 TP가 최소 금액 검사에 걸리면 멀쩡한 분할 익절을 못 건다");
+  assert.doesNotMatch(lastErr(s), /최소 주문 금액/);
+});
+
+test("중간에 멈추면 **거래소가 말한 이유**를 개수 문구에 붙인다", async () => {
+  // 두 번째 조각에서 거래소가 거절한다
+  let n = 0;
+  const s = harness({
+    liveClose: 100,
+    symbolFilters: { step: 0.001, minQty: 0.001, tick: 0.1, minNotional: 0 },
+    position: { long: { size: 10, entryPrice: 100 } },
+    failFor: (rec) => (rec.path.startsWith("/api/scale-in") && ++n === 2
+      ? "Margin is insufficient." : null),
+  });
+  await s.placeSplitOrders("scale_in", "LONG", 99, 90, 3, 3);
+  assert.match(lastErr(s), /3개 중 1개만 등록됐습니다/);
+  assert.match(lastErr(s), /Margin is insufficient/,
+    "이유가 빠지면 사용자는 왜 멈췄는지 알 수 없다");
 });

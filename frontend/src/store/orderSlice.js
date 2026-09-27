@@ -1,5 +1,5 @@
 import { qtyLabel } from "../utils/qty.js";
-import { calcPosition }  from "../utils/calc.js";
+import { calcPosition, minEntryQty }  from "../utils/calc.js";
 import { api }           from "../api/client.js";
 import { closeToPosition, positionToSide, isLongToPosition, isLongToSide } from "../utils/side.js";
 import { paperActions }  from "../replay/paperActions.js";
@@ -22,8 +22,19 @@ export const createOrderSlice = (set, get) => ({
   // ⚠ 플랜 박스가 롱·숏 둘이라 **어느 박스인지**를 인자로 받는다 (2026-08-19).
   //   `get().drawings`에서 알아서 고르게 두지 말 것 — 둘 다 있을 때 무엇이 나갈지가
   //   부르는 쪽 코드에 드러나지 않는다 (사이드바 실행 버튼은 카드마다 따로 있다)
-  executeOrder: async (orderType, isLong) => {
-    if (get().replayOn) return paperActions.executeOrder(get, orderType, isLong);
+  /**
+   * 플랜 박스로 진입한다.
+   *
+   * @param qtyMode `"risk"`(기본) = 리스크 %로 수량을 잡는다 / `"min"` = **거래소 최소 수량**
+   *   ⚠ `"min"`은 수동 스케일 진입의 **첫 조각**을 넣는 용도다 (2026-09-27 사용자 요청).
+   *     최소로 들어가 손절을 `closePosition` 방식으로 걸어 두면, 그 뒤 추가 진입이
+   *     체결돼도 **전량 손절이 저절로 유지된다**.
+   *   ⚠ 최소 수량을 재는 가격이 주문 종류마다 다르다: 지정가는 **그 지정가**,
+   *     시장가는 **현재가**다. 시장가인데 박스의 진입선으로 재면 박스가 현재가에서 멀 때
+   *     최소 금액이 틀린다 (`utils/calc.minEntryQty` 주석 참고)
+   */
+  executeOrder: async (orderType, isLong, qtyMode = "risk") => {
+    if (get().replayOn) return paperActions.executeOrder(get, orderType, isLong, qtyMode);
     const st = get();
     const { drawings, leverage, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos, _refetchTpsl } = st;
     const drawing = drawings[boxKey(isLong)];
@@ -42,7 +53,14 @@ export const createOrderSlice = (set, get) => ({
     const { step, minQty, tick, minNotional } = get().symbolFilters;
     const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional);
     if (!posCalc) return;
-    const qty = posCalc.actualQty;
+    // 최소 수량으로 들어갈 때는 리스크 계산을 쓰지 않는다 (위 qtyMode 주석)
+    //   ⚠ 현재가를 모르면(이 심볼의 값이 아직 안 왔으면) 박스의 진입선으로 잰다.
+    //     그 값이 최소 금액에 모자라면 거래소가 거절하고 그 문구가 그대로 뜬다
+    const markNow = st.liveCloseSymbol === st.symbol ? st.liveClose : null;
+    const qty = qtyMode === "min"
+      ? minEntryQty({ price: (orderType === "MARKET" ? markNow : null) ?? drawing.entry,
+                      step, minQty, minNotional })
+      : posCalc.actualQty;
     if (!qty || qty <= 0) return;
     setOrderStatus(null);
     try {
@@ -383,8 +401,31 @@ export const createOrderSlice = (set, get) => ({
     //   어느 끝에서 시작했느냐로 배분이 갈린다** (2026-08-27에 고친 버그)
     // ⚠ 수량 단위는 심볼의 것을 쓴다 — 안 넘기면 splitLevels가 BTCUSDT의 0.001로
     //   쪼개서, DOGE(단위 1)에서는 나갈 수 없는 조각이 만들어진다
-    const { step: qStep, base: qBase } = get().symbolFilters;
-    const orders = splitPlan(p1, p2, count, totalQty, isLong, kind, qStep);
+    const { step: qStep, base: qBase, minQty: qMin, minNotional: qMinNotional } = get().symbolFilters;
+
+    // ── 추가 진입: 모자란 조각은 **최소 수량으로 올린다** (2026-09-27 사용자 요청) ──
+    //
+    // 거래소는 주문마다 최소 수량과 최소 금액을 둘 다 본다. 추가 진입 수량은 "지금 포지션의
+    // %"라 최소로 진입한 포지션에서는 조각이 너무 작다 — 실측: 0.004 SOL 조각 5개가
+    // `Order's notional must be no smaller than 5`로 **5개 중 0개** 나갔다.
+    //
+    // ① **총량을 먼저 올린다.** 쪼갠 뒤에 올리면 늦다 — `splitPlan`은 단위가 모자라면
+    //    조각을 **조용히 뺀다**(0.02를 5개로 쪼개면 2개만 나온다). 가장 싼 층 가격으로 잰
+    //    최소 × 개수 이상이 되게 해 두면 모든 조각이 그 최소를 넘는다.
+    //    (금액 = 수량 × 가격이라 **가장 싼 층**이 가장 불리하다)
+    // ② 그래도 **층마다 그 층 가격으로 한 번 더** 올린다 — 나뉘는 방식이 균등이 아닐 때의
+    //    안전망이다. 이 두 단계가 있으면 거래소 최소 미달 거절은 생길 수 없다.
+    // ⚠ **추가 진입만** 한다. 분할 TP·SL은 reduceOnly라 거래소가 최소 금액을 묻지 않는다
+    //   (거절 문구도 `unless you choose reduce only`다) — 올리면 청산량이 부풀어 오른다.
+    // ⚠ 올리면 슬라이더보다 많이 나간다. 카드가 `⚠ 최소 수량으로 올림`을 띄운다 (ScaleInCard)
+    const minAt = (price) => minEntryQty({ price, step: qStep, minQty: qMin, minNotional: qMinNotional });
+    const total = kind === "scale_in"
+      ? Math.max(totalQty, minAt(Math.min(p1, p2)) * count)
+      : totalQty;
+    const orders = splitPlan(p1, p2, count, total, isLong, kind, qStep);
+    if (kind === "scale_in") {
+      for (const o of orders) o.qty = Math.max(o.qty, minAt(o.price));
+    }
     if (!orders.length) {
       setOrderStatus({ type: "error", msg: `수량이 최소 단위(${qStep} ${qBase})보다 작습니다` });
       return;
@@ -424,15 +465,20 @@ export const createOrderSlice = (set, get) => ({
     //   안에서 에러 배너로 처리하고 예외를 밖으로 던지지 않는다. 예외만 보면
     //   전부 실패해도 `done`이 요청 개수와 같아져 **"3개 등록 완료"로 거짓 보고**된다
     let done = 0;
+    // ⚠ **멈춘 이유를 들고 나온다** (2026-09-27). 세 액션은 실패를 안에서 배너로 띄우는데,
+    //   아래 "N개 중 M개" 문구가 그 배너를 **덮어써서** 거래소가 말한 이유가 사라졌다
+    //   (사용자가 `5개 중 0개만 등록됐습니다`만 보고 원인을 알 수 없었다)
+    let why = null;
     for (const o of orders) {
-      if (!(await place(o))) break;
+      if (!(await place(o))) { why = get().orderStatus?.msg ?? null; break; }
       done++;
     }
     // ⚠ **몇 개가 실제로 나갔는지 반드시 알린다.** 중간에 끊기면 화면엔 걸린 것만
     //   보이는데, 사용자는 요청한 개수가 다 나간 줄 안다 — 나머지를 다시 걸어야 한다
     setOrderStatus(done === orders.length
       ? { type: "success", msg: `${KIND_LABEL[kind]} ${done}개 등록 완료` }
-      : { type: "error",   msg: `${KIND_LABEL[kind]} ${orders.length}개 중 ${done}개만 등록됐습니다` });
+      : { type: "error",   msg: `${KIND_LABEL[kind]} ${orders.length}개 중 ${done}개만 등록됐습니다`
+                              + (why ? ` — ${why}` : "") });
   },
 
   /**

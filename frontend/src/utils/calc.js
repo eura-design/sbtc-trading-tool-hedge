@@ -10,6 +10,24 @@ import { decimalsOf as decimalsOfStep } from "./decimals.js";
 const MAINT_MARGIN_RATE = 0.05;
 
 /**
+ * 거래소가 받아 주는 **가장 작은 주문 수량**.
+ *
+ * ⚠ 최소 수량과 최소 금액은 **별개이고 거래소는 둘 다 본다.** 그래서 둘 중 큰 쪽이다.
+ *   실측(2026-09-27 시세): BTC는 minQty 0.001이 이미 $84라 그대로 최소지만,
+ *   ETH는 0.001이 $2.7뿐이라 최소 금액 $20에 걸려 **0.008**로 올라가고,
+ *   DOGE는 1개가 $0.2뿐이라 최소 금액 $5에 걸려 **25개**가 된다.
+ * ⚠ 금액을 수량으로 환산할 때는 단위의 배수로 **올린다** — 내리면 미달이라 거절된다.
+ * ⚠ `price`는 **그 주문이 체결될 가격**이다: 지정가면 그 지정가, 시장가면 **현재가**다.
+ *   시장가인데 박스의 진입선으로 재면, 박스가 현재가에서 멀 때 최소 금액이 틀린다.
+ */
+export function minEntryQty({ price, step = QTY_STEP, minQty = MIN_QTY, minNotional = 0 }) {
+  const notionalMin = minNotional > 0 && price > 0
+    ? Math.ceil((minNotional / price) / step - 1e-9) * step : 0;
+  const q = Math.max(minQty, notionalMin);
+  // 단위 자릿수로 정리한다 (0.001 × 8 = 0.008000000000000002 같은 잡음을 턴다)
+  return parseFloat(q.toFixed(decimalsOfStep(step)));
+}
+/**
  * @param step  이 심볼의 수량 단위 (LOT_SIZE stepSize). **심볼마다 다르다** —
  *   SOL은 0.01, DOGE는 **1**이다. 안 넘기면 BTCUSDT 값으로 떨어지는데,
  *   그러면 DOGE 화면에 "0.001 DOGE"처럼 **낼 수 없는 수량**이 뜬다.
@@ -40,17 +58,16 @@ export function calcPosition(capital, riskPct, entry, sl, leverage = 1,
   const dec              = decimalsOfStep(step);
   const rawQty           = Math.ceil(cappedQty / step - 1e-9) * step;
   // ⚠ 하한은 **수량과 금액 둘 다**를 넘겨야 한다 (거래소가 둘 다 본다).
-  //   금액 기준을 수량으로 환산할 때도 단위의 배수로 **올린다** — 내리면 미달이다
-  const notionalMin      = minNotional > 0 && entry > 0
-    ? Math.ceil((minNotional / entry) / step - 1e-9) * step : 0;
-  const floorQ           = Math.max(minQty, notionalMin);
+  //   계산은 `minEntryQty` 하나가 한다 — 플랜 카드의 `최소 수량으로 진입`도 그 함수를 쓴다
+  const floorQ           = minEntryQty({ price: entry, step, minQty, minNotional });
   const qty              = parseFloat(Math.max(rawQty, floorQ).toFixed(dec));
   const idealRiskPct     = (idealQty * riskPerUnit / capital) * 100;
   const actualRiskPct    = (qty * riskPerUnit / capital) * 100;
   const isLeverageCapped = cappedQty < idealQty * 0.999;
   const isMinCapped      = floorQ > cappedQty; // 하한이 실제로 바인딩된 경우만
-  // 수량이 아니라 **금액** 때문에 올라갔는가 — 화면 문구를 나눌 때 쓴다
-  const isNotionalCapped = notionalMin > minQty && notionalMin > cappedQty;
+  // 수량이 아니라 **금액** 때문에 올라갔는가 — 화면 문구를 나눌 때 쓴다.
+  //   `floorQ > minQty`면 최소 금액 쪽이 이겼다는 뜻이다 (minEntryQty가 둘 중 큰 쪽을 준다)
+  const isNotionalCapped = floorQ > minQty && floorQ > cappedQty;
   
   return { idealQty, actualQty: qty, idealRiskPct, actualRiskPct,
            isMinCapped, isNotionalCapped, isLeverageCapped };
