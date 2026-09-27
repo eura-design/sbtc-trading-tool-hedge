@@ -421,3 +421,15 @@ test("`리스크 %`는 계산이 실패하면 멈추되 **이유를 말한다**"
   assert.equal(only("POST", "/api/order").length, 0);
   assert.match(lastErr(s), /수량을 계산할 수 없습니다/);
 });
+
+test("진입 전에 일일 손실을 **따로 묻지 않는다** — 서버가 막고 이유를 돌려준다", async () => {
+  const s = harness({
+    balance: { availableBalance: 10000 },
+    drawings: { long: { isLong: true, entry: 100, tp: 120, sl: 90 } },
+    riskPctLong: 1, riskPctShort: 1,
+  });
+  await s.executeOrder("MARKET", true);
+  assert.equal(only("GET", "/api/daily-loss").length, 0,
+    "진입 전 거래소 왕복이 하나 늘어난다 — 서버의 checkDailyLoss가 같은 일을 한다");
+  assert.equal(only("POST", "/api/order").length, 1);
+});

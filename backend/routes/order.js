@@ -22,20 +22,32 @@ router.post("/", validateOrder, async (req, res) => {
     // 심볼은 요청이 정한다 (안 보내면 기본). 모르는 심볼은 여기서 400으로 막는다 —
     // 그냥 보내면 가격이 이미 기본 심볼 단위로 만들어진 뒤 거절돼 원인이 안 드러난다
     symbol = symbolInfo.fromRequest(req);
-    // 0) 일일 손실 한도 체크
-    await checkDailyLoss();
-
     // 1) positionSide 결정
     const positionSide = sideToPosition(side);
 
+    // 0) 일일 손실 한도 + 포지션 조회를 **동시에** 한다 (2026-09-27).
+    // ⚠ 진입 주문이 거래소에 닿기 전에 부르는 것들이다 — 시장가는 기다린 만큼 가격이 움직여
+    //   불리하게 체결된다. 예전엔 이 앞에서 거래소를 **4번 차례로** 불렀다
+    //   (화면의 손실 확인 · 여기의 손실 확인 · 포지션 · 레버리지). 한 번에 약 60ms라
+    //   진입 전에 약 240ms를 기다렸다 (로그 실측: 거래소 한 번 왕복 가운데값 60ms).
+    //   둘은 서로의 결과를 쓰지 않으므로 기다릴 이유가 없다. 손실 한도에 걸리면
+    //   `Promise.all`이 그 에러로 끝나 레버리지도 주문도 나가지 않는다 (예전과 같다)
+    const [, posRes] = await Promise.all([
+      checkDailyLoss(),
+      leverage ? binance("GET", "/fapi/v2/positionRisk", { symbol }) : null,
+    ]);
+
     // 2) 레버리지 설정 — 반대쪽 포지션이 이미 있으면 건너뜀 (기존 포지션 레버리지 보호)
     if (leverage) {
-      const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol });
+      const posCheck = posRes?.data ?? [];
       const oppositeSide = positionSide === "LONG" ? "SHORT" : "LONG";
-      const hasOppositePos = hasOpen(posCheck, oppositeSide);
-      if (hasOppositePos) {
+      // ⚠ **이미 그 값이면 거래소를 부르지 않는다** (2026-09-27). 방금 받은 v2 포지션 행에
+      //   그 심볼의 현재 레버리지가 들어 있다. 예전엔 값이 같아도 **매 주문마다** 설정해서
+      //   진입 전 왕복이 하나 더 있었다
+      const current = parseInt(posCheck.find(p => p.leverage)?.leverage);
+      if (hasOpen(posCheck, oppositeSide)) {
         log("LEVERAGE_SKIPPED", { requested: leverage, oppositeSide });
-      } else {
+      } else if (current !== parseInt(leverage)) {
         await binance("POST", "/fapi/v1/leverage", {
           symbol, leverage: parseInt(leverage),
         });

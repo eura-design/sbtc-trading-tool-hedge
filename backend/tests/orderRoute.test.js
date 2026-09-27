@@ -243,3 +243,52 @@ test("TP만 실패하면 빨간 배너도, 적어 두는 것도 없다 (손절�
   assert.equal(h.rec.slRaises.length, 0);
   await h.close();
 });
+
+// ── 진입 전 거래소 왕복 줄이기 (2026-09-27) ─────────────────────────────────
+// 시장가는 진입 전에 기다린 만큼 불리하게 체결된다. 예전엔 레버리지가 같아도 매 주문마다
+// 설정했다 — 방금 받은 포지션 행에 현재 값이 이미 있다
+
+test("레버리지가 **이미 그 값이면** 설정하지 않는다", async () => {
+  const h = await mountRoute("routes/order.js", {
+    binance: async (method, p) => {
+      if (p.includes("positionRisk"))
+        return { data: [{ positionSide: "LONG", positionAmt: "0", leverage: "20" },
+                        { positionSide: "SHORT", positionAmt: "0", leverage: "20" }] };
+      if (p === "/fapi/v1/order") return { data: { orderId: "1", status: "NEW" } };
+      return { data: [] };
+    },
+  });
+  const r = await h.request("POST", "/", body({ leverage: 20 }));
+  assert.equal(r.status, 200);
+  assert.equal(h.rec.calls.filter(c => c.path.includes("leverage")).length, 0,
+    "같은 값인데 거래소를 불렀다 — 진입 전 왕복이 하나 늘어난다");
+  await h.close();
+});
+
+test("레버리지가 **다르면** 설정한다 (회귀)", async () => {
+  const h = await mountRoute("routes/order.js", {
+    binance: async (method, p) => {
+      if (p.includes("positionRisk"))
+        return { data: [{ positionSide: "LONG", positionAmt: "0", leverage: "5" }] };
+      if (p === "/fapi/v1/order") return { data: { orderId: "1", status: "NEW" } };
+      return { data: [] };
+    },
+  });
+  await h.request("POST", "/", body({ leverage: 20 }));
+  const lev = h.rec.calls.filter(c => c.path.includes("leverage"));
+  assert.equal(lev.length, 1);
+  assert.equal(lev[0].params.leverage, 20);
+  await h.close();
+});
+
+test("일일 손실 한도에 걸리면 레버리지도 주문도 나가지 않는다 (동시 조회로 바꾼 뒤에도)", async () => {
+  const h = await mountRoute("routes/order.js", {
+    binance: okOrder(),
+    dailyLoss: async () => { const e = new Error("일일 손실 한도 초과"); e.status = 403; throw e; },
+  });
+  const r = await h.request("POST", "/", body({ leverage: 20 }));
+  assert.equal(r.status, 403);
+  assert.equal(h.rec.calls.filter(c => c.path.includes("leverage")).length, 0);
+  assert.equal(h.rec.calls.filter(c => c.path === "/fapi/v1/order").length, 0);
+  await h.close();
+});

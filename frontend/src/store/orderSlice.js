@@ -42,13 +42,11 @@ export const createOrderSlice = (set, get) => ({
     // 리스크 %는 **사이드별**이다 (settingsSlice.riskPctFor) — 레버리지와 달리 거래소에
     // 보내지 않고 수량 계산에만 쓰이므로 롱·숏이 서로 다른 값을 가질 수 있다
     const riskPct = riskPctFor(st, drawing.isLong);
-    try {
-      const dl = await api("GET", "/api/daily-loss");
-      if (dl && dl.remaining <= 0) {
-        setOrderStatus({ type: "error", msg: "일일 손실 한도 초과 — 매매가 제한됩니다" });
-        return;
-      }
-    } catch { /* 조회 실패 시 통과 — 서버에서 최종 차단 */ }
+    // ⚠ **일일 손실 한도는 여기서 미리 묻지 않는다** (2026-09-27). 서버(`POST /api/order`의
+    //   `checkDailyLoss`)가 같은 것을 확인하고, 막히면 이유 문구를 돌려준다 — 아래 catch가
+    //   그 문구를 그대로 띄운다. 예전엔 여기서 한 번 더 물어서 진입 전에 거래소 왕복이
+    //   하나 더 있었고(손익 조회 가중치 30도 두 번), 막는 힘은 서버 쪽이 전부였다.
+    //   ⚠ 연습 모드는 다르다 — 서버가 없어서 `paperActions`가 스스로 확인한다
     const capital = balance?.availableBalance ?? 0;
     const { step, minQty, tick, minNotional, maintRate } = get().symbolFilters;
     const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional, maintRate);
