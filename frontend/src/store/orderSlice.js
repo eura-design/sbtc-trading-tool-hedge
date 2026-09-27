@@ -52,7 +52,15 @@ export const createOrderSlice = (set, get) => ({
     const capital = balance?.availableBalance ?? 0;
     const { step, minQty, tick, minNotional } = get().symbolFilters;
     const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional);
-    if (!posCalc) return;
+    // ⚠ **`최소`는 리스크 계산 결과가 필요 없다** (2026-09-27에 고친 버그). 예전엔 여기서
+    //   `if (!posCalc) return;`으로 무조건 멈춰서, 리스크 계산이 실패하는 경우(가용 잔고 0 ·
+    //   손절이 진입가에서 한 칸 이내) `최소`를 눌러도 **아무 말 없이 아무 일도 안 일어났다**
+    //   (버튼은 켜져 있었다 — 카드는 최소 수량으로 판단하므로).
+    //   `리스크 %`일 때는 멈추되 **이유를 말한다**
+    if (!posCalc && qtyMode !== "min") {
+      setOrderStatus({ type: "error", msg: "수량을 계산할 수 없습니다 — 가용 잔고와 손절 폭을 확인하세요" });
+      return;
+    }
     // 최소 수량으로 들어갈 때는 리스크 계산을 쓰지 않는다 (위 qtyMode 주석)
     //   ⚠ 현재가를 모르면(이 심볼의 값이 아직 안 왔으면) 박스의 진입선으로 잰다.
     //     그 값이 최소 금액에 모자라면 거래소가 거절하고 그 문구가 그대로 뜬다
@@ -61,7 +69,10 @@ export const createOrderSlice = (set, get) => ({
       ? minEntryQty({ price: (orderType === "MARKET" ? markNow : null) ?? drawing.entry,
                       step, minQty, minNotional })
       : posCalc.actualQty;
-    if (!qty || qty <= 0) return;
+    if (!qty || qty <= 0) {
+      setOrderStatus({ type: "error", msg: "수량이 0입니다 — 가용 잔고와 손절 폭을 확인하세요" });
+      return;
+    }
     setOrderStatus(null);
     try {
       const drawingPayload = orderType === "LIMIT" ? {

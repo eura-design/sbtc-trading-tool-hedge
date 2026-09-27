@@ -394,3 +394,30 @@ test("중간에 멈추면 **거래소가 말한 이유**를 개수 문구에 붙
   assert.match(lastErr(s), /Margin is insufficient/,
     "이유가 빠지면 사용자는 왜 멈췄는지 알 수 없다");
 });
+
+// ── `최소` 진입은 리스크 계산 결과가 필요 없다 (2026-09-27) ────────────────
+// 예전엔 리스크 계산이 실패하면(가용 잔고 0 등) `최소`를 눌러도 **아무 말 없이** 멈췄다.
+// 카드의 실행 버튼은 최소 수량으로 판단해 켜져 있었다
+
+test("`최소`는 리스크 계산이 실패해도 **나간다** (가용 잔고 0)", async () => {
+  const s = harness({
+    balance: { availableBalance: 0 },   // calcPosition이 null을 돌려주는 조건
+    drawings: { long: { isLong: true, entry: 100, tp: 120, sl: 90 } },
+    riskPctLong: 1, riskPctShort: 1,
+  });
+  await s.executeOrder("LIMIT", true, "min");
+  const [c] = only("POST", "/api/order");
+  assert.ok(c, "주문이 나가지 않았다 — 조용히 멈추던 버그");
+  assert.equal(c.body.quantity, 1, "최소 금액 $100 ÷ $100 = 1 (하네스 규칙)");
+});
+
+test("`리스크 %`는 계산이 실패하면 멈추되 **이유를 말한다**", async () => {
+  const s = harness({
+    balance: { availableBalance: 0 },
+    drawings: { long: { isLong: true, entry: 100, tp: 120, sl: 90 } },
+    riskPctLong: 1, riskPctShort: 1,
+  });
+  await s.executeOrder("LIMIT", true, "risk");
+  assert.equal(only("POST", "/api/order").length, 0);
+  assert.match(lastErr(s), /수량을 계산할 수 없습니다/);
+});

@@ -1,5 +1,6 @@
 const express     = require("express");
 const { binance } = require("../services/binanceClient");
+const { fetchIncomePages } = require("../utils/incomePages");
 const statsCache  = require("../services/statsCache");
 const router      = express.Router();
 
@@ -22,24 +23,17 @@ const MAX_PAGES = 20;     // 무한 루프 방지 (2만 건이면 충분하다)
  *   (지금 이 계좌는 2019~현재가 354건이라 안 걸리지만, 늘면 걸린다.
  *    잘려도 에러가 안 나서 숫자가 틀린 줄 모른다 — 그게 위험하다)
  */
+// ⚠ 페이지를 넘기는 규칙은 `utils/incomePages.js` 하나다 (2026-09-27). 예전엔 여기서
+//   "마지막 시각 + 1ms"부터 받아, 같은 시각에 몰린 기록(펀딩비)이 경계에 걸리면 빠졌다
 async function fetchIncome(incomeType, startTime, endTime) {
-  const out = [];
-  let from = startTime;
-  for (let page = 0; page < MAX_PAGES; page++) {
+  return fetchIncomePages(async (from) => {
     const { data } = await binance("GET", "/fapi/v1/income", {
       // ⚠ 심볼 필터 없음 — 계정 전체 손익이다 (dailyloss·incomeLogger와 같은 이유).
       //   한 코인만 보고 싶어지면 여기가 아니라 **응답을 심볼로 나누는** 쪽이 맞다
       incomeType, startTime: from, endTime, limit: MAX_LIMIT,
     });
-    if (!Array.isArray(data) || data.length === 0) break;
-    out.push(...data);
-    if (data.length < MAX_LIMIT) break;
-    const last = Math.max(...data.map(r => r.time));
-    // ⚠ 진전이 없으면 멈춘다 — 같은 밀리초에 1000건이 몰리면 영원히 돈다
-    if (last <= from) break;
-    from = last + 1;
-  }
-  return out;
+    return data;
+  }, startTime, { limit: MAX_LIMIT, maxPages: MAX_PAGES });
 }
 
 // GET /api/stats?startTime=<unix_ms>&endTime=<unix_ms>

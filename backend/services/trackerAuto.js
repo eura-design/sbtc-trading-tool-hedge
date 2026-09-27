@@ -24,6 +24,7 @@
 //   고친 값이 다음 실행에 되돌아간다.
 
 const { binance } = require("./binanceClient");
+const { fetchIncomePages } = require("../utils/incomePages");
 const store = require("../store/trackerStore");
 const { log, errOf } = require("../store/logStore");
 const {
@@ -42,21 +43,17 @@ const MAX_PAGES = 40;
 //   (`REQUEST_TIMEOUT_MS`). 그게 없으면 응답이 안 올 때 이 플래그가 true로 남는다
 let running = false;
 
-/** income을 끝까지 긁어 온다 (`routes/stats.js`의 fetchIncome과 같은 방식) */
+/**
+ * income을 끝까지 받아 온다.
+ * ⚠ 페이지를 넘기는 규칙은 `utils/incomePages.js` 하나다 (`routes/stats.js`와 같이 쓴다).
+ *   예전엔 "마지막 시각 + 1ms"부터 받아 같은 시각에 몰린 펀딩비가 경계에서 빠질 수 있었다 —
+ *   빠지면 그 달 변화량이 틀리고, 월말 잔고는 **거꾸로 내려오므로 그 앞 달이 전부** 틀린다
+ */
 async function fetchAllIncome(startTime) {
-  const out = [];
-  let from = startTime;
-  for (let page = 0; page < MAX_PAGES; page++) {
+  return fetchIncomePages(async (from) => {
     const { data } = await binance("GET", "/fapi/v1/income", { startTime: from, limit: MAX_LIMIT });
-    if (!Array.isArray(data) || data.length === 0) break;
-    out.push(...data);
-    if (data.length < MAX_LIMIT) break;
-    const last = Math.max(...data.map(r => Number(r.time)));
-    // ⚠ 진전이 없으면 멈춘다 — 같은 밀리초에 1000건이 몰리면 영원히 돈다
-    if (last <= from) break;
-    from = last + 1;
-  }
-  return out;
+    return data;
+  }, startTime, { limit: MAX_LIMIT, maxPages: MAX_PAGES });
 }
 
 /** USDT 지갑 잔고 (미실현 제외) */
@@ -83,11 +80,14 @@ const monthStartMs = key => {
  *   ⚠ 이번 달이 표에 없는 경우도 전 기간이다: 그 앞 달들이 아직 안 채워졌을 수 있고,
  *     월말 잔고 역산은 **그 사이의 income이 하나도 빠지면 안 된다.**
  */
-function earliestNeededMonth(entries, nowMs) {
+function earliestNeededMonth(entries, nowMs, autoSkip = []) {
   const cur = localMonth(nowMs);
   if (!entries?.length) return null;
   const months = new Set(entries.map(e => e.month));
-  if (!months.has(cur)) return null;      // 이번 달이 없다 → 어디까지 비었는지 모른다 → 전부
+  // ⚠ 사용자가 **이번 달 자동 줄을 지운 경우**(autoSkip)는 "비어 있다"가 아니다 (2026-09-27).
+  //   예전엔 그것도 빈 것으로 읽어, 그 달이 끝날 때까지 **매시간 전 기간**을 다시 받았다.
+  //   지운 달은 어차피 채우지 않으므로(mergeAuto) 이번 달부터만 받으면 된다
+  if (!months.has(cur) && !autoSkip.includes(cur)) return null;   // 어디까지 비었는지 모른다 → 전부
   return cur;
 }
 
@@ -104,7 +104,7 @@ async function syncTracker() {
     const now   = Date.now();
     const saved = store.load();
 
-    const from  = earliestNeededMonth(saved.entries, now);
+    const from  = earliestNeededMonth(saved.entries, now, saved.autoSkip);
     const start = from === null ? FIRST_TRADE_MS : monthStartMs(from);
 
     const [incomes, balance] = await Promise.all([fetchAllIncome(start), fetchWalletBalance()]);
@@ -116,11 +116,18 @@ async function syncTracker() {
     const rows = withMonthEndBalance(groupByMonth(incomes, now), balance);
     if (!rows.length) return { ok: true, added: 0, updated: 0, kept: 0, skipped: 0 };
 
-    const r = mergeAuto(saved.entries, toEntries(rows), saved.autoSkip);
+    // ⚠ **저장 직전에 파일을 다시 읽어 그 위에 합친다** (2026-09-27에 고친 경쟁 조건).
+    //   위에서 읽은 `saved`는 거래소 응답을 기다리기 **전**의 내용이다. 그 사이(약 1초)에
+    //   결산 페이지에서 저장하면, 옛 내용 위에 합쳐 저장하는 순간 **사람이 방금 넣은 값이
+    //   사라진다** — 손으로 넣은 값은 다시 만들 수 없다(`store/trackerStore.js`).
+    //   다시 읽으면 그 창이 저장 한 번(수 ms)으로 줄어든다.
+    //   ※ seed·autoSkip도 새로 읽은 것을 쓴다 — 페이지에서 바꿨을 수 있다
+    const fresh = store.load();
+    const r = mergeAuto(fresh.entries, toEntries(rows), fresh.autoSkip);
     if (r.added === 0 && r.updated === 0) return { ok: true, ...r, entries: undefined };
 
     // ⚠ seed는 넘겨받은 값을 그대로 다시 쓴다 (파일 머리말의 ⚠)
-    if (!store.save({ seed: saved.seed, entries: r.entries, autoSkip: saved.autoSkip })) {
+    if (!store.save({ seed: fresh.seed, entries: r.entries, autoSkip: fresh.autoSkip })) {
       log("TRACKER_SYNC_FAILED", { level: "warn", what: "save" });
       return { ok: false, reason: "save-failed" };
     }
@@ -159,4 +166,4 @@ function stop() {
   if (timer) { clearInterval(timer); timer = null; }
 }
 
-module.exports = { syncTracker, start, stop, earliestNeededMonth };
+module.exports = { syncTracker, start, stop, earliestNeededMonth, fetchAllIncome };

@@ -302,6 +302,11 @@
     if (entries.some(e => e.month === month)) { alert('이미 해당 월의 결산이 있습니다.'); return; }
 
     entries.push({ month, asset: assetRaw, deposit: depositRaw, withdrawal: withdrawRaw });
+    // ⚠ 달 순서로 다시 맞춘다 (2026-09-27). 수익은 바로 윗줄의 월말 잔고와 비교해 계산하므로,
+    //   앞선 달을 뒤늦게 넣었을 때 맨 끝에 붙으면 그 줄과 다음 줄의 수익이 틀린다.
+    //   서버도 저장할 때 정렬하지만(`routes/tracker.js`), 이 화면은 저장 응답을 기다리지 않고
+    //   바로 그리므로 여기서도 맞춰야 한다
+    entries.sort((a, b) => a.month.localeCompare(b.month));
     save();
     render();
     $('inAsset').value = '';

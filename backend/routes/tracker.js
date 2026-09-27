@@ -41,7 +41,9 @@ router.post("/", (req, res) => {
     // auto = 자동 기록(`services/trackerAuto.js`)이 넣은 줄이라는 표시.
     // ⚠ **true일 때만 실어 보낸다.** 이 표시가 없는 줄은 사람이 넣은 것으로 보고
     //   자동이 절대 덮어쓰지 않는다 (`utils/trackerMonths.mergeAuto`).
-    //   화면에서 값을 고치면 표시를 떼서 보내므로, 그 뒤로는 자동이 손대지 않는다
+    //   ※ 결산 페이지에는 **줄을 고치는 기능이 없다** — 추가와 삭제뿐이다 (2026-09-27 확인).
+    //     자동 줄의 값을 바꾸려면 `×`로 지우고(그 달이 autoSkip에 들어간다) 손으로 다시 넣는다.
+    //     그렇게 넣은 줄에는 이 표시가 없으므로 그 뒤로 자동이 손대지 않는다
     const row = { month: e.month.trim(), asset: e.asset, deposit, withdrawal };
     if (e.auto === true) row.auto = true;
     clean.push(row);
@@ -51,6 +53,14 @@ router.post("/", (req, res) => {
   const skip = Array.isArray(autoSkip)
     ? [...new Set(autoSkip.filter(m => typeof m === "string" && m.trim()).map(m => m.trim()))]
     : [];
+
+  // ⚠ **달 순서로 정렬해 저장한다** (2026-09-27에 고친 버그). 페이지는 새 줄을 맨 끝에
+  //   붙이는데, 수익은 "바로 윗줄의 월말 잔고"와 비교해 계산한다. 그래서 9월까지 있는
+  //   표에 2월을 넣으면 2월이 9월 잔고와 비교되어 **그 줄과 다음 줄의 수익이 틀렸다.**
+  //   자동 기록(mergeAuto)은 정렬해서 저장하지만, 바뀐 값이 없으면 저장을 건너뛰어
+  //   틀린 순서가 남을 수 있었다. 저장하는 입구에서 정렬하면 어느 경로든 맞다
+  //   (월은 `YYYY-MM`이라 문자열 비교가 곧 시간 순이다)
+  clean.sort((a, b) => a.month.localeCompare(b.month));
 
   if (!store.save({ seed, entries: clean, autoSkip: skip })) {
     return res.status(500).json({ error: "파일 저장에 실패했습니다" });
