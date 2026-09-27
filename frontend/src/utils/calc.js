@@ -6,8 +6,13 @@ import { MIN_QTY, QTY_STEP } from "../constants.js";
 // 자릿수 규칙은 `utils/decimals.js` 하나뿐이다 (2026-09-03 통합 — 일곱 벌이 갈렸다)
 import { decimalsOf as decimalsOfStep } from "./decimals.js";
 
-// BTC 무기한 선물 유지증거금률 (~5%) — 실제 가용 자본에서 차감
-const MAINT_MARGIN_RATE = 0.05;
+// 유지증거금률을 **모를 때** 쓰는 보수적 기본값 (2026-09-27).
+// ⚠ 예전엔 이 자리에 `0.05`가 "BTC 유지증거금률 (~5%)"라는 이름으로 **모든 코인에** 쓰였다.
+//   실제 BTC 1구간은 **0.004**이고, 코인별 실제 값은 0.004 ~ 0.1667로 40배 넘게 차이 난다
+//   (exchangeInfo·leverageBracket 실측). 그래서 BTC는 필요 이상으로 좁고, 유지증거금률이
+//   높은 코인은 반대로 **너무 넓게** 잡혔다. 지금은 부르는 쪽이 그 심볼의 값을 넘긴다
+//   (`symbolFilters.maintRate`) — 이 값은 그걸 못 받았을 때만 쓴다
+const DEFAULT_MAINT_RATE = 0.05;
 
 /**
  * 거래소가 받아 주는 **가장 작은 주문 수량**.
@@ -46,12 +51,16 @@ export function minEntryQty({ price, step = QTY_STEP, minQty = MIN_QTY, minNotio
  */
 export function calcPosition(capital, riskPct, entry, sl, leverage = 1,
                              step = QTY_STEP, minQty = MIN_QTY, tick = 0.1,
-                             minNotional = 0) {
+                             minNotional = 0, maintRate = DEFAULT_MAINT_RATE) {
   const riskPerUnit = Math.abs(entry - sl);
   if (riskPerUnit < tick || capital <= 0) return null;
   const idealQty         = (capital * riskPct) / riskPerUnit;
-  const usableCapital    = capital * (1 - MAINT_MARGIN_RATE); // 유지증거금 제외
-  const maxQty           = (usableCapital * leverage) / entry; // 레버리지 한도
+  // 레버리지 한도 — **증거금에 유지증거금까지 더해도 자본을 넘지 않는** 크기까지다.
+  //   필요 자본 = 명목 × (1/레버리지 + 유지증거금률)
+  //   → 명목 상한 = 자본 × 레버리지 ÷ (1 + 유지증거금률 × 레버리지)
+  // ⚠ 유지증거금률은 **그 심볼의 값**이다 (위 DEFAULT_MAINT_RATE 주석 — 코인마다 40배 차이)
+  const mmr              = Number(maintRate) > 0 ? Number(maintRate) : DEFAULT_MAINT_RATE;
+  const maxQty           = (capital * leverage) / (entry * (1 + mmr * leverage));
   const cappedQty        = Math.min(idealQty, maxQty);
   // ⚠ 자릿수는 step이 정한다. `toFixed(3)` 고정이면 DOGE(step 1)에서 소수가 남고
   //   SOL(step 0.01)에서는 없는 자리가 생긴다

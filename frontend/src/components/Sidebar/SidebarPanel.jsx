@@ -193,7 +193,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     const risk = riskPctFor({ riskPctLong, riskPctShort }, drawing.isLong);
     return calcPosition(balance.availableBalance ?? 0, risk / 100, drawing.entry, drawing.sl, leverage,
                        symbolFilters.step, symbolFilters.minQty, symbolFilters.tick,
-                       symbolFilters.minNotional);
+                       symbolFilters.minNotional, symbolFilters.maintRate);
   };
 
   // 플랜 카드의 `최소` 수량 — **주문 종류마다 기준 가격이 다르다**:

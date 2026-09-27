@@ -50,8 +50,8 @@ export const createOrderSlice = (set, get) => ({
       }
     } catch { /* 조회 실패 시 통과 — 서버에서 최종 차단 */ }
     const capital = balance?.availableBalance ?? 0;
-    const { step, minQty, tick, minNotional } = get().symbolFilters;
-    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional);
+    const { step, minQty, tick, minNotional, maintRate } = get().symbolFilters;
+    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional, maintRate);
     // ⚠ **`최소`는 리스크 계산 결과가 필요 없다** (2026-09-27에 고친 버그). 예전엔 여기서
     //   `if (!posCalc) return;`으로 무조건 멈춰서, 리스크 계산이 실패하는 경우(가용 잔고 0 ·
     //   손절이 진입가에서 한 칸 이내) `최소`를 눌러도 **아무 말 없이 아무 일도 안 일어났다**
@@ -206,8 +206,8 @@ export const createOrderSlice = (set, get) => ({
       : 0;
 
     const capital = (balance?.availableBalance ?? 0) + pendingMargin;
-    const { step, minQty, tick, minNotional } = get().symbolFilters;
-    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional);
+    const { step, minQty, tick, minNotional, maintRate } = get().symbolFilters;
+    const posCalc = calcPosition(capital, riskPct / 100, drawing.entry, drawing.sl, leverage, step, minQty, tick, minNotional, maintRate);
     if (!posCalc) return;
     setDrawing(isLong, prev => prev ? { ...prev, orderId: undefined } : prev);
     const cancelSide = isLongToPosition(drawing.isLong);

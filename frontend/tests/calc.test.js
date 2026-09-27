@@ -30,8 +30,9 @@ test("레버리지 한도를 넘지 않는다", () => {
   const r = calcPosition(10000, 0.05, 50000, 49990, 5);
   assert.equal(r.isLeverageCapped, true);
   assert.ok(r.actualQty < r.idealQty, "레버리지 한도가 안 걸렸다");
-  // 유지증거금 5%를 뺀 자본 × 레버리지 ÷ 진입가가 상한이다
-  const maxQty = (10000 * 0.95 * 5) / 50000;
+  // 증거금 + 유지증거금이 자본을 넘지 않는 크기가 상한이다 (2026-09-27 — 예전엔 자본의 95%)
+  //   명목 상한 = 자본 × 레버리지 ÷ (1 + 유지증거금률 × 레버리지). 유지증거금률을 안 넘기면 0.05
+  const maxQty = (10000 * 5) / (50000 * (1 + 0.05 * 5));
   assert.ok(r.actualQty <= maxQty + QTY_STEP, `${r.actualQty} > 상한 ${maxQty}`);
   // 상한에 걸렸으면 실제 리스크는 계획보다 **작아야** 한다 (크면 위험하다)
   assert.ok(r.actualRiskPct < r.idealRiskPct);
@@ -207,4 +208,36 @@ test("⚠ `calcPosition`의 하한과 **같은 값**이다 (규칙이 한 벌이
   assert.equal(r.actualQty, floor);
   assert.equal(r.isMinCapped, true);
   assert.equal(r.isNotionalCapped, true, "수량이 아니라 금액 때문에 올라간 경우다");
+});
+
+// ── 레버리지 상한은 **그 코인의 유지증거금률**로 잰다 (2026-09-27) ─────────
+// 예전엔 모든 코인에 5%를 썼다. 실제 1구간 값은 0.004(BTC) ~ 0.1667로 40배 넘게 차이 난다
+
+test("유지증거금률이 높은 코인일수록 상한이 **좁아진다**", () => {
+  // 손절이 아주 가까워 레버리지 상한에 걸리게 한다
+  const btc  = calcPosition(10000, 0.05, 100, 99.99, 10, 0.001, 0.001, 0.01, 0, 0.004);
+  const risky = calcPosition(10000, 0.05, 100, 99.99, 10, 0.001, 0.001, 0.01, 0, 0.1667);
+  assert.equal(btc.isLeverageCapped, true);
+  assert.equal(risky.isLeverageCapped, true);
+  assert.ok(risky.actualQty < btc.actualQty,
+    `유지증거금률 16.67% 코인이 0.4% 코인보다 크게 잡혔다 (${risky.actualQty} ≥ ${btc.actualQty})`);
+});
+
+test("상한에서 **증거금 + 유지증거금이 자본을 넘지 않는다**", () => {
+  for (const mmr of [0.004, 0.015, 0.05, 0.1667]) {
+    const r = calcPosition(10000, 0.05, 100, 99.99, 10, 0.001, 0.001, 0.01, 0, mmr);
+    const notional = r.actualQty * 100;
+    const need = notional / 10 + notional * mmr;
+    assert.ok(need <= 10000 + 1, `유지증거금률 ${mmr}: 필요 ${need.toFixed(2)} > 자본 10000`);
+  }
+});
+
+test("유지증거금률을 모르면 보수적 기본값(0.05)을 쓴다", () => {
+  const a = calcPosition(10000, 0.05, 100, 99.99, 10, 0.001, 0.001, 0.01, 0);
+  const b = calcPosition(10000, 0.05, 100, 99.99, 10, 0.001, 0.001, 0.01, 0, 0.05);
+  assert.equal(a.actualQty, b.actualQty);
+  for (const bad of [0, -1, NaN, null]) {
+    const c = calcPosition(10000, 0.05, 100, 99.99, 10, 0.001, 0.001, 0.01, 0, bad);
+    assert.equal(c.actualQty, b.actualQty, `${bad}이면 기본값으로 떨어져야 한다`);
+  }
 });
