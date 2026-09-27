@@ -70,10 +70,16 @@
   .chart-wrap { display: flex; align-items: flex-end; gap: 4px; height: 160px; margin-bottom: 1.5rem; }
   .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; justify-content: flex-end; min-width: 0; }
   .bar-col .bar-val { font-size: 9px; color: #1D9E75; font-weight: 500; text-align: center; word-break: break-all; }
-  .bar-col .bar { width: 100%; border-radius: 3px 3px 0 0; transition: height 0.2s; }
-  .bar-col .bar.pos { background: #5DCAA5; }
-  .bar-col .bar.neg { background: #E05252; border-radius: 0 0 3px 3px; }
-  .bar-col .bar-label { font-size: 10px; color: #888; text-align: center; word-break: break-all; }
+  .bar-col .bar-val.neg { color: #E05252; }
+  /* 막대 하나 = 두 칸 (2026-09-28 사용자 요청). 아래 회색 칸 + 위 칸 하나:
+     이익인 달 — 회색 = 투입 원금, 위 초록 = 누적 수익금 → 막대 전체 = 지금 가치
+     손실인 달 — 회색 = 지금 가치, 위 빨간 빗금 = 잃은 만큼 → 막대 전체 = 투입 원금 */
+  .bar-col .bar { width: 100%; display: flex; flex-direction: column; border-radius: 3px 3px 0 0; overflow: hidden; transition: height 0.2s; }
+  .bar-col .bar .seg-base   { background: #d3d9d6; }
+  .bar-col .bar .seg-profit { background: #5DCAA5; }
+  .bar-col .bar .seg-loss   { background: repeating-linear-gradient(45deg, rgba(224,82,82,0.6) 0 3px, rgba(224,82,82,0.25) 3px 6px); }
+  .bar-col .bar-label { font-size: 10px; color: #888; text-align: center; word-break: keep-all; white-space: nowrap; }
+  .chart-note { font-size: 11px; color: #aaa; text-align: right; margin: -1rem 0 1rem; }
 
   /* 테이블 */
   table { width: 100%; font-size: 13px; border-collapse: collapse; }
@@ -199,6 +205,7 @@
   <!-- 차트 + 테이블 -->
   <div class="card" id="resultsCard" style="display:none">
     <div class="chart-wrap" id="chart"></div>
+    <p class="chart-note" id="chartNote" style="display:none">차트는 최근 12개월 · 전체 기록은 아래 표</p>
     <table>
       <thead>
         <tr id="tableHead">
@@ -529,6 +536,15 @@
     });
   }
 
+  // 막대 아래 글자. 보통은 `03월`이고, **1월과 차트 맨 앞 막대에만 연도**를 붙인다 (`27년 01월`).
+  //   연도가 없으면 해가 바뀐 뒤 2026년 3월과 2027년 3월이 둘 다 `03월`이 된다.
+  //   맨 앞 막대에도 붙이는 이유: 최근 12개월만 그리므로 차트가 1월로 시작하지 않으면
+  //   첫 막대가 몇 년인지 알 길이 없다
+  function barLabel(month, first) {
+    const [y, m] = month.split('-');
+    return (first || m === '01') ? `${y.slice(2)}년 ${m}월` : `${m}월`;
+  }
+
   function render() {
     const s = getSeed();
     const rows = computeRows(s);
@@ -565,22 +581,47 @@
 
     if (!hasRows) return;
 
-    // 차트 — 실현 자산(잔고+누적출금) 기준으로 표시
+    // 차트 — 막대 하나를 **투입 원금**과 **누적 수익금**으로 나눠 그린다 (2026-09-28 사용자 요청).
+    //   지금 가치 = 잔고 + 누적 출금 (effectiveAsset) / 투입 원금 = 시드머니 + 누적 입금 (principal).
+    //   예전엔 지금 가치 하나만 그려서, 입금한 달이 수익처럼 막대가 뛰었다
+    //   (실측: 8월 막대가 두 배 넘게 올랐는데 그 달 수익은 $183, 나머지는 입금 $3,551이었다).
+    //   막대 위 숫자는 누적 수익금이다 — 표의 `누적 수익금` 열과 같은 값이다.
+    // ⚠ 높이는 **0부터** 잰다. 예전처럼 가장 낮은 달~가장 높은 달 사이를 늘려 그리면
+    //   회색과 위 칸의 비율이 실제 금액 비율과 달라진다.
+    //   그래서 원금에 비해 수익이 작으면 초록 칸이 얇다 (예: $6,842 중 $74 = 막대의 1%).
+    //   0이 아닌 칸은 최소 2px로 그린다 — 안 그리면 이익인 달과 본전인 달이 똑같아 보인다
+    // ⚠ 차트에는 **최근 12개월만** 그린다 (2026-09-28 사용자 요청). 표에는 전부 남는다.
+    //   전부 그리면 막대가 달마다 좁아져 2년이면 약 23px — 막대 위 숫자가 두세 줄로 꺾인다.
+    //   높이의 기준(maxTop)도 그린 12개월 안에서 잡는다
+    const CHART_MONTHS = 12;
+    const shown = rows.slice(-CHART_MONTHS);
+    $('chartNote').style.display = rows.length > CHART_MONTHS ? '' : 'none';
     const chart = $('chart');
     chart.innerHTML = '';
-    const effectiveVals = rows.map(r => r.effectiveAsset);
-    const maxVal = Math.max(...effectiveVals);
-    const minVal = Math.min(...effectiveVals);
-    const range = maxVal - minVal || 1;
+    const tops = shown.map(r => Math.max(r.effectiveAsset, r.principal, 0));
+    const maxTop = Math.max(...tops) || 1;
 
-    rows.forEach(r => {
-      const pct = ((r.effectiveAsset - minVal) / range) * 80 + 10;
+    shown.forEach((r, i) => {
+      const top = tops[i];
+      const pct = top / maxTop * 85;
+      const gain = r.cumProfit >= 0;
+      const upper = Math.abs(r.cumProfit);              // 위 칸 금액
+      const base  = gain ? r.principal : r.effectiveAsset; // 회색 칸 금액
+      const upperPct = top > 0 ? upper / top * 100 : 0;
       const col = document.createElement('div');
       col.className = 'bar-col';
+      col.title = `${r.month}
+지금 가치 $${fmt(r.effectiveAsset)}
+투입 원금 $${fmt(r.principal)}
+`
+                + `누적 수익금 ${gain ? '+$' : '-$'}${fmtDec(upper)}`;
       col.innerHTML = `
-        <div class="bar-val">$${fmt(r.effectiveAsset)}</div>
-        <div class="bar pos" style="height:${pct}%"></div>
-        <div class="bar-label">${r.month.slice(5)}월</div>
+        <div class="bar-val${gain ? '' : ' neg'}">${gain ? '+$' : '-$'}${fmt(upper)}</div>
+        <div class="bar" style="height:${pct}%">
+          <div class="${gain ? 'seg-profit' : 'seg-loss'}" style="height:${upperPct}%;${upper > 0 ? 'min-height:2px;' : ''}"></div>
+          <div class="seg-base" style="flex:1;${base > 0 ? '' : 'display:none;'}"></div>
+        </div>
+        <div class="bar-label">${barLabel(r.month, i === 0)}</div>
       `;
       chart.appendChild(col);
     });
@@ -590,6 +631,9 @@
     const hasWithdrawal = rows.some(r => r.withdrawal > 0);
 
     // 테이블
+    // ⚠ 표는 **최신 달이 맨 위**다 (2026-09-28 사용자 요청). 그리는 순서만 뒤집는다 —
+    //   `entries`(저장·계산)는 달 오름차순 그대로다. 수익은 바로 앞 달과 비교해 계산하므로
+    //   entries를 뒤집으면 값이 틀린다. `deleteEntry(i)`의 i도 entries의 자리라 map에서 먼저 받는다
     $('tableBody').innerHTML = rows.map((r, i) => `
       <tr>
         <td>${r.month}${r.auto ? '<span class="auto-tag">자동</span>' : ''}</td>
@@ -602,7 +646,7 @@
         <td class="cumrate ${r.cumProfit >= 0 ? 'pos' : 'neg'}">${r.cumProfit >= 0 ? '+$' : '-$'}${fmtDec(Math.abs(r.cumProfit))}</td>
         <td><button class="btn-del" onclick="deleteEntry(${i})" title="삭제">×</button></td>
       </tr>
-    `).join('');
+    `).reverse().join('');
 
     // 본문 열에 맞춰 헤더도 토글 — **id로 집는다.** 자리(nth-child)로 세면 열이 늘 때 어긋난다
     $('thDeposit').style.display  = hasDeposit    ? '' : 'none';
