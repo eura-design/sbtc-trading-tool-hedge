@@ -1,5 +1,5 @@
 import { useMemo, useCallback, useState, useEffect } from "react";
-import { SIDEBAR_W } from "../../constants";
+import { SIDEBAR_W, API_BASE } from "../../constants";
 import { useTheme }  from "../../ThemeContext";
 import { useHealth } from "../../hooks/useHealth";
 import { useStore }  from "../../store";
@@ -284,8 +284,27 @@ export function SidebarPanel({ lastPrice, onDrawModeToggle }) {
         >
           {/* 리플레이면 같은 자리에 연습 성적을 띄운다 — 실계좌 통계가 섞이면
               어느 쪽 성적인지 알 수 없고, 그 조회는 백엔드를 부른다 */}
-          <span style={{ fontSize:"12px", color:theme.textMuted }}>
+          <span style={{ fontSize:"12px", color:theme.textMuted, display:"flex", alignItems:"center", gap:"6px" }}>
             {replayOn ? "연습 성적" : "거래 통계"}
+            {/* `↗` = 월별 결산 페이지를 새 탭으로 연다 (2026-09-28 사용자 요청).
+                **이 아이콘으로 열 때만** 결산을 거래소에서 새로 채운다 — 주소의 `?sync=1`이 그 표시다.
+                페이지는 그 표시를 읽고 바로 지워서, 복리 계산기 탭을 보고 돌아올 때는 갱신하지 않는다
+                (기타/monthly_tracker.html의 takeSyncFlag).
+                ⚠ 헤더 전체가 접기 버튼이라 `stopPropagation`으로 클릭이 헤더까지 가지 않게 막는다 —
+                  안 막으면 페이지가 열리면서 이 탭도 같이 접히거나 펼쳐진다.
+                ⚠ `<button>` 안이라 `<a>`·`<button>`을 넣지 않는다 (HTML이 허용하지 않는다).
+                연습 중에는 숨긴다 — 결산 페이지는 실계좌 기록이다 */}
+            {!replayOn && (
+              <span
+                role="link"
+                title="월별 결산 열기"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(`${API_BASE}/tools/monthly_tracker.html?sync=1`, "_blank", "noopener");
+                }}
+                style={{ fontSize:"11px", color:theme.textFaint, cursor:"pointer", lineHeight:"1" }}
+              >↗</span>
+            )}
           </span>
           <span style={headerArrow(theme)}>{statsOpen ? "▲" : "▼"}</span>
         </button>

@@ -6,13 +6,21 @@
 <title>복리 수익 계산기</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* 세로 스크롤바 자리를 늘 비워 둔다. 한 페이지만 창보다 길면 그 페이지에서만 스크롤바가 생겨
+     가운데 정렬된 내용이 약 8px 왼쪽으로 밀린다 (Windows 스크롤바 폭 약 17px의 절반) */
+  html { scrollbar-gutter: stable; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f3; min-height: 100vh; display: flex; justify-content: center; padding: calc(48px + 2rem) 1rem 2rem; }
   .container { width: 100%; max-width: 680px; }
   h1 { font-size: 20px; font-weight: 500; margin-bottom: 1.5rem; color: #222; }
   nav { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: #fff; border-bottom: 0.5px solid #e0e0e0; z-index: 100; display: flex; justify-content: center; }
   .nav-inner { width: 100%; max-width: 680px; padding: 0 1rem; display: flex; align-items: center; }
   .nav-logo { font-size: 14px; font-weight: 600; color: #222; margin-right: auto; letter-spacing: -0.2px; }
-  .nav-tab { font-size: 13px; color: #999; padding: 0 14px; height: 48px; display: flex; align-items: center; text-decoration: none; border-bottom: 2px solid transparent; transition: color 0.15s; white-space: nowrap; }
+  /* ⚠ 두 페이지의 <style> 맨 윗줄부터 .card 줄까지는 글자 하나까지 같아야 한다 — 탭을 오갈 때
+     하나라도 다르면 그 차이만큼 화면이 움찔한다. 고칠 때는 두 파일을 같이 고칠 것 */
+  .nav-tab { font-size: 13px; color: #999; padding: 0 14px; height: 48px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; border-bottom: 2px solid transparent; transition: color 0.15s; white-space: nowrap; }
+  /* 선택된 탭만 굵으면 글자 폭이 늘어, 탭을 옮길 때마다 옆 탭이 몇 px 밀린다.
+     굵은 글자의 폭을 보이지 않게 미리 잡아 두어 탭 폭이 늘 같게 한다 */
+  .nav-tab::after { content: attr(data-label); font-weight: 500; height: 0; visibility: hidden; overflow: hidden; }
   .nav-tab:hover { color: #333; }
   .nav-tab.active { color: #1D9E75; border-bottom-color: #1D9E75; font-weight: 500; }
   .card { background: #fff; border-radius: 12px; border: 0.5px solid #e0e0e0; padding: 1.25rem; margin-bottom: 1rem; }
@@ -37,7 +45,7 @@
   .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; justify-content: flex-end; min-width: 0; }
   .bar-col .bar-val { font-size: 9px; color: #1D9E75; font-weight: 500; text-align: center; word-break: break-all; }
   .bar-col .bar { width: 100%; background: #5DCAA5; border-radius: 3px 3px 0 0; transition: height 0.2s; }
-  .bar-col .bar-label { font-size: 10px; color: #888; word-break: break-all; }
+  .bar-col .bar-label { font-size: 10px; color: #888; text-align: center; word-break: break-all; }
   table { width: 100%; font-size: 13px; border-collapse: collapse; }
   thead tr { border-bottom: 1px solid #e0e0e0; }
   th { padding: 8px; font-weight: 500; color: #888; }
@@ -56,8 +64,8 @@
 <nav>
   <div class="nav-inner">
     <span class="nav-logo">수익률 트래커</span>
-    <a class="nav-tab active" href="compound_calculator.html">복리 계산기</a>
-    <a class="nav-tab" href="monthly_tracker.html">월별 결산</a>
+    <a class="nav-tab active" href="compound_calculator.html" data-label="복리 계산기">복리 계산기</a>
+    <a class="nav-tab" href="monthly_tracker.html" data-label="월별 결산">월별 결산</a>
   </div>
 </nav>
 <div class="container">

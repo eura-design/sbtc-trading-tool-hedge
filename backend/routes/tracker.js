@@ -8,6 +8,18 @@ router.get("/", (req, res) => {
   res.json(store.load());
 });
 
+// 거래소에서 income·잔고를 받아 결산을 **지금** 채운다. 사이드바 `↗`로 결산 페이지를 열 때만
+// 페이지가 부른다 (2026-09-28 사용자 요청 — 1시간 주기 대신). 결과는 `syncTracker()`가 돌려준 그대로다:
+// `{ ok, added, updated, kept, skipped }` / 실패면 `{ ok: false, reason }`.
+//   ⚠ 실패해도 200이다 — 파일에 있던 값은 멀쩡하므로 페이지는 그 값을 그대로 보여주면 된다.
+//     `ok`를 보고 "새로 받지 못했다"는 줄만 띄운다
+//   ※ `trackerAuto`를 여기서 불러오는 이유: 파일 맨 위에서 불러오면 이 라우트를 시험할 때
+//     거래소 클라이언트(`binanceClient`)까지 딸려 올라온다
+router.post("/sync", async (req, res) => {
+  const { syncTracker } = require("../services/trackerAuto");
+  res.json(await syncTracker());
+});
+
 router.post("/", (req, res) => {
   const { seed, entries, autoSkip } = req.body || {};
 

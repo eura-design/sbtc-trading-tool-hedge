@@ -4,14 +4,14 @@
 //   node backend/tools/trackerSync.js          실제로 채운다
 //   node backend/tools/trackerSync.js --dry    무엇이 들어갈지 보여주기만 한다 (파일 안 건드림)
 //
-// 백엔드가 시작할 때와 1시간마다 같은 일을 한다 (`services/trackerAuto.js`). 이 도구는
-// **백엔드를 재시작하지 않고** 지금 채우고 싶을 때, 그리고 `--dry`로 결과를 먼저 보고
+// 사이드바 `↗`로 결산 페이지를 열 때 같은 일을 한다 (`POST /api/tracker/sync` → `services/trackerAuto.js`).
+// 이 도구는 **`↗` 없이** 지금 채우고 싶을 때, 그리고 `--dry`로 결과를 먼저 보고
 // 싶을 때 쓴다. `tools/logq.js`·`tools/backup.js`와 같은 자리다.
 
 require("dotenv").config({ quiet: true });
 
 const store = require("../store/trackerStore");
-const { syncTracker } = require("../services/trackerAuto");
+const { syncTracker, fetchAllIncome } = require("../services/trackerAuto");
 const { binance } = require("../services/binanceClient");
 const {
   localMonth, groupByMonth, withMonthEndBalance, toEntries, mergeAuto,
@@ -24,17 +24,10 @@ const num = n => n.toFixed(2).padStart(10);
 async function preview() {
   // ⚠ 미리보기는 **늘 전 기간**을 받아온다 — 표 전체를 보여주는 것이 목적이다.
   //   실제 실행(syncTracker)은 필요한 달부터만 받아온다
-  const out = [];
-  let from = FIRST_TRADE_MS;
-  for (let p = 0; p < 40; p++) {
-    const { data } = await binance("GET", "/fapi/v1/income", { startTime: from, limit: 1000 });
-    if (!Array.isArray(data) || !data.length) break;
-    out.push(...data);
-    if (data.length < 1000) break;
-    const last = Math.max(...data.map(r => Number(r.time)));
-    if (last <= from) break;
-    from = last + 1;
-  }
+  // ⚠ 페이지를 넘기는 규칙은 `utils/incomePages.js` 하나다 — 실제 실행과 같은 함수를 쓴다.
+  //   예전엔 여기만 "마지막 시각 + 1ms"로 따로 받아, 같은 시각에 몰린 펀딩비가 1000건 경계에
+  //   걸리면 미리보기에서만 빠질 수 있었다 (2026-09-28에 고쳤다)
+  const out = await fetchAllIncome(FIRST_TRADE_MS);
   const { data: bal } = await binance("GET", "/fapi/v2/balance", {});
   const usdt = bal.find(x => x.asset === "USDT");
   const balance = parseFloat(usdt.balance);

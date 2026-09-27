@@ -67,7 +67,7 @@ routes/
   dailyloss.js             GET  /api/daily-loss (표시 전용 — 주문을 막지 않는다)
   health.js                GET  /api/health (서버 상태 + UDS·계정감시 상태)
   symbols.js               GET  /api/symbols (거래 가능 USDT 무기한 + 호가·수량 단위)
-  tracker.js               GET/POST /api/tracker (월별 결산 페이지용)
+  tracker.js               GET/POST /api/tracker (월별 결산 페이지용) + POST /api/tracker/sync (지금 채우기)
   backup.js                POST /api/backup (브라우저 저장소 백업 수신)
   log.js                   POST /api/log (프론트 이벤트 수집, kind:"client")
 services/
@@ -82,7 +82,7 @@ services/
   statsCache.js            /api/stats 캐시 상태 공유
   accountSnapshot.js       watchAccount의 **마지막 계정 관측**을 담는다 (`GET /api/positions`용)
                            ⚠ 회차를 다 본 뒤에만 담고, 낡아도 지우지 않는다
-  trackerAuto.js           월별 결산을 **자동으로** 채운다 (시작 20초 후 + 1시간마다)
+  trackerAuto.js           월별 결산을 **자동으로** 채운다 — 사이드바 `↗`로 결산 페이지를 열 때만 (`POST /api/tracker/sync`)
                            income + 지갑 잔고 → 월말잔고·입금·출금. 계산은 utils/trackerMonths.js
 store/
   logStore.js              로그 한 벌 — logs/<날짜>.jsonl (구조화 이벤트 + 콘솔 캡처)
@@ -266,10 +266,19 @@ replay/                    리플레이 트레이딩
       이 페이지는 입력 자체를 막는다** — 사본이 있으면 백엔드가 꺼진 채로 넣은 달이
       다시 켤 때 조용히 사라진다
   - 권장 경로: `http://localhost:3002/tools/monthly_tracker.html` (동일 출처라 CORS가 안 낀다)
+  - 사이드바 `거래 통계` 헤더의 `↗`가 이 주소를 `?sync=1`을 붙여 새 탭으로 연다 (2026-09-28, `SidebarPanel.jsx`).
+    ⚠ 헤더 전체가 접기 버튼이라 `↗`는 `stopPropagation`으로 클릭을 막는다. 연습 중에는 숨긴다
   - ⚠ `기타/tracker_data.json`은 **.gitignore에 있다** — 실제 금액이라 저장소에 올리지 않는다
 
 ### 월별 결산 자동 기록 (2026-09-26 사용자 요청: "완전 자동으로")
-`services/trackerAuto.js`가 시작 20초 후 + **1시간마다** `기타/tracker_data.json`을 채운다.
+`services/trackerAuto.js`가 **사이드바 `거래 통계`의 `↗`로 결산 페이지를 열 때만** `기타/tracker_data.json`을 채운다
+(주소의 `?sync=1`을 보고 페이지가 `POST /api/tracker/sync`를 부른다. 2026-09-28 사용자 요청 — 그전엔 시작 20초 후 + 1시간마다였다).
+⚠ **상단 탭으로 오가거나 새로고침할 때는 갱신하지 않는다** (사용자가 정했다 — 복리 계산기를 보고 돌아올 때마다
+갱신되는 게 싫다). 페이지가 `?sync=1`을 읽자마자 주소에서 지운다 (`takeSyncFlag`).
+⚠ **백엔드는 스스로 채우지 않는다** — `↗`를 안 누르면 파일은 그대로다. 오래 안 열어도 값은 잃지 않는다:
+이번 달 줄이 없으면 전 기간을 다시 받아 모든 달을 다시 계산한다 (`earliestNeededMonth`).
+페이지는 파일 값을 **먼저** 그리고, 갱신이 끝나 바뀐 것이 있을 때만 다시 그린다. 갱신에 실패하면
+"거래소에서 새로 받지 못했습니다" 줄이 뜬다. 겹쳐 부르면 도는 중인 실행의 결과를 같이 받는다.
 재료는 `/fapi/v1/income`(종류 필터 없음)과 `/fapi/v2/balance`뿐이고, 계산은 전부
 `utils/trackerMonths.js`(순수 함수)에 있다. 손으로 채우려면 `node backend/tools/trackerSync.js`
 (`--dry`면 무엇이 들어갈지 보여주기만 한다).
@@ -300,7 +309,7 @@ replay/                    리플레이 트레이딩
   `store/trackerStore.js`에 "결산 기록은 손으로 넣은 값이라 다시 만들 수 없다"고 적혀 있다
 - `auto: true`면 **갱신한다** — 이번 달은 아직 안 끝나서 잔고가 바뀐다. 갱신 안 하면 첫 값에 굳는다
 - `autoSkip`에 적힌 달은 **넣지 않는다.** 자동 줄을 `×`로 지우면 그 달이 여기 들어간다.
-  ⚠ 이게 없으면 지운 줄이 1시간 뒤 되살아나 **지울 방법이 없어진다**
+  ⚠ 이게 없으면 지운 줄이 다음에 `↗`로 열 때 되살아나 **지울 방법이 없어진다**
 
 검산: `tests/trackerMonths.test.js` (역산이 맞는가 · 손으로 넣은 줄을 지키는가 ·
 지운 달이 되살아나지 않는가)
@@ -318,10 +327,12 @@ replay/                    리플레이 트레이딩
   `tranId + incomeType`으로 겹침을 버린다.** 한 시각이 페이지를 통째로 채우면 +1ms 넘어간다
   (안 넘어가면 같은 페이지만 되풀이해 그 뒤를 못 받는다 — 테스트가 잡았다)
 - 이번 달 자동 줄을 지웠으면(autoSkip) **전 기간을 다시 받지 않는다** — 예전엔 그 달 내내
-  매시간 전 기간을 긁었다
+  매시간 전 기간을 긁었다 (지금은 `↗`를 누를 때마다)
 - 검산: `tests/trackerAuto.test.js`(가짜 저장소 — **진짜 결산 파일을 건드리지 않는다**) ·
   `tests/incomePages.test.js`
-- `기타/compound_calculator.html` — 복리 계산기 (독립 페이지)
+- `기타/compound_calculator.html` — 복리 계산기 (독립 페이지, 백엔드를 부르지 않는다)
+  - 월별 결산과 **상단 탭으로 오간다.** 두 파일의 `<style>` 맨 윗줄부터 `.card` 줄까지는
+    **글자 하나까지 같아야 한다** — 다르면 탭을 옮길 때 그 차이만큼 화면이 움찔한다 (2026-09-28)
 - `MULTI_ACCOUNT.md` — **서브계정까지 두 계정을 같이 돌리는 작업 목록** (2026-09-26 작성, 아직 착수 안 함).
   고칠 파일·줄과 결정이 안 된 것 셋이 적혀 있다. 멀티계정 이야기가 나오면 먼저 읽을 것
 - ※ `git stash`는 **비어 있는 것이 정상이다.** 2026-08-23에 치워둔 뭉치(파일 9개·201줄)가

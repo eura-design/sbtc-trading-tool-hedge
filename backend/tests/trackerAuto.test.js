@@ -130,3 +130,50 @@ test("⚠ 저장할 때 **달 순서로 정렬한다** — 앞선 달을 뒤늦�
     unplant(ids);
   }
 });
+
+// ── 결산 페이지를 열 때 채우기 (2026-09-28 — 1시간 주기 대신) ──────────────
+test("겹쳐 부르면 **도는 중인 실행의 결과를 같이 받는다** — 두 번째가 실패로 보이지 않는다", async () => {
+  const st = fakeStore([{ seed: 100, entries: [{ month: CUR, asset: 900, deposit: 0, withdrawal: 0, auto: true }], autoSkip: [] }]);
+  const { mod, done } = await loadTrackerAuto({
+    store: st.mod, balance: 1000,
+    income: [{ tranId: 1, time: Date.now(), incomeType: "REALIZED_PNL", income: "10" }],
+  });
+  try {
+    const [a, b] = await Promise.all([mod.syncTracker(), mod.syncTracker()]);
+    assert.equal(a.ok, true);
+    assert.deepEqual(b, a, "두 번째 호출이 already-running 실패를 받으면 결산 페이지에 경고가 뜬다");
+    assert.equal(st.saved.length, 1, "거래소 조회·저장은 한 번만 일어나야 한다");
+    const c = await mod.syncTracker();
+    assert.equal(c.ok, true, "끝난 뒤에는 새로 돌아야 한다 (가드가 풀렸는가)");
+  } finally { done(); }
+});
+
+test("POST /sync — syncTracker의 결과를 그대로 돌려준다 (실패여도 200)", async () => {
+  let result = { ok: true, added: 1, updated: 0, kept: 0, skipped: 0 };
+  const ids = [
+    plant("store/trackerStore.js", fakeStore([{ seed: 1, entries: [], autoSkip: [] }]).mod),
+    plant("store/logStore.js", { log: () => {}, errOf: () => ({}) }),
+    plant("services/trackerAuto.js", { syncTracker: async () => result }),
+  ];
+  const routeId = R("routes/tracker.js");
+  delete require.cache[routeId];
+  const app = express();
+  app.use(express.json());
+  app.use("/", require(routeId));
+  const server = await new Promise(r => { const s = app.listen(0, "127.0.0.1", () => r(s)); });
+  const url = `http://127.0.0.1:${server.address().port}/sync`;
+  try {
+    let res = await fetch(url, { method: "POST" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), result);
+    result = { ok: false, reason: "error" };
+    res = await fetch(url, { method: "POST" });
+    assert.equal(res.status, 200, "파일 값은 멀쩡하므로 페이지는 ok만 보고 경고 줄을 띄운다");
+    assert.deepEqual(await res.json(), result);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise(r => server.close(r));
+    delete require.cache[routeId];
+    unplant(ids);
+  }
+});

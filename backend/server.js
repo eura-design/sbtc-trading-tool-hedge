@@ -17,7 +17,6 @@ const { stop: stopWatcher }      = require("./services/orderWatcher");
 const { syncServerTime, loadMaintRates } = require("./services/binanceClient");
 const incomeLogger               = require("./services/incomeLogger");
 const dailySummary               = require("./services/dailySummary");
-const trackerAuto                = require("./services/trackerAuto");
 const backupStore                = require("./store/backupStore");
 const store                      = require("./store/pendingOrders");
 const push                       = require("./services/pushService");
@@ -188,10 +187,8 @@ let server = null;
       incomeLogger.start();
       // 하루가 끝나면 그날치를 한 줄로 요약한다 — "지난달 어땠어?"에 30줄만 읽고 답하기 위해
       dailySummary.start();
-      // 월별 결산(기타/tracker_data.json)을 자동으로 채운다 — 시작 20초 후 + 1시간마다
-      // (2026-09-26 사용자 요청: "완전 자동으로"). income에서 월말 잔고·입금·출금을 만든다.
-      // ⚠ 손으로 넣은 줄은 덮어쓰지 않고, 시드머니는 건드리지 않는다
-      trackerAuto.start();
+      // ※ 월별 결산(기타/tracker_data.json)은 여기서 시작하지 않는다 — 결산 페이지가 열릴 때
+      //   `POST /api/tracker/sync`로 채운다 (2026-09-28, services/trackerAuto.js 머리말)
     }
     // 백업 — **API 키와 무관하게** 시작한다. 매매 기능이 아니라 "지워져도 되살리기"용이라
     // 키가 없는 환경(설정 전, 다른 PC)에서도 도형·설정은 지켜져야 한다
@@ -215,7 +212,6 @@ async function shutdown() {
   stopWatcher();
   incomeLogger.stop();
   dailySummary.stop();
-  trackerAuto.stop();
   // 끄기 직전 상태를 한 번 더 남긴다 — 마지막 몇 시간이 통째로 비는 것을 막는다
   backupStore.writeSnapshot();
   backupStore.stop();

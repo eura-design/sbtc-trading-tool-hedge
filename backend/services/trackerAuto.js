@@ -1,5 +1,14 @@
 // 월별 결산을 **자동으로 채운다** (2026-09-26 사용자 요청: "완전 자동으로")
 //
+// ── 언제 도나 ───────────────────────────────────────────────────────────────
+// **사이드바 `거래 통계`의 `↗`로 결산 페이지를 열 때** 한 번 돈다 — 페이지가 주소의 `?sync=1`을
+// 보고 `POST /api/tracker/sync`를 부른다 (2026-09-28 사용자 요청). 예전엔 시작 20초 후 +
+// 1시간마다 돌았다. 상단 탭으로 오가거나 새로고침할 때는 돌지 않는다 (사용자가 정했다).
+//   ※ 오래 안 열어도 값을 잃지 않는다: 이번 달 줄이 없으면 `earliestNeededMonth`가
+//     전 기간을 다시 받아 **모든 달의 월말 잔고를 다시 계산한다.**
+//   ⚠ 백엔드가 알아서 채우지 않는다. `↗`를 안 누르면 `tracker_data.json`은 그대로다.
+//     `↗` 없이 채우려면 `node backend/tools/trackerSync.js`를 실행한다
+//
 // 계산 규칙은 전부 `utils/trackerMonths.js`에 있다 — 여기는 거래소에서 받아와 넘기고,
 // 결과를 `store/trackerStore`에 쓰는 일만 한다. 그렇게 나눈 이유는 돈이 걸린 계산을
 // `tests/trackerMonths.test.js`가 거래소 없이 검산할 수 있어야 해서다.
@@ -38,10 +47,13 @@ const FIRST_TRADE_MS = 1567900800000;
 const MAX_LIMIT = 1000;   // income 한 번 조회 상한 (routes/stats.js와 같은 값)
 const MAX_PAGES = 40;
 
-// 겹침 방지 — 시작 직후와 1시간 타이머가 같이 떨어질 수 있다.
+// 겹침 방지 — `↗`를 빠르게 두 번 누르면 두 번 불린다.
+// 도는 중에 또 불리면 새로 돌지 않고 **도는 중인 실행의 결과를 같이 받는다.**
+//   예전엔 `{ ok: false, reason: "already-running" }`을 돌려줬는데, 페이지가 그걸 실패로 읽으면
+//   멀쩡히 채워지는 중인데도 "새로 받지 못했다"는 줄이 뜬다.
 // ⚠ 이 가드가 안전한 것은 `binanceClient`에 10초 요청 제한이 있기 때문이다
-//   (`REQUEST_TIMEOUT_MS`). 그게 없으면 응답이 안 올 때 이 플래그가 true로 남는다
-let running = false;
+//   (`REQUEST_TIMEOUT_MS`). 그게 없으면 응답이 안 올 때 이 Promise가 끝나지 않는다
+let running = null;
 
 /**
  * income을 끝까지 받아 온다.
@@ -93,13 +105,16 @@ function earliestNeededMonth(entries, nowMs, autoSkip = []) {
 
 /**
  * 한 번 실행. 실패해도 던지지 않는다 — 결산표는 없어도 매매에 영향이 없고,
- * 주기적으로 도는 일이라 다음 회차에 다시 시도하면 된다.
+ * 다음에 `↗`를 누를 때 다시 시도하면 된다.
  *
  * @returns `{ ok, added, updated, kept, skipped }` (실패 시 `{ ok: false, reason }`)
  */
-async function syncTracker() {
-  if (running) return { ok: false, reason: "already-running" };
-  running = true;
+function syncTracker() {
+  if (!running) running = runOnce().finally(() => { running = null; });
+  return running;
+}
+
+async function runOnce() {
   try {
     const now   = Date.now();
     const saved = store.load();
@@ -139,31 +154,7 @@ async function syncTracker() {
   } catch (e) {
     log("TRACKER_SYNC_FAILED", { level: "warn", what: "income", err: errOf(e) });
     return { ok: false, reason: "error" };
-  } finally {
-    running = false;
   }
 }
 
-const SYNC_INTERVAL = 60 * 60 * 1000;   // 1시간
-let timer = null;
-
-/**
- * 시작 시 한 번 + 1시간마다.
- *
- * ⚠ 1시간인 이유: 확정된 달은 값이 변하지 않고, 이번 달은 잔고가 시시각각 바뀌지만
- *   **월별 결산표에 시시각각의 잔고가 필요하지 않다.** 더 자주 돌리면 income 조회
- *   가중치(30)만 쓴다. 더 드물게 두면 달이 바뀌는 순간을 며칠 놓친다.
- * ※ 첫 실행을 20초 늦추는 것은 부팅 직후 `symbolInfo`·복구가 거래소를 부르는 구간을
- *   피하려는 것이다 (`orderWatcher`가 같은 이유로 늦춘다).
- */
-function start() {
-  if (timer) return;
-  setTimeout(() => { syncTracker(); }, 20_000);
-  timer = setInterval(() => { syncTracker(); }, SYNC_INTERVAL);
-}
-
-function stop() {
-  if (timer) { clearInterval(timer); timer = null; }
-}
-
-module.exports = { syncTracker, start, stop, earliestNeededMonth, fetchAllIncome };
+module.exports = { syncTracker, earliestNeededMonth, fetchAllIncome };
