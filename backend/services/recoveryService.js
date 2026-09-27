@@ -5,6 +5,7 @@ const store = require("../store/pendingOrders");
 const { startUserDataStream } = require("./orderWatcher");
 const { closeToPosition } = require("../utils/side");
 const { log, errOf } = require("../store/logStore");
+const { isOpen, openRow } = require("../utils/position");
 
 async function recoverPendingOrders() {
   // store.load()는 모듈 로드 시점에 호출됨 (pendingOrders.js 모듈 레벨)
@@ -123,9 +124,7 @@ async function recoverPendingOrders() {
           const orderPosSide = closeToPosition(info.closeSide);
           // 헷지모드: 주문 사이드와 매칭되는 포지션이 있어야만 TP/SL 등록 시도
           // (반대쪽만 열려있을 때 잘못된 사이드로 placeTPSL 호출하면 5회 재시도 = 31초 낭비)
-          const pos = posData.find(p =>
-            p.positionSide === orderPosSide && parseFloat(p.positionAmt) !== 0
-          );
+          const pos = openRow(posData, orderPosSide);
 
           if (pos) {
             // TP·SL 둘 다 있을 때만 완료로 본다 (한쪽만 있으면 placeTPSL이 양쪽 다시 건다)
@@ -168,7 +167,7 @@ async function recoverPendingOrders() {
     //   `symbol`·`positionSide`·`positionAmt`·`entryPrice`만 쓴다
     const posAllRes = await binance("GET", "/fapi/v3/positionRisk", {});
     const openPositions = (Array.isArray(posAllRes.data) ? posAllRes.data : [])
-      .filter(p => parseFloat(p.positionAmt) !== 0);
+      .filter(isOpen);
     const usedRecoverIds = new Set();
 
     // 심볼별 후보 목록 — `pickRecoverable`은 import가 없어서 심볼을 못 본다.

@@ -4,6 +4,7 @@ const store   = require("../store/pendingOrders");
 const { isLiveLimit, limitKind } = require("../utils/orderKind");
 const { log, errOf } = require("../store/logStore");
 const symbolInfo = require("../services/symbolInfo");
+const { hasOpen } = require("../utils/position");
 const router  = express.Router();
 
 // DELETE /api/orders — 바이낸스 미체결 LIMIT 진입 주문 취소 (source of truth: Binance)
@@ -38,8 +39,8 @@ router.delete("/", async (req, res) => {
     if (ooRes.status !== "fulfilled") throw ooRes.reason;
     const openOrders = ooRes.value.data;
     const hasPosFor = posRes.status === "fulfilled" ? {
-      LONG:  posRes.value.data.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0),
-      SHORT: posRes.value.data.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0),
+      LONG:  hasOpen(posRes.value.data, "LONG"),
+      SHORT: hasOpen(posRes.value.data, "SHORT"),
     } : null;
     if (!hasPosFor) {
       const why = posRes.reason?.response?.data?.msg || posRes.reason?.message;

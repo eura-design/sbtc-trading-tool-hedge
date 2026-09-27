@@ -6,6 +6,7 @@ const { resolveEntryInfo } = require("../services/entryTime");
 const { isLiveLimit, limitKind } = require("../utils/orderKind");
 const { log, errOf } = require("../store/logStore");
 const symbolInfo = require("../services/symbolInfo");
+const { openRow } = require("../utils/position");
 const router  = express.Router();
 
 router.get("/", async (req, res) => {
@@ -21,8 +22,8 @@ router.get("/", async (req, res) => {
     ]);
 
     // 헷지모드: LONG / SHORT 각각 분리
-    const longPos  = posData.find(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0);
-    const shortPos = posData.find(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0);
+    const longPos  = openRow(posData, "LONG");
+    const shortPos = openRow(posData, "SHORT");
 
     const makePos = p => !p ? null : {
       size:             Math.abs(parseFloat(p.positionAmt)),

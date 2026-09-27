@@ -8,6 +8,7 @@ const { verifyImmediateFill, raiseSlMissing } = require("../services/orderWatche
 const push     = require("../services/pushService");
 const symbolInfo = require("../services/symbolInfo");
 const { log, errOf } = require("../store/logStore");
+const { hasOpen } = require("../utils/position");
 
 const router  = express.Router();
 
@@ -31,9 +32,7 @@ router.post("/", validateOrder, async (req, res) => {
     if (leverage) {
       const { data: posCheck } = await binance("GET", "/fapi/v2/positionRisk", { symbol });
       const oppositeSide = positionSide === "LONG" ? "SHORT" : "LONG";
-      const hasOppositePos = posCheck.some(p =>
-        p.positionSide === oppositeSide && parseFloat(p.positionAmt) !== 0
-      );
+      const hasOppositePos = hasOpen(posCheck, oppositeSide);
       if (hasOppositePos) {
         log("LEVERAGE_SKIPPED", { requested: leverage, oppositeSide });
       } else {

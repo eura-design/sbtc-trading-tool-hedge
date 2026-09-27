@@ -7,6 +7,7 @@ const { markSlRemoved, isSlRemoved } = require("../store/entryRecords");
 const symbolInfo     = require("./symbolInfo");
 const { parseBigInt } = require("../utils/bigIntJson");
 const { goneSides }   = require("../utils/positionDiff");
+const { isOpen, hasOpen } = require("../utils/position");
 const slAlerts        = require("../utils/slAlerts");
 const push           = require("./pushService");
 const { log, errOf } = require("../store/logStore");
@@ -457,8 +458,8 @@ async function runReconcile() {
       view.set(sym, {
         openOrders: r.data,
         openIds:    new Set(r.data.map(o => String(o.orderId))),
-        hasLong:    pos.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0),
-        hasShort:   pos.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0),
+        hasLong:    hasOpen(pos, "LONG"),
+        hasShort:   hasOpen(pos, "SHORT"),
       });
     }));
     /** 그 심볼을 이번 회차에 믿을 수 있는가. `null`이면 **손대지 않는다** */
@@ -482,8 +483,7 @@ async function runReconcile() {
         o.status === "TPSL_PLACED" || o.status === "TPSL_PARTIAL" || o.status === "FILLED"
       );
       // 기본 심볼의 포지션에서 — 위 v3 응답은 열린 포지션만 담고 있다
-      const posUpdateTime = allPositions?.find(p => p.symbol === RSYM
-        && parseFloat(p.positionAmt) !== 0)?.updateTime;
+      const posUpdateTime = allPositions?.find(p => p.symbol === RSYM && isOpen(p))?.updateTime;
       currentEntryFilledAt = storeEntry?.[1]?.filledAt
         || (posUpdateTime ? parseInt(posUpdateTime) : Date.now() - 24 * 60 * 60 * 1000);
       // ⚠ **서버 시작 직후와 진짜 새 진입을 구분해서 찍는다** (2026-08-23).
@@ -833,7 +833,7 @@ const acct = { polls: 0, changes: 0, lastChangeAt: null, lastOkAt: null, failStr
 //   주문이 상쇄돼 "변화 없음"으로 읽힐 수 있다
 function accountSignature(groups) {
   return groups.map(g => {
-    const p = g.positions.filter(x => parseFloat(x.positionAmt) !== 0)
+    const p = g.positions.filter(isOpen)
       .map(x => x.positionSide + ":" + x.positionAmt + ":" + x.entryPrice).sort().join("|");
     const o = g.orders
       .map(x => x.orderId + ":" + x.type + ":" + x.price + ":" + x.stopPrice + ":" + x.origQty + ":" + x.executedQty + ":" + x.status)
@@ -858,7 +858,7 @@ function logAccountState(posData, ordData, algos, ctx) {
     //   대신 `notional`을 남긴다(있으면) — 상태 재구성에는 그쪽이 오히려 쓸모 있다.
     //   레버리지가 필요하면 `/api/position`(v2, 심볼 지정)이 준다
     const positions = posData
-      .filter(p => parseFloat(p.positionAmt) !== 0)
+      .filter(isOpen)
       .map(p => ({ symbol: p.symbol, posSide: p.positionSide,
                    qty: Math.abs(parseFloat(p.positionAmt)),
                    entry: parseFloat(p.entryPrice),
@@ -888,7 +888,7 @@ function logAccountState(posData, ordData, algos, ctx) {
 function watchedSymbols(positions) {
   const out = new Set([symbolInfo.DEFAULT_SYMBOL]);
   for (const p of positions) {
-    if (parseFloat(p.positionAmt) !== 0) out.add(p.symbol);
+    if (isOpen(p)) out.add(p.symbol);
   }
   // 아직 포지션이 없는 심볼도 봐야 우리 지정가의 체결을 잡는다.
   // (store에 symbol이 없는 낡은 기록은 기본 심볼로 읽는다 — 2b-2 전까지는 전부 그렇다)
@@ -986,8 +986,8 @@ async function runWatchAccount() {
     const sig       = accountSignature(perSymbol);
     // 심볼별 { long, short } — 사라짐 감지는 **심볼마다** 해야 한다
     const sides = new Map(perSymbol.map(g => [g.symbol, {
-      long:  g.positions.some(p => p.positionSide === "LONG"  && parseFloat(p.positionAmt) > 0),
-      short: g.positions.some(p => p.positionSide === "SHORT" && parseFloat(p.positionAmt) < 0),
+      long:  hasOpen(g.positions, "LONG"),
+      short: hasOpen(g.positions, "SHORT"),
     }]));
 
     if (lastAccountSig === null) {

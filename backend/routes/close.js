@@ -6,6 +6,7 @@ const push    = require("../services/pushService");
 const { log, errOf } = require("../store/logStore");
 const { positionToClose } = require("../utils/side");
 const { rescaleSplitTps } = require("../utils/splitTp");
+const { openRow } = require("../utils/position");
 const { isLiveLimit, isEntryDir, isCloseDir, TPSL_TYPES,
   isFullClose, orderQtyOf } = require("../utils/orderKind");
 const router  = express.Router();
@@ -74,7 +75,7 @@ router.post("/", async (req, res) => {
       //   같은 정렬이라 여기서 맞춰야 실거래·연습·화면이 전부 같은 항목을 가리킨다
       splitTpOrders.sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
       // 해당 사이드의 포지션 크기를 기준으로 비율 계산
-      const pos = posData.find(p => p.positionSide === side && parseFloat(p.positionAmt) !== 0);
+      const pos = openRow(posData, side);
       originalSize = pos ? Math.abs(parseFloat(pos.positionAmt)) : 0;
 
       // ── 분할 SL 목록 (2026-08-24) — **여기서 취소하지 않는다.** 아래 3-2) 참고 ──

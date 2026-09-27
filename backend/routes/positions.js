@@ -18,6 +18,7 @@ const store = require("../store/pendingOrders");
 const accountSnapshot = require("../services/accountSnapshot");
 const symbolInfo = require("../services/symbolInfo");
 const { presetTpslIds, buildTpslView } = require("../utils/tpslView");
+const { openRow } = require("../utils/position");
 const router = express.Router();
 
 // 하늘색 카드가 읽는 일곱 줄의 재료. `routes/position.js`의 `makePos`와 **같은 필드명**이어야
@@ -73,7 +74,7 @@ router.get("/", (req, res) => {
     //   다른 심볼의 기록을 지울 수 없다
     const view = buildTpslView(g.orders, g.algos, { presetIds, pctOf });
     for (const [side, key] of [["LONG", "long"], ["SHORT", "short"]]) {
-      const p = g.positions.find(x => x.positionSide === side && parseFloat(x.positionAmt) !== 0);
+      const p = openRow(g.positions, side);
       if (!p) continue;
       items.push({ symbol: g.symbol, side, posData: makePos(p), tpsl: view[key],
                    rules: rulesOf(g.symbol) });
