@@ -35,6 +35,33 @@ function refresh(get, { pos = false, tpsl = false, bal = false } = {}) {
   Promise.resolve(s._refetchPos?.()).finally(() => { if (tpsl) get()._refetchTpsl?.(); });
 }
 
+// ── 단순한 주문 액션의 틀 (2026-09-27) ──────────────────────────────────────
+//
+// "상태 지우기 → 호출 → 성공 문구 → 다시 읽기 / 실패 문구" 다섯 줄을 액션마다 손으로
+// 적던 것을 모았다. **그 틀에 딱 맞는 액션만** 쓴다 — 진입·드래그·2단계 이동처럼
+// 흐름이 특별한 액션은 그대로 둔다 (억지로 끼우면 오히려 읽기 어렵다).
+//
+// @param call  거래소로 가는 요청 (`() => api(...)`)
+// @param ok    성공 문구
+// @param fail  실패 문구의 앞머리 — `${fail}: ${거래소가 말한 이유}`
+//   ⚠ **무엇이 실패했는지 밝힌다** (cancelScaleIn 주석) — 액션마다 다르게 준다
+// @param after 성공 뒤 다시 읽을 것 (`refresh`의 인자)
+// @returns 성공하면 true — 부르는 쪽(`placeSplitOrders`)이 이 값으로 "몇 개 나갔나"를 센다.
+//   ⚠ 실패는 **던지지 않는다** (안에서 배너로 처리한다). try/catch로는 못 잡는다
+async function run(get, { call, ok, fail, after }) {
+  const { setOrderStatus } = get();
+  setOrderStatus(null);
+  try {
+    await call();
+    setOrderStatus({ type: "success", msg: ok });
+    if (after) refresh(get, after);
+    return true;
+  } catch (e) {
+    setOrderStatus({ type: "error", msg: `${fail}: ${e.message}` });
+    return false;
+  }
+}
+
 export const createOrderSlice = (set, get) => ({
 
   // ⚠ 플랜 박스가 롱·숏 둘이라 **어느 박스인지**를 인자로 받는다 (2026-08-19).
@@ -266,38 +293,29 @@ export const createOrderSlice = (set, get) => ({
   //     정확히 이 함정이다
   scaleIn: async (side, orderType, price, quantity) => {
     if (get().replayOn) return paperActions.scaleIn(get, side, orderType, price, quantity);
-    const { setOrderStatus } = get();
-    setOrderStatus(null);
-    try {
-      await api("POST", "/api/scale-in", { side: positionToSide(side), orderType, price, quantity });
-      const msg = orderType === "MARKET"
+    return run(get, {
+      call: () => api("POST", "/api/scale-in", { side: positionToSide(side), orderType, price, quantity }),
+      ok: orderType === "MARKET"
         ? "시장가 추가 진입 완료"
-        : `지정가 추가 진입 등록 완료 ($${price?.toLocaleString()})`;
-      setOrderStatus({ type: "success", msg });
-      refresh(get, { pos: true });
-      return true;
-    } catch (e) {
-      setOrderStatus({ type: "error", msg: `추가 진입 실패: ${e.message}` });
-      return false;
-    }
+        : `지정가 추가 진입 등록 완료 ($${price?.toLocaleString()})`,
+      fail: "추가 진입 실패",
+      after: { pos: true },
+    });
   },
 
   cancelScaleIn: async (orderId) => {
     if (get().replayOn) return paperActions.cancelScaleIn(get, orderId);
-    const { setOrderStatus } = get();
-    setOrderStatus(null);
-    try {
-      await api("DELETE", "/api/scale-in", { orderId });
-      setOrderStatus({ type: "success", msg: "추가 진입 주문 취소 완료" });
-      refresh(get, { pos: true });
-    } catch (e) {
+    return run(get, {
+      call: () => api("DELETE", "/api/scale-in", { orderId }),
+      ok: "추가 진입 주문 취소 완료",
       // ⚠ **실패 문구에도 무엇을 취소하려던 것인지 적는다** (2026-08-25 사용자 요청).
       //   취소는 네 군데(추가 진입·분할 TP·분할 SL·미체결 주문)에서 부르는데
       //   예전엔 전부 `취소 실패: …`라 **배너만 보고는 어느 카드를 열어야 할지 알 수 없었다**.
       //   성공 쪽은 이미 넷이 다 다른 이름이었다 — 정작 확인이 필요한 실패만 뭉뚱그려져 있었다.
       //   다시 `취소 실패:`로 합치지 말 것 (넷 다 같은 규칙으로 유지)
-      setOrderStatus({ type: "error", msg: `추가 진입 주문 취소 실패: ${e.message}` });
-    }
+      fail: "추가 진입 주문 취소 실패",
+      after: { pos: true },
+    });
   },
 
   moveScaleIn: async (orderId, newPrice) => {
@@ -317,19 +335,14 @@ export const createOrderSlice = (set, get) => ({
 
   addSplitTp: async (side, price, qty, pct) => {
     if (get().replayOn) return paperActions.addSplitTp(get, side, price, qty, pct);
-    const { setOrderStatus } = get();
-    setOrderStatus(null);
-    try {
-      // ⚠ **기존 단일 TP를 내리지 않는다 — 둘은 공존한다** (2026-08-23 사용자 확정).
-      //   예전엔 `tpOrderId`를 실어 보내 취소하게 하고 로컬 tp도 비웠다. 되돌리지 말 것
-      await api("POST", "/api/tpsl/split", { side, price, qty, pct });
-      setOrderStatus({ type: "success", msg: `분할 TP 등록 완료 (${price?.toLocaleString()})` });
-      refresh(get, { tpsl: true });
-      return true;
-    } catch (e) {
-      setOrderStatus({ type: "error", msg: `분할 TP 실패: ${e.message}` });
-      return false;
-    }
+    // ⚠ **기존 단일 TP를 내리지 않는다 — 둘은 공존한다** (2026-08-23 사용자 확정).
+    //   예전엔 `tpOrderId`를 실어 보내 취소하게 하고 로컬 tp도 비웠다. 되돌리지 말 것
+    return run(get, {
+      call: () => api("POST", "/api/tpsl/split", { side, price, qty, pct }),
+      ok: `분할 TP 등록 완료 (${price?.toLocaleString()})`,
+      fail: "분할 TP 실패",
+      after: { tpsl: true },
+    });
   },
 
   // ── 분할 SL (수량 지정 STOP_MARKET) — 2026-08-24 ─────────────────────────
@@ -340,30 +353,22 @@ export const createOrderSlice = (set, get) => ({
   //   그때는 무방비 경보가 `일부만 덮습니다 (0.140 / 0.190)`으로 알려준다
   addPartialSl: async (side, price, qty) => {
     if (get().replayOn) return paperActions.addPartialSl(get, side, price, qty);
-    const { setOrderStatus } = get();
-    setOrderStatus(null);
-    try {
-      await api("POST", "/api/tpsl/partial-sl", { side, price, qty });
-      setOrderStatus({ type: "success", msg: `분할 SL 등록 완료 (${price?.toLocaleString()})` });
-      refresh(get, { tpsl: true });
-      return true;
-    } catch (e) {
-      setOrderStatus({ type: "error", msg: `분할 SL 실패: ${e.message}` });
-      return false;
-    }
+    return run(get, {
+      call: () => api("POST", "/api/tpsl/partial-sl", { side, price, qty }),
+      ok: `분할 SL 등록 완료 (${price?.toLocaleString()})`,
+      fail: "분할 SL 실패",
+      after: { tpsl: true },
+    });
   },
 
   cancelPartialSl: async (orderId) => {
     if (get().replayOn) return paperActions.cancelPartialSl(get, orderId);
-    const { setOrderStatus } = get();
-    setOrderStatus(null);
-    try {
-      await api("DELETE", "/api/tpsl/partial-sl", { orderId });
-      setOrderStatus({ type: "success", msg: "분할 SL 취소 완료" });
-      refresh(get, { tpsl: true });
-    } catch (e) {
-      setOrderStatus({ type: "error", msg: `분할 SL 취소 실패: ${e.message}` });
-    }
+    return run(get, {
+      call: () => api("DELETE", "/api/tpsl/partial-sl", { orderId }),
+      ok: "분할 SL 취소 완료",
+      fail: "분할 SL 취소 실패",
+      after: { tpsl: true },
+    });
   },
 
   // 가격 이동 = 취소 후 재등록 (주문번호가 바뀐다) — moveSplitTp와 같은 방식
@@ -555,15 +560,12 @@ export const createOrderSlice = (set, get) => ({
 
   cancelSplitTp: async (orderId) => {
     if (get().replayOn) return paperActions.cancelSplitTp(get, orderId);
-    const { setOrderStatus } = get();
-    setOrderStatus(null);
-    try {
-      await api("DELETE", "/api/tpsl/split", { orderId });
-      setOrderStatus({ type: "success", msg: "분할 TP 취소 완료" });
-      refresh(get, { tpsl: true });
-    } catch (e) {
-      setOrderStatus({ type: "error", msg: `분할 TP 취소 실패: ${e.message}` });
-    }
+    return run(get, {
+      call: () => api("DELETE", "/api/tpsl/split", { orderId }),
+      ok: "분할 TP 취소 완료",
+      fail: "분할 TP 취소 실패",
+      after: { tpsl: true },
+    });
   },
 
   moveSplitTp: async (orderId, newPrice) => {
@@ -588,20 +590,16 @@ export const createOrderSlice = (set, get) => ({
 
   closePosition: async (side, quantity, partial = false) => {
     if (get().replayOn) return paperActions.closePosition(get, side, quantity, partial);
-    const { setOrderStatus } = get();
-    setOrderStatus(null);
-    try {
-      await api("POST", "/api/close", { side, quantity: String(quantity), partial });
-      setOrderStatus({ type: "success", msg: partial ? "부분 청산 완료" : "포지션 청산 완료" });
-      refresh(get, { bal: true, pos: true, tpsl: true });
-    } catch (e) {
+    return run(get, {
+      call: () => api("POST", "/api/close", { side, quantity: String(quantity), partial }),
+      ok: partial ? "부분 청산 완료" : "포지션 청산 완료",
       // ⚠ 실패에는 **사이드와 부분/전량을 함께** 적는다 (2026-08-25 사용자 요청).
       //   성공은 `부분 청산 완료`/`포지션 청산 완료`로 갈리는데 실패만 `청산 실패:`
       //   하나였다 — 롱·숏을 둘 다 들고 있으면 **어느 쪽이 안 닫혔는지 모른다**.
       //   청산 실패는 곧 "아직 포지션이 살아 있다"는 뜻이라 가장 급한 실패다
-      setOrderStatus({ type: "error",
-        msg: `${side} ${partial ? "부분 청산" : "포지션 청산"} 실패: ${e.message}` });
-    }
+      fail: `${side} ${partial ? "부분 청산" : "포지션 청산"} 실패`,
+      after: { bal: true, pos: true, tpsl: true },
+    });
   },
 
   deleteBox: async (sideOverride) => {
