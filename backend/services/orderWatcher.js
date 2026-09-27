@@ -14,7 +14,6 @@ const { log, errOf } = require("../store/logStore");
 const statsCache     = require("./statsCache");
 const accountSnapshot = require("./accountSnapshot");
 const { closeToPosition, sideToPosition } = require("../utils/side");
-const { checkDailyLoss } = require("../routes/dailyloss");
 
 // 포지션 상태 추적 (reconcile 간 상태 유지) — 헷지모드: LONG/SHORT 각각 독립 추적
 let prevHasLong         = null; // null = 최초 실행 전
@@ -324,15 +323,9 @@ async function onFilled(orderId, executionData) {
   log("ENTRY_FILLED", { orderId, orderSide: info.side, posSide: sideToPosition(info.side),
     orderType: "LIMIT", qty: info.qty, price: fillPrice, tp: info.tp, sl: info.sl });
 
-  // 일일 손실 한도 재검증 — 주문 등록 시점엔 OK였지만 체결까지 대기 중 한도 초과 가능
-  // 체결 자체는 막을 수 없으므로 critical alert로 사용자에게 즉시 알림 (수동 청산 판단)
-  try {
-    await checkDailyLoss();
-  } catch (e) {
-    const msg = `⚠ 체결됨 (orderId=${orderId}) — ${e.message}. 수동 청산 검토 필요`;
-    log("DAILY_LOSS_CHECK_FAILED", { level: "error", orderId, err: errOf(e) });
-    push.pushAlert("critical", msg);
-  }
+  // ※ 체결 뒤 일일 손실 한도를 다시 보지 않는다 (2026-09-27 사용자 요청). 한도는 주문을
+  //   막지 않고 사이드바 탭이 보여주기만 한다. 예전엔 여기서 한도를 넘었으면
+  //   "수동 청산 검토 필요" 빨간 배너를 띄웠다
 
   if (!info.tp || !info.sl) {
     log("TPSL_MISSING_INFO", { level: "error", orderId });

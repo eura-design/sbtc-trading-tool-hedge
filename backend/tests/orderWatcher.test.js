@@ -220,17 +220,14 @@ test("실패해도 **화면에는 알린다** — 포지션은 이미 생겼다"
   assert.ok(r.rec.updates.flat().includes("position"), "포지션 갱신을 안 알렸다");
 });
 
-// ── 일일 손실 한도: 체결은 막을 수 없다 ────────────────────────────────────
-test("체결 뒤 한도를 넘었으면 알리되 **TP/SL은 그대로 건다**", async () => {
-  // ⚠ 체결 자체는 되돌릴 수 없다. 여기서 멈추면 손절 없는 포지션이 남는다 —
-  //   알리기만 하고 보호는 반드시 건다
+// ── 일일 손실 한도: 체결 뒤에도 보지 않는다 (2026-09-27 사용자 요청) ─────────
+test("체결 뒤 한도를 넘었어도 **배너 없이** TP/SL을 건다", async () => {
   const r = await run({
     dailyLoss: async () => { throw new Error("오늘 손실 한도(4%)에 도달했습니다"); },
   });
-  assert.equal(r.rec.placed.length, 1, "한도를 넘었다고 손절을 안 걸었다");
+  assert.equal(r.rec.placed.length, 1, "손절을 안 걸었다");
   assert.equal(r.saved.status, "TPSL_PLACED");
-  assert.ok(r.alerts("critical").some(a => /수동 청산/.test(a.msg)), "사용자에게 안 알렸다");
-  assert.ok(r.evt("DAILY_LOSS_CHECK_FAILED").length);
+  assert.equal(r.alerts("critical").length, 0, "한도 배너가 떴다");
 });
 
 // ── 사이드 ─────────────────────────────────────────────────────────────────

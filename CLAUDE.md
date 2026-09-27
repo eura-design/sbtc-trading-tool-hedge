@@ -587,8 +587,9 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
 - ⚠ **한도는 보여주기만 하고 주문을 막지 않는다** (2026-09-27 사용자 요청).
   사이드바의 일일 손실 탭(오늘 손익·잔여 한도·한도 초과 표시)은 그대로다.
   실거래(`POST /api/order`)도 연습(`paperActions.executeOrder`)도 한도를 보지 않는다.
-  예전엔 `checkDailyLoss()`가 진입을 403으로 막았다 — 그 함수는 남아 있고, 지금은
-  `orderWatcher.onFilled`(지정가 체결 뒤 한도를 넘었으면 빨간 배너)만 부른다
+  예전엔 `checkDailyLoss()`가 진입을 403으로 막았고, 지정가 체결 뒤 한도를 넘었으면
+  `orderWatcher.onFilled`가 "수동 청산 검토 필요" 빨간 배너를 띄웠다. **둘 다 뺐다.**
+  ※ `checkDailyLoss()` 함수는 `routes/dailyloss.js`에 남아 있지만 지금 부르는 곳이 없다
 
 ### 글로벌 상태 (Zustand)
 - 4개 slice 조립 (`store/index.js`)
