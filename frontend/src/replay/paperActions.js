@@ -13,7 +13,6 @@
 
 import { calcPosition, minEntryQty } from "../utils/calc.js";
 import { isLongToPosition, closeToPosition } from "../utils/side.js";
-import { computePaperDailyLoss } from "./dailyLoss.js";
 import { riskPctFor } from "../store/settingsSlice.js";
 import { qtyLabel } from "../utils/qty.js";
 import { boxKey } from "../store/uiSlice.js";
@@ -44,22 +43,15 @@ export const paperActions = {
   // @param qtyMode 실거래(orderSlice.executeOrder)와 **같은 규칙** — "min"이면 거래소 최소 수량
   executeOrder: (get, orderType, isLong, qtyMode = "risk") => {
     const st = get();
-    const { drawings, leverage, balance, paperBroker, setDrawing, replayNowMs } = st;
+    const { drawings, leverage, balance, paperBroker, setDrawing } = st;
     const drawing = drawings[boxKey(isLong)];
     if (!drawing || !paperBroker) return;
     // 실거래와 같은 규칙 — 리스크 %는 사이드별이다 (settingsSlice.riskPctFor).
     // 연습에서만 한쪽 값을 쓰면 같은 플랜이 모드에 따라 다른 수량으로 나간다
     const riskPct = riskPctFor(st, isLong);
 
-    // ⚠ 일일 손실 한도는 **연습에도 건다.** 이 앱의 핵심 리스크 규칙인데
-    //   연습에서만 무제한이면, 실전에서 막히는 매매를 계속 연습하게 되어
-    //   정작 옮겨가야 할 습관이 안 생긴다 (replay/dailyLoss.js)
-    const dl = computePaperDailyLoss(
-      paperBroker.trades, paperBroker.startBalance, paperBroker.balance, replayNowMs);
-    if (dl && dl.remaining <= 0) {
-      get().setOrderStatus({ type: "error", msg: "일일 손실 한도 초과 — 연습 매매가 제한됩니다" });
-      return;
-    }
+    // ⚠ 일일 손실 한도로 **막지 않는다** — 실거래와 같다 (2026-09-27 사용자 요청).
+    //   한도는 사이드바의 일일 손실 탭이 보여주기만 한다 (replay/dailyLoss.js)
 
     const capital = balance?.availableBalance ?? 0;
     const { step, minQty, tick, minNotional, maintRate } = get().symbolFilters;

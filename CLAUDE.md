@@ -54,7 +54,7 @@ routes/
   position.js              GET  /api/position → { long, short, pending, scaleInOrders, funding }
   positions.js             GET  /api/positions → { at, items } — **계정 전체** 포지션 (하늘색 카드)
                            ⚠ 거래소를 부르지 않는다 — `accountSnapshot`의 3초 관측을 읽는다
-  order.js                 POST /api/order (진입 + TP/SL 등록, 일일 손실 가드)
+  order.js                 POST /api/order (진입 + TP/SL 등록)
                            PATCH /api/order (미체결 주문의 TP/SL 수정)
   orders.js                DELETE /api/orders (미체결 취소) → `{ success, cancelled: <건수> }`
                            ⚠ **0건으로 성공할 수 있다** — 취소 대상을 `limitKind`로 거르기 때문이다.
@@ -584,8 +584,11 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
     달라져 한도가 헐거워진다.
   ⚠ 그래서 **로그의 하루(로컬)와 한도의 하루(UTC)는 9시간 어긋난 다른 창이다.**
     하루 요약의 손익과 화면의 일일 손실이 안 맞아 보이면 그 때문이다
-- 백엔드 `checkDailyLoss()`가 `POST /api/order` 앞단에서 차단
-- 프론트 `orderSlice.executeOrder`도 조회 후 remaining ≤ 0이면 차단
+- ⚠ **한도는 보여주기만 하고 주문을 막지 않는다** (2026-09-27 사용자 요청).
+  사이드바의 일일 손실 탭(오늘 손익·잔여 한도·한도 초과 표시)은 그대로다.
+  실거래(`POST /api/order`)도 연습(`paperActions.executeOrder`)도 한도를 보지 않는다.
+  예전엔 `checkDailyLoss()`가 진입을 403으로 막았다 — 그 함수는 남아 있고, 지금은
+  `orderWatcher.onFilled`(지정가 체결 뒤 한도를 넘었으면 빨간 배너)만 부른다
 
 ### 글로벌 상태 (Zustand)
 - 4개 slice 조립 (`store/index.js`)
@@ -607,9 +610,9 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
   순서(포지션 → TP/SL)도 이 함수가 지킨다
 - **단순한 액션은 `run(get, { call, ok, fail, after })`로 쓴다** — 상태 지우기·성공/실패 문구·
   다시 읽기가 한 곳에 있다. 흐름이 특별한 액션(진입·드래그·2단계 이동)은 억지로 끼우지 않는다
-- **진입 전에 일일 손실을 화면에서 따로 묻지 않는다** — 서버(`checkDailyLoss`)가 막고 이유를
-  돌려준다. `POST /api/order`는 손실 확인과 포지션 조회를 **동시에** 하고, 레버리지는
-  **값이 다를 때만** 설정한다 (진입 전 거래소 왕복 4번 → 보통 1번. 시장가는 기다린 만큼 불리하다)
+- **진입 전에 일일 손실을 묻지 않는다** — 한도로 막지 않기 때문이다 (위 "일일 손실 한도").
+  `POST /api/order`는 레버리지를 **값이 다를 때만** 설정한다 (진입 전 거래소 왕복을 줄인다.
+  시장가는 기다린 만큼 불리하다)
 - **레버리지 상한은 그 코인의 유지증거금률로 잰다** (`calcPosition`의 마지막 인자 `maintRate`).
   예전엔 모든 코인에 5%를 썼다 — 실제는 0.4%(BTC) ~ 16.67%로 40배 넘게 다르다
 - **`executeOrder`의 세 번째 인자가 수량 방식이다** — `"risk"`(기본, 리스크 %) / `"min"`
@@ -644,7 +647,7 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
     개수를 제한하지 않는다. 분할 TP·SL은 예전처럼 총 수량이 개수를 정한다
 - ⚠ **수량은 사람이 정한다.** 다 체결되면 평단이 손절에 가까워지므로, 같은 리스크를
   유지하려면 `총수량 = 감당할 손실 ÷ (예상 평단 − 손절가)`로 잡아야 한다
-- ⚠ **추가 진입에는 일일 손실 한도 검사가 없다** (`POST /api/scale-in`). 첫 진입만 막힌다
+- 추가 진입도 첫 진입도 일일 손실 한도로 막지 않는다 (위 "일일 손실 한도")
 - `scaleIn`·`addSplitTp`·`addPartialSl`의 `side`는 **포지션 방향(LONG/SHORT)**으로 통일.
   `POST /api/scale-in`만 BUY/SELL을 받으므로 그 변환은 `scaleIn` 안에서 한다
 - 이 셋은 실패를 안에서 배너로 처리하고 **true/false를 돌려준다** (try/catch로는 못 잡는다)

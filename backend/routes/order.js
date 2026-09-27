@@ -2,7 +2,6 @@ const express = require("express");
 const { binance, roundPrice, roundQty, placeTPSL, preplaceTPSL, cancelPresetTPSL } = require("../services/binanceClient");
 const store   = require("../store/pendingOrders");
 const { validateOrder } = require("../middleware/validate");
-const { checkDailyLoss } = require("./dailyloss");
 const { sideToPosition } = require("../utils/side");
 const { verifyImmediateFill, raiseSlMissing } = require("../services/orderWatcher");
 const push     = require("../services/pushService");
@@ -25,17 +24,11 @@ router.post("/", validateOrder, async (req, res) => {
     // 1) positionSide 결정
     const positionSide = sideToPosition(side);
 
-    // 0) 일일 손실 한도 + 포지션 조회를 **동시에** 한다 (2026-09-27).
-    // ⚠ 진입 주문이 거래소에 닿기 전에 부르는 것들이다 — 시장가는 기다린 만큼 가격이 움직여
-    //   불리하게 체결된다. 예전엔 이 앞에서 거래소를 **4번 차례로** 불렀다
-    //   (화면의 손실 확인 · 여기의 손실 확인 · 포지션 · 레버리지). 한 번에 약 60ms라
-    //   진입 전에 약 240ms를 기다렸다 (로그 실측: 거래소 한 번 왕복 가운데값 60ms).
-    //   둘은 서로의 결과를 쓰지 않으므로 기다릴 이유가 없다. 손실 한도에 걸리면
-    //   `Promise.all`이 그 에러로 끝나 레버리지도 주문도 나가지 않는다 (예전과 같다)
-    const [, posRes] = await Promise.all([
-      checkDailyLoss(),
-      leverage ? binance("GET", "/fapi/v2/positionRisk", { symbol }) : null,
-    ]);
+    // 0) 포지션 조회 (레버리지를 바꿔도 되는지 판정용)
+    // ⚠ **일일 손실 한도로 주문을 막지 않는다** (2026-09-27 사용자 요청). 한도는 사이드바의
+    //   일일 손실 탭이 **보여주기만** 한다 (`GET /api/daily-loss`). 예전엔 여기서
+    //   `checkDailyLoss()`가 한도를 넘으면 403으로 진입을 막았다
+    const posRes = leverage ? await binance("GET", "/fapi/v2/positionRisk", { symbol }) : null;
 
     // 2) 레버리지 설정 — 반대쪽 포지션이 이미 있으면 건너뜀 (기존 포지션 레버리지 보호)
     if (leverage) {
@@ -178,12 +171,8 @@ router.post("/", validateOrder, async (req, res) => {
     // M1: 레버리지는 변경됐지만 주문 실패한 경우 사용자에게 알림
     const fullMsg = leverageChanged ? `${msg} (레버리지 ${leverage}x 변경됨)` : msg;
     // ⚠ `positionSide`는 try 안에서 선언돼 여기서는 안 보인다 — side로 다시 구한다
-    // ⚠ 일일 손실 한도(403)는 `checkDailyLoss`가 `DAILY_LOSS_BLOCKED`로 이미 남겼다 —
-    //   여기서 또 적으면 같은 사실이 두 줄이 된다
-    if (err.status !== 403) {
-      log("ORDER_FAILED", { level: "error", orderSide: side, posSide: sideToPosition(side),
-        orderType, qty: quantity, leverageChanged, err: errOf(err) });
-    }
+    log("ORDER_FAILED", { level: "error", orderSide: side, posSide: sideToPosition(side),
+      orderType, qty: quantity, leverageChanged, err: errOf(err) });
     res.status(err.status || 500).json({ error: fullMsg });
   }
 });

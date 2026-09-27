@@ -1,9 +1,9 @@
-// POST /api/order — 진입 (+ TP/SL 등록, 일일 손실 가드)
+// POST /api/order — 진입 (+ TP/SL 등록)
 //
 // ⚠ **여기가 돈이 나가는 입구다.** 지금까지 `validate` 미들웨어만 검산돼 있었다.
 //
 // 이 파일이 보는 것 — 문구가 아니라 **거래소로 나간 호출**:
-//   · 일일 손실 한도가 **주문보다 먼저** 막는가 (막힌 뒤 주문이 안 나가는가)
+//   · 일일 손실 한도로 **막지 않는가** (2026-09-27 사용자 요청 — 한도는 보여주기만 한다)
 //   · 지정가 진입이 TP/SL을 **미리** 거는가 (백엔드가 꺼진 사이 체결돼도 손절이 있게)
 //   · 반대쪽 포지션이 있으면 레버리지를 **안 건드리는가** (청산가가 말없이 움직인다)
 //   · 심볼이 모든 호출에 실리는가 / 모르는 심볼이 400인가
@@ -28,24 +28,15 @@ const body = (over = {}) => ({
 const orderCalls = (rec) => rec.calls.filter(c => c.path === "/fapi/v1/order");
 
 // ── 일일 손실 한도 ─────────────────────────────────────────────────────────
-test("일일 손실 한도에 걸리면 **주문이 나가지 않는다**", async () => {
-  // ⚠ 막고 나서 주문이 나가면 한도가 아무 의미가 없다
+test("일일 손실 한도를 넘어도 **주문을 막지 않는다** (2026-09-27 사용자 요청)", async () => {
+  // 한도는 사이드바가 보여주기만 한다. 라우트가 한도 확인을 다시 부르면 이 테스트가 깨진다
   const h = await mountRoute("routes/order.js", {
     binance: okOrder(),
     dailyLoss: async () => {
       const e = new Error("오늘 손실 한도(4%)에 도달했습니다"); e.status = 403; throw e;
     },
   });
-  const r = await h.request("POST", "/", body());
-  assert.equal(r.status, 403);
-  assert.match(r.body.error, /한도/);
-  assert.equal(orderCalls(h.rec).length, 0, "한도에 걸렸는데 주문이 나갔다");
-  await h.close();
-});
-
-test("한도 체크가 통과하면 주문이 나간다", async () => {
-  const h = await mountRoute("routes/order.js", { binance: okOrder() });
-  const r = await h.request("POST", "/", body());
+  const r = await h.request("POST", "/", body({ leverage: 20 }));
   assert.equal(r.status, 200);
   assert.equal(orderCalls(h.rec).length, 1);
   await h.close();
@@ -278,17 +269,5 @@ test("레버리지가 **다르면** 설정한다 (회귀)", async () => {
   const lev = h.rec.calls.filter(c => c.path.includes("leverage"));
   assert.equal(lev.length, 1);
   assert.equal(lev[0].params.leverage, 20);
-  await h.close();
-});
-
-test("일일 손실 한도에 걸리면 레버리지도 주문도 나가지 않는다 (동시 조회로 바꾼 뒤에도)", async () => {
-  const h = await mountRoute("routes/order.js", {
-    binance: okOrder(),
-    dailyLoss: async () => { const e = new Error("일일 손실 한도 초과"); e.status = 403; throw e; },
-  });
-  const r = await h.request("POST", "/", body({ leverage: 20 }));
-  assert.equal(r.status, 403);
-  assert.equal(h.rec.calls.filter(c => c.path.includes("leverage")).length, 0);
-  assert.equal(h.rec.calls.filter(c => c.path === "/fapi/v1/order").length, 0);
   await h.close();
 });
