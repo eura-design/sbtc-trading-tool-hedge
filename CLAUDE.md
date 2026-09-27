@@ -103,6 +103,8 @@ utils/
                            (없다 / 일부만 덮는다). 띄우는 쪽과 거두는 쪽이 같은 글자를 쓴다
   bigIntJson.js            큰 정수를 잃지 않는 JSON 파싱 — **주문번호가 뭉개지는 것을 막는다**
   positionDiff.js          사라진 포지션 찾기 (goneSides) — **직전 관측을 돈다**
+  position.js              포지션 행 판정 (`isOpen`·`openRow`·`hasOpen`) — **여기 하나다**.
+                           ⚠ `parseFloat(p.positionAmt) > 0` 같은 식을 다시 적지 말 것 (여덟 곳이 갈려 있었다)
   tpslView.js              미체결·알고 주문 → 화면이 읽는 TP/SL 한 벌 (순수 함수)
                            ⚠ `/api/tpsl`과 `/api/positions`가 **같이 쓴다** — 복사하면
                              일반 카드와 하늘색 카드가 다른 손절 가격을 보여준다
@@ -599,6 +601,17 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
 `updatePendingTpsl` / `replacePendingOrder` / `deleteBox`
 
 - 플랜 박스를 쓰는 셋(`executeOrder`/`replacePendingOrder`/`updatePendingTpsl`)은 `isLong`을 인자로 받는다
+- **주문 뒤 화면을 다시 읽는 규칙은 `refresh(get, { pos, tpsl, bal })` 하나다** (2026-09-27).
+  ⚠ `setTimeout(() => 다시 읽기, 500)`을 새로 쓰지 말 것 — 예전엔 16곳이 "0.5초면 반영됐겠지"를
+  짐작했다(근거 없음). 응답이 오면 바로 읽고, 거래소가 늦으면 `watchAccount`가 3초 안에 받는다.
+  순서(포지션 → TP/SL)도 이 함수가 지킨다
+- **단순한 액션은 `run(get, { call, ok, fail, after })`로 쓴다** — 상태 지우기·성공/실패 문구·
+  다시 읽기가 한 곳에 있다. 흐름이 특별한 액션(진입·드래그·2단계 이동)은 억지로 끼우지 않는다
+- **진입 전에 일일 손실을 화면에서 따로 묻지 않는다** — 서버(`checkDailyLoss`)가 막고 이유를
+  돌려준다. `POST /api/order`는 손실 확인과 포지션 조회를 **동시에** 하고, 레버리지는
+  **값이 다를 때만** 설정한다 (진입 전 거래소 왕복 4번 → 보통 1번. 시장가는 기다린 만큼 불리하다)
+- **레버리지 상한은 그 코인의 유지증거금률로 잰다** (`calcPosition`의 마지막 인자 `maintRate`).
+  예전엔 모든 코인에 5%를 썼다 — 실제는 0.4%(BTC) ~ 16.67%로 40배 넘게 다르다
 - **`executeOrder`의 세 번째 인자가 수량 방식이다** — `"risk"`(기본, 리스크 %) / `"min"`
   (거래소 최소 수량). 2026-09-27 사용자 요청. 플랜 카드에서 **주문 종류와 따로** 고른다
   (지정가·시장가 어느 쪽과도 조합된다).
@@ -641,6 +654,12 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
 ---
 
 ## 차트
+
+### 차트 조작 핸들러 — 의존성 목록을 손으로 적지 않는다 (2026-09-27)
+`useChartInteraction`의 마우스·휠 핸들러는 `useLatestHandler(fn)`로 만든다 — 본문은 매 렌더
+최신 값을 보고, 밖으로 나가는 함수는 고정이다. 예전엔 `useCallback(fn, [값 54개])`였고
+**빠뜨린 값(`isLog`)이 실제로 있어서** 로그 눈금을 바꾼 뒤 옛 눈금으로 가격을 계산할 수 있었다.
+⚠ 새 핸들러도 이 방식으로 만들 것. `useCallback`에 긴 목록을 다시 적지 말 것
 
 ### 드래그 시스템
 `dragRef.current.type` → `DRAG_HANDLERS[type].onMove()/.onUp()` 분기 (`chart/dragStateMachine.js`).
