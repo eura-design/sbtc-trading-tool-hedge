@@ -17,6 +17,24 @@ import { splitPlan }    from "../utils/splitLevels.js";
 // KIND_LABEL·방향 판정은 utils/splitGuard.js가 갖는다 (문구가 한 곳이어야 한다)
 import { validateSplitPrices, KIND_LABEL } from "../utils/splitGuard.js";
 
+// ── 주문 뒤 화면을 다시 읽는 규칙은 **여기 하나다** (2026-09-27) ─────────────
+//
+// 예전엔 액션 16곳이 각자 `setTimeout(() => 다시 읽기, 500)`으로 **"0.5초면 반영됐겠지"를
+// 짐작했다** (1000·1500ms도 섞여 있었다). 그 지연을 둔 근거는 코드·주석·로그 어디에도 없었다.
+//   · API 응답이 왔다는 것은 **서버가 거래소 호출을 끝냈다**는 뜻이고, 바이낸스는 주문 응답을
+//     돌려준 시점에 조회에도 이미 반영돼 있다 (2026-09-27 실측: 층 10개를 건 직후 조회에 전부 보였다)
+//   · 그래도 거래소가 늦게 반영하는 일이 생기면 `watchAccount`가 **3초 안에** 변화를 감지해
+//     화면에 알리고 다시 읽는다 — 짐작 대신 그 그물이 받는다
+// ⚠ **순서: 포지션 → TP/SL.** `useTpsl`은 "포지션이 있나"를 보고 조회를 건너뛰므로,
+//   포지션을 먼저 받아야 새로 생긴 포지션의 TP/SL이 지워지지 않는다
+// ⚠ 기다리지 않고(fire-and-forget) 부른다 — 액션이 끝나는 것을 늦추지 않는다
+function refresh(get, { pos = false, tpsl = false, bal = false } = {}) {
+  const s = get();
+  if (bal) s._refetchBal?.();
+  if (!pos) { if (tpsl) s._refetchTpsl?.(); return; }
+  Promise.resolve(s._refetchPos?.()).finally(() => { if (tpsl) get()._refetchTpsl?.(); });
+}
+
 export const createOrderSlice = (set, get) => ({
 
   // ⚠ 플랜 박스가 롱·숏 둘이라 **어느 박스인지**를 인자로 받는다 (2026-08-19).
@@ -36,7 +54,7 @@ export const createOrderSlice = (set, get) => ({
   executeOrder: async (orderType, isLong, qtyMode = "risk") => {
     if (get().replayOn) return paperActions.executeOrder(get, orderType, isLong, qtyMode);
     const st = get();
-    const { drawings, leverage, balance, setOrderStatus, setDrawing, _refetchBal, _refetchPos, _refetchTpsl } = st;
+    const { drawings, leverage, balance, setOrderStatus, setDrawing } = st;
     const drawing = drawings[boxKey(isLong)];
     if (!drawing) return;
     // 리스크 %는 **사이드별**이다 (settingsSlice.riskPctFor) — 레버리지와 달리 거래소에
@@ -102,11 +120,7 @@ export const createOrderSlice = (set, get) => ({
       //   특히 반대쪽 포지션을 이미 들고 있으면 useTpsl의 hasPos가 계속 true라
       //   "포지션 생김"으로 인한 즉시 조회조차 트리거되지 않는다.
       //   포지션 → TP/SL **순서**로 부를 것 (useTpsl이 포지션 유무를 보고 조회를 건너뛴다)
-      setTimeout(async () => {
-        _refetchBal();
-        await _refetchPos();
-        _refetchTpsl();
-      }, 1500);
+      refresh(get, { bal: true, pos: true, tpsl: true });
     } catch (e) {
       setOrderStatus({ type: "error", msg: e.message });
     }
@@ -114,8 +128,7 @@ export const createOrderSlice = (set, get) => ({
 
   saveTpsl: async (newTp, newSl, dragSide) => {
     if (get().replayOn) return paperActions.saveTpsl(get, newTp, newSl, dragSide);
-    const { position, tpsl, tpslSaving, setTpslSaving, setTpsl, setOrderStatus, setDragTpsl,
-            _refetchTpsl } = get();
+    const { position, tpsl, tpslSaving, setTpslSaving, setTpsl, setOrderStatus, setDragTpsl } = get();
     if (!position || tpslSaving) return;
     if (!newTp && !newSl) return;
     const positionSide = dragSide ?? (position.long ? "LONG" : "SHORT");
@@ -144,7 +157,7 @@ export const createOrderSlice = (set, get) => ({
       } else {
         setOrderStatus({ type: "success", msg: "TP/SL 수정 완료" });
       }
-      if (newTp) setTimeout(() => { _refetchTpsl(); }, 500);
+      if (newTp) refresh(get, { tpsl: true });
     } catch (e) {
       setOrderStatus({ type: "error", msg: `TP/SL 수정 실패: ${e.message}` });
     } finally {
@@ -158,7 +171,7 @@ export const createOrderSlice = (set, get) => ({
   //   critical 알림을 띄우는데 **정상 동작**이다 (일부러 지운 것도 무방비는 무방비다)
   cancelTpsl: async (side, which) => {
     if (get().replayOn) return paperActions.cancelTpsl(get, side, which);
-    const { tpsl, setTpsl, setOrderStatus, _refetchTpsl } = get();
+    const { tpsl, setTpsl, setOrderStatus } = get();
     const sideKey = side === "LONG" ? "long" : "short";
     const target  = tpsl?.[sideKey]?.[which];
     if (!target?.orderId) return;
@@ -168,7 +181,7 @@ export const createOrderSlice = (set, get) => ({
       await api("DELETE", "/api/tpsl", { orderId: target.orderId, isAlgo: target.isAlgo });
       setTpsl(prev => ({ ...prev, [sideKey]: { ...prev[sideKey], [which]: null } }));
       setOrderStatus({ type: "success", msg: `${side} ${label} 제거 완료` });
-      setTimeout(() => { _refetchTpsl(); }, 500);
+      refresh(get, { tpsl: true });
     } catch (e) {
       // 성공 쪽(`${side} ${label} 제거 완료`)과 같이 **사이드를 밝힌다** — 헷지모드라
       // 롱·숏 카드가 나란히 있어서, 사이드가 없으면 어느 쪽 손절이 안 지워졌는지 모른다
@@ -192,7 +205,7 @@ export const createOrderSlice = (set, get) => ({
   replacePendingOrder: async (isLong) => {
     if (get().replayOn) return paperActions.replacePendingOrder(get, isLong);
     const st = get();
-    const { drawings, leverage, balance, position, setDrawing, setOrderStatus, _refetchPos, _refetchBal } = st;
+    const { drawings, leverage, balance, position, setDrawing, setOrderStatus } = st;
     const drawing = drawings[boxKey(isLong)];
     if (!drawing?.orderId) return;
     const riskPct = riskPctFor(st, isLong);
@@ -229,7 +242,7 @@ export const createOrderSlice = (set, get) => ({
       });
       setDrawing(isLong, prev => prev ? { ...prev, orderId: String(data.entry.orderId) } : prev);
       setOrderStatus({ type: "success", msg: `주문 수량 재설정 완료 (${qtyLabel(posCalc.actualQty, step, get().symbolFilters.base)})` });
-      setTimeout(() => { _refetchPos(); _refetchBal(); }, 500);
+      refresh(get, { pos: true, bal: true });
     } catch (e) {
       setOrderStatus({ type: "error", msg: `주문 수정 실패: ${e.message}` });
     }
@@ -253,7 +266,7 @@ export const createOrderSlice = (set, get) => ({
   //     정확히 이 함정이다
   scaleIn: async (side, orderType, price, quantity) => {
     if (get().replayOn) return paperActions.scaleIn(get, side, orderType, price, quantity);
-    const { setOrderStatus, _refetchPos } = get();
+    const { setOrderStatus } = get();
     setOrderStatus(null);
     try {
       await api("POST", "/api/scale-in", { side: positionToSide(side), orderType, price, quantity });
@@ -261,7 +274,7 @@ export const createOrderSlice = (set, get) => ({
         ? "시장가 추가 진입 완료"
         : `지정가 추가 진입 등록 완료 ($${price?.toLocaleString()})`;
       setOrderStatus({ type: "success", msg });
-      setTimeout(() => { _refetchPos(); }, 1000);
+      refresh(get, { pos: true });
       return true;
     } catch (e) {
       setOrderStatus({ type: "error", msg: `추가 진입 실패: ${e.message}` });
@@ -271,12 +284,12 @@ export const createOrderSlice = (set, get) => ({
 
   cancelScaleIn: async (orderId) => {
     if (get().replayOn) return paperActions.cancelScaleIn(get, orderId);
-    const { setOrderStatus, _refetchPos } = get();
+    const { setOrderStatus } = get();
     setOrderStatus(null);
     try {
       await api("DELETE", "/api/scale-in", { orderId });
       setOrderStatus({ type: "success", msg: "추가 진입 주문 취소 완료" });
-      setTimeout(() => { _refetchPos(); }, 500);
+      refresh(get, { pos: true });
     } catch (e) {
       // ⚠ **실패 문구에도 무엇을 취소하려던 것인지 적는다** (2026-08-25 사용자 요청).
       //   취소는 네 군데(추가 진입·분할 TP·분할 SL·미체결 주문)에서 부르는데
@@ -289,14 +302,14 @@ export const createOrderSlice = (set, get) => ({
 
   moveScaleIn: async (orderId, newPrice) => {
     if (get().replayOn) return paperActions.moveScaleIn(get, orderId, newPrice);
-    const { position, setOrderStatus, _refetchPos } = get();
+    const { position, setOrderStatus } = get();
     const target = (position?.scaleInOrders ?? []).find(o => o.orderId === orderId);
     if (!target) return;
     try {
       await api("DELETE", "/api/scale-in", { orderId });
       await api("POST", "/api/scale-in", { side: target.side, orderType: "LIMIT", price: newPrice, quantity: target.qty });
       setOrderStatus({ type: "success", msg: `추가 진입 가격 이동 완료 ($${newPrice?.toLocaleString()})` });
-      setTimeout(() => { _refetchPos(); }, 500);
+      refresh(get, { pos: true });
     } catch (e) {
       setOrderStatus({ type: "error", msg: `추가 진입 이동 실패: ${e.message}` });
     }
@@ -304,14 +317,14 @@ export const createOrderSlice = (set, get) => ({
 
   addSplitTp: async (side, price, qty, pct) => {
     if (get().replayOn) return paperActions.addSplitTp(get, side, price, qty, pct);
-    const { setOrderStatus, _refetchTpsl } = get();
+    const { setOrderStatus } = get();
     setOrderStatus(null);
     try {
       // ⚠ **기존 단일 TP를 내리지 않는다 — 둘은 공존한다** (2026-08-23 사용자 확정).
       //   예전엔 `tpOrderId`를 실어 보내 취소하게 하고 로컬 tp도 비웠다. 되돌리지 말 것
       await api("POST", "/api/tpsl/split", { side, price, qty, pct });
       setOrderStatus({ type: "success", msg: `분할 TP 등록 완료 (${price?.toLocaleString()})` });
-      setTimeout(() => { _refetchTpsl(); }, 500);
+      refresh(get, { tpsl: true });
       return true;
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 TP 실패: ${e.message}` });
@@ -327,12 +340,12 @@ export const createOrderSlice = (set, get) => ({
   //   그때는 무방비 경보가 `일부만 덮습니다 (0.140 / 0.190)`으로 알려준다
   addPartialSl: async (side, price, qty) => {
     if (get().replayOn) return paperActions.addPartialSl(get, side, price, qty);
-    const { setOrderStatus, _refetchTpsl } = get();
+    const { setOrderStatus } = get();
     setOrderStatus(null);
     try {
       await api("POST", "/api/tpsl/partial-sl", { side, price, qty });
       setOrderStatus({ type: "success", msg: `분할 SL 등록 완료 (${price?.toLocaleString()})` });
-      setTimeout(() => { _refetchTpsl(); }, 500);
+      refresh(get, { tpsl: true });
       return true;
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 SL 실패: ${e.message}` });
@@ -342,12 +355,12 @@ export const createOrderSlice = (set, get) => ({
 
   cancelPartialSl: async (orderId) => {
     if (get().replayOn) return paperActions.cancelPartialSl(get, orderId);
-    const { setOrderStatus, _refetchTpsl } = get();
+    const { setOrderStatus } = get();
     setOrderStatus(null);
     try {
       await api("DELETE", "/api/tpsl/partial-sl", { orderId });
       setOrderStatus({ type: "success", msg: "분할 SL 취소 완료" });
-      setTimeout(() => { _refetchTpsl(); }, 500);
+      refresh(get, { tpsl: true });
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 SL 취소 실패: ${e.message}` });
     }
@@ -356,7 +369,7 @@ export const createOrderSlice = (set, get) => ({
   // 가격 이동 = 취소 후 재등록 (주문번호가 바뀐다) — moveSplitTp와 같은 방식
   movePartialSl: async (orderId, newPrice) => {
     if (get().replayOn) return paperActions.movePartialSl(get, orderId, newPrice);
-    const { tpsl, setOrderStatus, _refetchTpsl } = get();
+    const { tpsl, setOrderStatus } = get();
     const all = [...(tpsl.long?.partialSls ?? []), ...(tpsl.short?.partialSls ?? [])];
     const target = all.find(o => o.orderId === orderId);
     if (!target) return;
@@ -373,7 +386,7 @@ export const createOrderSlice = (set, get) => ({
       await api("POST", "/api/tpsl/partial-sl", { side, price: newPrice, qty: target.qty });
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 SL 이동 실패 (기존 손절은 그대로): ${e.message}` });
-      setTimeout(() => { _refetchTpsl(); }, 500);   // 선을 원래 자리로 되돌린다
+      refresh(get, { tpsl: true });   // 선을 원래 자리로 되돌린다
       return;
     }
     try {
@@ -383,7 +396,7 @@ export const createOrderSlice = (set, get) => ({
       // 옛것이 안 지워졌다 — 손절이 둘이 되지만 과하게 덮는 쪽이라 위험하진 않다
       setOrderStatus({ type: "error", msg: `옛 분할 SL 취소 실패 — 목록에서 직접 지우세요: ${e.message}` });
     }
-    setTimeout(() => { _refetchTpsl(); }, 500);
+    refresh(get, { tpsl: true });
   },
 
   // ── 차트에서 지정한 구간에 분할 주문 (2026-08-27 사용자 요청) ────────────
@@ -505,7 +518,7 @@ export const createOrderSlice = (set, get) => ({
    */
   cancelSplitOrders: async (kind, side) => {
     if (get().replayOn) return paperActions.cancelSplitOrders(get, kind, side);
-    const { position, tpsl, setOrderStatus, _refetchPos, _refetchTpsl } = get();
+    const { position, tpsl, setOrderStatus } = get();
     const sideKey = side === "LONG" ? "long" : "short";
 
     // 추가 진입만 사이드가 **주문 방향**(BUY/SELL)으로 들어 있다 — 분할 TP/SL은
@@ -531,7 +544,7 @@ export const createOrderSlice = (set, get) => ({
     for (const orderId of ids) {
       try { await api("DELETE", path, { orderId }); done++; } catch { /* 나머지를 계속 지운다 */ }
     }
-    setTimeout(() => { if (kind === "scale_in") _refetchPos(); else _refetchTpsl(); }, 500);
+    refresh(get, kind === "scale_in" ? { pos: true } : { tpsl: true });
 
     // ⚠ **몇 개가 실제로 지워졌는지 반드시 알린다.** 하나가 방금 체결돼 취소에
     //   실패했는데 `취소 완료`라고만 띄우면, 남아 있는 주문을 모르고 넘어간다
@@ -542,12 +555,12 @@ export const createOrderSlice = (set, get) => ({
 
   cancelSplitTp: async (orderId) => {
     if (get().replayOn) return paperActions.cancelSplitTp(get, orderId);
-    const { setOrderStatus, _refetchTpsl } = get();
+    const { setOrderStatus } = get();
     setOrderStatus(null);
     try {
       await api("DELETE", "/api/tpsl/split", { orderId });
       setOrderStatus({ type: "success", msg: "분할 TP 취소 완료" });
-      setTimeout(() => { _refetchTpsl(); }, 500);
+      refresh(get, { tpsl: true });
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 TP 취소 실패: ${e.message}` });
     }
@@ -555,7 +568,7 @@ export const createOrderSlice = (set, get) => ({
 
   moveSplitTp: async (orderId, newPrice) => {
     if (get().replayOn) return paperActions.moveSplitTp(get, orderId, newPrice);
-    const { tpsl, setOrderStatus, _refetchTpsl } = get();
+    const { tpsl, setOrderStatus } = get();
     const allSplitTps = [...(tpsl.long?.splitTps ?? []), ...(tpsl.short?.splitTps ?? [])];
     const target = allSplitTps.find(o => o.orderId === orderId);
     if (!target) return;
@@ -567,7 +580,7 @@ export const createOrderSlice = (set, get) => ({
         side, price: newPrice, qty: target.qty, pct: target.pct,
       });
       setOrderStatus({ type: "success", msg: `분할 TP 가격 이동 완료 ($${newPrice?.toLocaleString()})` });
-      setTimeout(() => { _refetchTpsl(); }, 500);
+      refresh(get, { tpsl: true });
     } catch (e) {
       setOrderStatus({ type: "error", msg: `분할 TP 이동 실패: ${e.message}` });
     }
@@ -575,12 +588,12 @@ export const createOrderSlice = (set, get) => ({
 
   closePosition: async (side, quantity, partial = false) => {
     if (get().replayOn) return paperActions.closePosition(get, side, quantity, partial);
-    const { setOrderStatus, _refetchBal, _refetchPos, _refetchTpsl } = get();
+    const { setOrderStatus } = get();
     setOrderStatus(null);
     try {
       await api("POST", "/api/close", { side, quantity: String(quantity), partial });
       setOrderStatus({ type: "success", msg: partial ? "부분 청산 완료" : "포지션 청산 완료" });
-      setTimeout(() => { _refetchBal(); _refetchPos(); _refetchTpsl(); }, 1000);
+      refresh(get, { bal: true, pos: true, tpsl: true });
     } catch (e) {
       // ⚠ 실패에는 **사이드와 부분/전량을 함께** 적는다 (2026-08-25 사용자 요청).
       //   성공은 `부분 청산 완료`/`포지션 청산 완료`로 갈리는데 실패만 `청산 실패:`
