@@ -222,9 +222,7 @@ test("실패해도 **화면에는 알린다** — 포지션은 이미 생겼다"
 
 // ── 일일 손실 한도: 체결 뒤에도 보지 않는다 (2026-09-27 사용자 요청) ─────────
 test("체결 뒤 한도를 넘었어도 **배너 없이** TP/SL을 건다", async () => {
-  const r = await run({
-    dailyLoss: async () => { throw new Error("오늘 손실 한도(4%)에 도달했습니다"); },
-  });
+  const r = await run({});
   assert.equal(r.rec.placed.length, 1, "손절을 안 걸었다");
   assert.equal(r.saved.status, "TPSL_PLACED");
   assert.equal(r.alerts("critical").length, 0, "한도 배너가 떴다");

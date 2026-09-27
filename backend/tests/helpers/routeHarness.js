@@ -160,12 +160,6 @@ async function mountRoute(routeRel, opts = {}) {
       ...INERT_INCOME,
       logTradesFor: async (...a) => { rec.settles.push(a); },
     },
-    // 일일 손실 가드 — 기본은 통과. `opts.dailyLoss`가 던지면 그 에러가 그대로 간다
-    // (실제 checkDailyLoss는 한도 초과 시 status 403을 실어 던진다)
-    "routes/dailyloss.js": Object.assign(
-      require("express").Router(),
-      { checkDailyLoss: async () => { if (opts.dailyLoss) await opts.dailyLoss(); } },
-    ),
     "services/orderWatcher.js": {
       verifyImmediateFill: (...a) => { rec.verifies.push(a); },
       startUserDataStream: async () => { rec.udsStarts++; },

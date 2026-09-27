@@ -64,7 +64,7 @@ routes/
   scalein.js               POST/DELETE /api/scale-in (추가 진입)
   leverage.js              POST /api/leverage (1~125)
   stats.js                 GET  /api/stats?startTime=&endTime= (수수료·펀딩비·순손익)
-  dailyloss.js             GET  /api/daily-loss + checkDailyLoss() export
+  dailyloss.js             GET  /api/daily-loss (표시 전용 — 주문을 막지 않는다)
   health.js                GET  /api/health (서버 상태 + UDS·계정감시 상태)
   symbols.js               GET  /api/symbols (거래 가능 USDT 무기한 + 호가·수량 단위)
   tracker.js               GET/POST /api/tracker (월별 결산 페이지용)
@@ -589,7 +589,7 @@ SCALE_IN / SPLIT_TP   (체결·취소 시 store에서 제거)
   실거래(`POST /api/order`)도 연습(`paperActions.executeOrder`)도 한도를 보지 않는다.
   예전엔 `checkDailyLoss()`가 진입을 403으로 막았고, 지정가 체결 뒤 한도를 넘었으면
   `orderWatcher.onFilled`가 "수동 청산 검토 필요" 빨간 배너를 띄웠다. **둘 다 뺐다.**
-  ※ `checkDailyLoss()` 함수는 `routes/dailyloss.js`에 남아 있지만 지금 부르는 곳이 없다
+  `checkDailyLoss()` 함수도 지웠다 (`DAILY_LOSS_BLOCKED` 로그도 더는 없다)
 
 ### 글로벌 상태 (Zustand)
 - 4개 slice 조립 (`store/index.js`)

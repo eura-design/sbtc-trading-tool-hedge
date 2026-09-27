@@ -29,16 +29,12 @@ const orderCalls = (rec) => rec.calls.filter(c => c.path === "/fapi/v1/order");
 
 // ── 일일 손실 한도 ─────────────────────────────────────────────────────────
 test("일일 손실 한도를 넘어도 **주문을 막지 않는다** (2026-09-27 사용자 요청)", async () => {
-  // 한도는 사이드바가 보여주기만 한다. 라우트가 한도 확인을 다시 부르면 이 테스트가 깨진다
-  const h = await mountRoute("routes/order.js", {
-    binance: okOrder(),
-    dailyLoss: async () => {
-      const e = new Error("오늘 손실 한도(4%)에 도달했습니다"); e.status = 403; throw e;
-    },
-  });
+  // 한도는 사이드바가 보여주기만 한다 — 진입 경로가 손익(income)을 조회하면 한도 확인이 되살아난 것이다
+  const h = await mountRoute("routes/order.js", { binance: okOrder() });
   const r = await h.request("POST", "/", body({ leverage: 20 }));
   assert.equal(r.status, 200);
   assert.equal(orderCalls(h.rec).length, 1);
+  assert.equal(h.rec.calls.filter(c => c.path === "/fapi/v1/income").length, 0);
   await h.close();
 });
 
