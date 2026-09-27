@@ -379,11 +379,10 @@ export default function App() {
   const pivotLevels = usePivotLevels(indicatorParams.pivot, replayOn ? replayNowMs : null, symbol);
 
   // ── 주문 액션 ─────────────────────────────────────────────────────────────
-  // ⚠ `addSplitTp`/`addPartialSl`은 여기로 내려보내지 않는다 (2026-08-27) —
-  //   등록은 이제 **차트에서** 하고, `store/orderSlice.placeSplitOrders`가
-  //   스토어 안에서 직접 부른다. 사이드바 카드에는 취소만 남았다
-  const { deleteBox, closePosition, scaleIn, cancelScaleIn, cancelSplitTp,
-          cancelPartialSl } = useOrderFlow();
+  // ⚠ 사이드바에는 **내려보내지 않는다** (2026-09-27). 사이드바가 스토어에서 직접 꺼낸다 —
+  //   예전엔 여기서 여섯 개를 받아 props로 넘겼는데, 사이드바는 다른 값은 스토어에서
+  //   꺼내고 있어서 **같은 기능을 두 길로** 받고 있었다. 여기서는 단축키용 하나만 쓴다
+  const { deleteBox } = useOrderFlow();
 
   // ── 단축키 설정 ─────────────────────────────────────────────────────────
   const { shortcuts, updateShortcut, resetShortcuts } = useShortcutSettings();
@@ -670,12 +669,6 @@ export default function App() {
       <div style={{ width: sidebarOpen ? "272px" : "0px", overflow: "hidden", flexShrink: 0, transition: "width 0.2s ease" }}>
         <SidebarPanel
           lastPrice={last?.c}
-          onCancelOrder={deleteBox}
-          onClosePosition={closePosition}
-          onScaleIn={scaleIn}
-          onCancelScaleIn={cancelScaleIn}
-          onCancelSplitTp={cancelSplitTp}
-          onCancelPartialSl={cancelPartialSl}
           onDrawModeToggle={() => {
             setOrderPick(null);
             trendLines.cancelDraw(); trendLines.cancelChannelDraw(); trendLines.cancelCircleDraw();

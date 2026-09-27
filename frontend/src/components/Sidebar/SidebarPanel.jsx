@@ -24,9 +24,12 @@ import { computePaperDailyLoss } from "../../replay/dailyLoss";
 import { CONFIRM_ROW, primaryBtn, ghostBtn, actionBtn, SECTION_HEADER, headerArrow, sectionBox } from "../sidebarBtn";
 
 
-export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
-  onScaleIn, onCancelScaleIn, onCancelSplitTp,
-  onCancelPartialSl, onDrawModeToggle }) {
+// ⚠ 주문 기능은 **스토어에서 직접** 꺼낸다 (2026-09-27). 예전엔 App이 여섯 개를 props로
+//   넘겼는데, 여기서는 나머지 값을 전부 스토어에서 꺼내고 있어서 같은 기능을 두 길로
+//   받았다. props로 남은 둘은 App만 줄 수 있는 것이다: `lastPrice`(캔들 종가 —
+//   `useCandles`가 App에 있다), `onDrawModeToggle`(다른 그리기 도구를 끄는 일 — 그 도구들의
+//   훅이 App에 있다)
+export function SidebarPanel({ lastPrice, onDrawModeToggle }) {
   const { theme } = useTheme();
   const { online, exchangeDown } = useHealth();
 
@@ -37,6 +40,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     drawMode, drawings, orderStatus, setOrderStatus,
     liveClose, liveCloseSymbol, executeOrder, replayOn, paperBroker, replayNowMs,
     symbol, setSymbol, acctPositions,
+    deleteBox, closePosition, scaleIn, cancelScaleIn, cancelSplitTp, cancelPartialSl,
   } = useStore(useShallow(s => ({
     balance: s.balance, balError: s.balError,
     position: s.position, tpsl: s.tpsl, tpslSaving: s.tpslSaving,
@@ -47,6 +51,8 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
     liveClose: s.liveClose, liveCloseSymbol: s.liveCloseSymbol, executeOrder: s.executeOrder,
     replayOn: s.replayOn, paperBroker: s.paperBroker, replayNowMs: s.replayNowMs,
     symbol: s.symbol, setSymbol: s.setSymbol, acctPositions: s.acctPositions,
+    deleteBox: s.deleteBox, closePosition: s.closePosition, scaleIn: s.scaleIn,
+    cancelScaleIn: s.cancelScaleIn, cancelSplitTp: s.cancelSplitTp, cancelPartialSl: s.cancelPartialSl,
   })));
 
   // ⚠ 스토어 구독 **뒤에** 와야 한다 — replayOn 등을 쓰므로 위로 올리면 TDZ 오류로
@@ -407,22 +413,22 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
           symbol={symbol}
           posData={position?.long} side="LONG"
           tpsl={tpsl.long ?? { tp: null, sl: null, splitTps: [] }}
-          tpslSaving={tpslSaving} onClose={onClosePosition} lastPrice={effectiveLastPrice}
+          tpslSaving={tpslSaving} onClose={closePosition} lastPrice={effectiveLastPrice}
           scaleInOrders={position?.scaleInOrders?.filter(o => o.side === "BUY")}
-          onScaleIn={onScaleIn} onCancelScaleIn={onCancelScaleIn}
-          onCancelSplitTp={onCancelSplitTp}
-          onCancelPartialSl={onCancelPartialSl}
+          onScaleIn={scaleIn} onCancelScaleIn={cancelScaleIn}
+          onCancelSplitTp={cancelSplitTp}
+          onCancelPartialSl={cancelPartialSl}
         />
         <PositionCard
           key={`live_SHORT_${symbol}`}
           symbol={symbol}
           posData={position?.short} side="SHORT"
           tpsl={tpsl.short ?? { tp: null, sl: null, splitTps: [] }}
-          tpslSaving={tpslSaving} onClose={onClosePosition} lastPrice={effectiveLastPrice}
+          tpslSaving={tpslSaving} onClose={closePosition} lastPrice={effectiveLastPrice}
           scaleInOrders={position?.scaleInOrders?.filter(o => o.side === "SELL")}
-          onScaleIn={onScaleIn} onCancelScaleIn={onCancelScaleIn}
-          onCancelSplitTp={onCancelSplitTp}
-          onCancelPartialSl={onCancelPartialSl}
+          onScaleIn={scaleIn} onCancelScaleIn={cancelScaleIn}
+          onCancelSplitTp={cancelSplitTp}
+          onCancelPartialSl={cancelPartialSl}
         />
 
         {/* ── 다른 코인의 포지션 (하늘색, 읽기 전용) ─────────────────────────
@@ -455,7 +461,7 @@ export function SidebarPanel({ lastPrice, onCancelOrder, onClosePosition,
             hasPending={pend}
             onConfirm={(orderType, qtyMode) => executeOrder(orderType, isLong, qtyMode)}
             minEntry={minEntryFor(box)}
-            onCancel={() => onCancelOrder(isLongToPosition(isLong))}
+            onCancel={() => deleteBox(isLongToPosition(isLong))}
           />
         ))}
         {/* ⚠ **박스 없는 미체결 주문 카드(OrphanPendingCard)는 제거됐다** (2026-08-23 사용자 요청).
